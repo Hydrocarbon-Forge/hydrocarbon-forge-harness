@@ -234,7 +234,7 @@ Task specs are **materialized** into the worktree at `.substrate-task/TASK.md` (
 
 ## 8. Workspace, git and merge semantics
 
-- **Branches:** run branch `substrate/<run_id>` from `base_ref`; task branch `substrate/<run_id>/<task_id>-g<n>`; worktrees under `.substrate/worktrees/` (added to `.git/info/exclude`). Worktrees share one object database and have separate index locks `[verified]`.
+- **Branches:** run branch `substrate/runs/<run_id>` from `base_ref`; task branch `substrate/tasks/<run_id>/<task_id>-g<n>`; worktrees under `.substrate/worktrees/` (added to `.git/info/exclude`). Worktrees share one object database and have separate index locks `[verified]`.
 - **Contract commit:** the engine applies the Planner's stub files to the run branch and commits them before the first worker spawns, after the contract typecheck passes.
 - **Setup:** `manifest.setup` commands (dependency install, codegen) run by the engine with network access **inside each task's worktree** before its worker starts: untracked files such as `node_modules` do not appear in new worktrees `[verified locally 2026-10-16]`, and nothing may be shared between concurrent workers (a warm package cache keeps this fast). Workers run with network denied by default (§10).
 - **Workers never commit.** After a session ends the engine (a) computes changed/untracked paths against the `write`/`create` globs; (b) reverts out-of-scope changes and logs `scope_violation` (policy `git.on_scope_violation: revert|fail`, default `revert`, so verification still decides); (c) checks `protected` files are byte-identical (hash before/after; otherwise `protected_modified`, always a failure); (d) verifies; (e) commits explicitly with a pathspec of the allowed set.
