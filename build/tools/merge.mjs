@@ -50,7 +50,17 @@ function wtMerge(root, wp) {
 
 function runGate(root) {
   // `npm run typecheck && npm test`, first 40 lines kept on failure.
+  // Install first: the merged tree may carry a package.json whose deps were
+  // never installed in main (worktrees each get their own `npm ci`).
   const chunks = [];
+  if (fs.existsSync(path.join(root, "package.json")) && !fs.existsSync(path.join(root, "node_modules"))) {
+    const installer = fs.existsSync(path.join(root, "package-lock.json")) ? ["ci"] : ["install", "--no-audit", "--no-fund"];
+    const r = spawnSync("npm", installer, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+    chunks.push(`$ npm ${installer.join(" ")}\n${r.stdout || ""}${r.stderr || ""}`);
+    if (r.status !== 0) {
+      return { ok: false, log: chunks.join("\n").split("\n").slice(-40).join("\n") };
+    }
+  }
   for (const args of [["run", "typecheck"], ["test"]]) {
     const r = spawnSync("npm", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
     chunks.push(`$ npm ${args.join(" ")}\n${r.stdout || ""}${r.stderr || ""}`);
