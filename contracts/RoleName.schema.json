@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RoleName",
+  "type": "string",
+  "enum": [
+    "governor",
+    "planner",
+    "worker",
+    "test-writer",
+    "reviewer"
+  ]
+}

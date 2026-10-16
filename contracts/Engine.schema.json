@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Engine",
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "object"
+    },
+    "resume": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "run",
+    "resume"
+  ]
+}

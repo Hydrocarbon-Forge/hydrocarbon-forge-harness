@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Diagnostic",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "error",
+        "warn",
+        "info",
+        "gate"
+      ]
+    },
+    "task": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{0,31}$"
+    },
+    "message": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "severity",
+    "message"
+  ],
+  "additionalProperties": false
+}

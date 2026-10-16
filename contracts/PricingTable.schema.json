@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PricingTable",
+  "type": "object",
+  "properties": {
+    "asOf": {
+      "type": "string"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "input_per_mtok": {
+            "type": "number"
+          },
+          "output_per_mtok": {
+            "type": "number"
+          },
+          "cache_read_per_mtok": {
+            "type": "number"
+          },
+          "cache_write_per_mtok": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "input_per_mtok",
+          "output_per_mtok"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "asOf",
+    "sources",
+    "models"
+  ],
+  "additionalProperties": false
+}

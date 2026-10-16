@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifest",
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[A-Z2-7]{12}$"
+    },
+    "goal": {
+      "type": "string"
+    },
+    "base_ref": {
+      "type": "string"
+    },
+    "ecosystem": {
+      "type": "string",
+      "enum": [
+        "node-ts",
+        "python",
+        "rust",
+        "go",
+        "other"
+      ]
+    },
+    "setup": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "timeout_s": {
+            "type": "number"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "run",
+          "timeout_s"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "typecheck": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "run": {
+                "type": "string"
+              },
+              "cwd": {
+                "type": "string"
+              },
+              "timeout_s": {
+                "type": "number"
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "run",
+              "timeout_s"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "files",
+        "typecheck"
+      ],
+      "additionalProperties": false
+    },
+    "integration_verify": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "timeout_s": {
+            "type": "number"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "run",
+          "timeout_s"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_-]{0,31}$"
+          },
+          "spec": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "spec"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_usd": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "max_wall_min": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "version",
+    "run_id",
+    "goal",
+    "base_ref",
+    "setup",
+    "contracts",
+    "integration_verify",
+    "tasks"
+  ],
+  "additionalProperties": false
+}

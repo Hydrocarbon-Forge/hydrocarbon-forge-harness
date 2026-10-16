@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunSummary",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^r_[A-Z2-7]{12}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "finished",
+        "failed",
+        "paused",
+        "cancelled"
+      ]
+    },
+    "pause_reason": {
+      "type": "string",
+      "enum": [
+        "needs_approval",
+        "permission_denied",
+        "budget_exhausted",
+        "rate_limited",
+        "user_cancel",
+        "needs_human",
+        "backend_unavailable"
+      ]
+    },
+    "tasks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "number"
+          },
+          "failure_class": {
+            "type": "string",
+            "enum": [
+              "verify_failed",
+              "scope_violation",
+              "protected_modified",
+              "budget_exceeded",
+              "timeout",
+              "worker_crashed",
+              "permission_denied",
+              "rate_limited",
+              "merge_conflict",
+              "integration_failed",
+              "spec_invalid"
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "generation"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "total_usd": {
+          "type": "number"
+        },
+        "by_role": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "total_usd",
+        "by_role"
+      ],
+      "additionalProperties": false
+    },
+    "branch": {
+      "type": "string"
+    },
+    "exit_code": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "tasks",
+    "usage",
+    "branch",
+    "exit_code"
+  ],
+  "additionalProperties": false
+}

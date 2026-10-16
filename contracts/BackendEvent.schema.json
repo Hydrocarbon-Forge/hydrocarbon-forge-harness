@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BackendEvent",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.started"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "session_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "assistant.text"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.call"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "input_summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "name",
+        "input_summary"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.result"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "output_summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "ok",
+        "output_summary"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "permission.denied"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "tool"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "usage"
+        },
+        "record": {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "opencode",
+                "agy",
+                "fake"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "input_tokens": {
+              "type": "number"
+            },
+            "output_tokens": {
+              "type": "number"
+            },
+            "cache_read_tokens": {
+              "type": "number"
+            },
+            "cache_write_tokens": {
+              "type": "number"
+            },
+            "reasoning_tokens": {
+              "type": "number"
+            },
+            "cost_usd": {
+              "type": "number"
+            },
+            "cost_source": {
+              "type": "string",
+              "enum": [
+                "reported",
+                "computed"
+              ]
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "backend",
+            "model",
+            "input_tokens",
+            "output_tokens",
+            "cost_usd",
+            "cost_source",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        "cumulative": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "record",
+        "cumulative"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "subagent"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "raw": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "rate_limit",
+            "auth",
+            "crash",
+            "timeout",
+            "protocol"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.result"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "stop_reason": {
+          "type": "string"
+        },
+        "final_text": {
+          "type": "string"
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "opencode",
+                "agy",
+                "fake"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "input_tokens": {
+              "type": "number"
+            },
+            "output_tokens": {
+              "type": "number"
+            },
+            "cache_read_tokens": {
+              "type": "number"
+            },
+            "cache_write_tokens": {
+              "type": "number"
+            },
+            "reasoning_tokens": {
+              "type": "number"
+            },
+            "cost_usd": {
+              "type": "number"
+            },
+            "cost_source": {
+              "type": "string",
+              "enum": [
+                "reported",
+                "computed"
+              ]
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "backend",
+            "model",
+            "input_tokens",
+            "output_tokens",
+            "cost_usd",
+            "cost_source",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "structured_output": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "ok",
+        "final_text",
+        "exit_code"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

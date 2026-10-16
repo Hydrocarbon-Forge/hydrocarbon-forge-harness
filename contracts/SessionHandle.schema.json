@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionHandle",
+  "type": "object",
+  "properties": {
+    "pid": {
+      "type": "number"
+    },
+    "events": {
+      "type": "object"
+    },
+    "result": {
+      "type": "object"
+    },
+    "kill": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "pid",
+    "events",
+    "result",
+    "kill"
+  ]
+}

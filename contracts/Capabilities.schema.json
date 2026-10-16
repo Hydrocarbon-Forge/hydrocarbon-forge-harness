@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Capabilities",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "opencode",
+        "agy",
+        "fake"
+      ]
+    },
+    "version_pin": {
+      "type": "string"
+    },
+    "effort": {
+      "type": "boolean"
+    },
+    "structured_output": {
+      "type": "boolean"
+    },
+    "budget_flag": {
+      "type": "boolean"
+    },
+    "cost_reported": {
+      "type": "boolean"
+    },
+    "resume": {
+      "type": "boolean"
+    },
+    "permission_denial_signal": {
+      "type": "string",
+      "enum": [
+        "event",
+        "stderr",
+        "none"
+      ]
+    },
+    "sandbox_flag": {
+      "type": "boolean"
+    },
+    "native_subagents_headless": {
+      "type": "boolean"
+    },
+    "max_concurrency": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "name",
+    "version_pin",
+    "effort",
+    "structured_output",
+    "budget_flag",
+    "cost_reported",
+    "resume",
+    "permission_denial_signal",
+    "sandbox_flag",
+    "native_subagents_headless"
+  ],
+  "additionalProperties": false
+}

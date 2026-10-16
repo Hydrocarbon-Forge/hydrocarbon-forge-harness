@@ -1,0 +1,268 @@
+import { describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+import * as Contracts from "../../../src/contracts/index.js";
+import {
+  applyOverlay,
+  loadSettings,
+  mergeSettings,
+  parseJsonc,
+} from "../../../src/config/index.js";
+
+function tmp(): string {
+  return mkdtempSync(join(tmpdir(), "substrate-cfg-"));
+}
+
+function writeSettingsFile(dir: string, rel: string, body: string): string {
+  const full = join(dir, rel);
+  mkdirSync(join(full, ".."), { recursive: true });
+  writeFileSync(full, body);
+  return full;
+}
+
+const MINIMAL_FILE_SETTINGS = {
+  backends: {},
+  roles: { planner: { backend: "claude", model: "m" } },
+  routing: { feature: { backend: "claude", model: "m" } },
+  pricing: { asOf: "2026-10-16", sources: ["https://example.com"], models: {} },
+  budgets: {
+    run: {},
+    task: {},
+    l1_replans_per_task: 2,
+    l2_per_run: 2,
+    planner_format_retries: 2,
+    approval_threshold_usd: 2,
+  },
+  concurrency: { workers: 3 },
+  permissions: { allow: [], deny: [] },
+  sandbox: { enabled: true, network: "deny" },
+  git: { on_scope_violation: "revert", branch_prefix: "substrate/", auto_merge: false },
+  instructions: { workers: "none" },
+  execution: { strategy: "direct" },
+};
+
+function settingsValidates(value: unknown): boolean {
+  const Settings = (
+    Contracts as unknown as Record<string, { safeParse: (v: unknown) => { success: boolean } }>
+  ).Settings;
+  return Settings.safeParse(value).success;
+}
+
+describe("config JSONC tolerance", () => {
+  it("parses comments and trailing commas", () => {
+    const parsed = parseJsonc(
+      `{
+        // user comment
+        "a": 1, /* block comment */
+        "b": [1, 2,],
+      }`,
+      "settings.json",
+    ) as Record<string, unknown>;
+    expect(parsed).toEqual({ a: 1, b: [1, 2] });
+  });
+
+  it("parses strict JSON as-is", () => {
+    expect(parseJsonc(`{"a":1}`, "settings.json")).toEqual({ a: 1 });
+  });
+
+  it("malformed JSONC errors naming file and position, not a silent default", () => {
+    let message = "";
+    try {
+      parseJsonc(`{"a": }`, "my-settings.json");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain("my-settings.json");
+    expect(message.length).toBeGreaterThan("my-settings.json".length);
+  });
+});
+
+describe("config merge: objects merge, scalars and arrays replace", () => {
+  it("higher layer wins; objects merge key-wise", () => {
+    const merged = mergeSettings(
+      { concurrency: { workers: 1 }, sandbox: { enabled: false, network: "allow" } },
+      { concurrency: { workers: 5 } },
+    ) as Record<string, Record<string, unknown>>;
+    expect(merged["concurrency"]).toEqual({ workers: 5 });
+    expect(merged["sandbox"]).toEqual({ enabled: false, network: "allow" });
+  });
+
+  it("scalars and arrays replace instead of concatenating", () => {
+    const merged = mergeSettings(
+      { permissions: { allow: ["A"], deny: ["B"] } },
+      { permissions: { allow: ["C"], deny: ["D"] } },
+    ) as Record<string, Record<string, unknown[]>>;
+    expect(merged["permissions"]["allow"]).toEqual(["C"]);
+    expect(merged["permissions"]["deny"]).toEqual(["D"]);
+  });
+
+  it("skips undefined layers", () => {
+    expect(mergeSettings(undefined, { a: 1 })).toEqual({ a: 1 });
+  });
+});
+
+describe("config loading: precedence and defaults", () => {
+  it("missing files resolve to defaults that validate against Settings", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    const settings = await loadSettings({ projectDir, userConfigDir: userDir });
+    expect(settingsValidates(settings)).toBe(true);
+  });
+
+  it("empty settings file uses defaults without throwing", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(projectDir, ".substrate/settings.json", `{}`);
+    const settings = await loadSettings({ projectDir, userConfigDir: userDir });
+    expect(settingsValidates(settings)).toBe(true);
+  });
+
+  it("malformed settings file errors instead of silently defaulting", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    const file = writeSettingsFile(projectDir, ".substrate/settings.json", `{"a": }`);
+    await expect(loadSettings({ projectDir, userConfigDir: userDir })).rejects.toThrow();
+    try {
+      await loadSettings({ projectDir, userConfigDir: userDir });
+    } catch (err) {
+      expect((err as Error).message).toContain(file.split("/").slice(-1)[0]);
+    }
+  });
+
+  it("unknown settings keys error rather than being ignored", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.json",
+      JSON.stringify({ ...MINIMAL_FILE_SETTINGS, typoKey: 1 }),
+    );
+    await expect(loadSettings({ projectDir, userConfigDir: userDir })).rejects.toThrow(/typoKey/);
+  });
+
+  it("precedence: project < local < --settings < flags, higher wins", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.json",
+      JSON.stringify({ ...MINIMAL_FILE_SETTINGS, concurrency: { workers: 1 } }),
+    );
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.local.json",
+      JSON.stringify({ concurrency: { workers: 2 } }),
+    );
+    const cliFile = writeSettingsFile(tmp(), "cli.json", JSON.stringify({ concurrency: { workers: 4 } }));
+
+    const fromLocal = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+      concurrency: { workers: number };
+    };
+    expect(fromLocal.concurrency.workers).toBe(2);
+
+    const fromCli = (await loadSettings({
+      projectDir,
+      userConfigDir: userDir,
+      settingsFile: cliFile,
+    })) as { concurrency: { workers: number } };
+    expect(fromCli.concurrency.workers).toBe(4);
+
+    const fromFlags = (await loadSettings({
+      projectDir,
+      userConfigDir: userDir,
+      settingsFile: cliFile,
+      flags: { concurrency: { workers: 7 } },
+    })) as { concurrency: { workers: number } };
+    expect(fromFlags.concurrency.workers).toBe(7);
+  });
+
+  it("user layer loses to project layer", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(userDir, "settings.json", JSON.stringify({ concurrency: { workers: 9 } }));
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.json",
+      JSON.stringify({ ...MINIMAL_FILE_SETTINGS, concurrency: { workers: 1 } }),
+    );
+    const settings = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+      concurrency: { workers: number };
+    };
+    expect(settings.concurrency.workers).toBe(1);
+    rmSync(userDir, { recursive: true, force: true });
+  });
+});
+
+describe("config overlay: env and flag values validate against Settings", () => {
+  it("valid flag overlay replaces file value", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.json",
+      JSON.stringify(MINIMAL_FILE_SETTINGS),
+    );
+    const settings = (await loadSettings({
+      projectDir,
+      userConfigDir: userDir,
+      flags: { concurrency: { workers: 7 } },
+    })) as { concurrency: { workers: number } };
+    expect(settings.concurrency.workers).toBe(7);
+    expect(settingsValidates(settings)).toBe(true);
+  });
+
+  it("invalid overlay is rejected, file value is left otherwise", () => {
+    expect(() =>
+      applyOverlay(MINIMAL_FILE_SETTINGS as never, { concurrency: { workers: "many" } } as never),
+    ).toThrow();
+    const kept = applyOverlay(
+      MINIMAL_FILE_SETTINGS as never,
+      { concurrency: { workers: 7 } } as never,
+    ) as { concurrency: { workers: number } };
+    expect(kept.concurrency.workers).toBe(7);
+  });
+});
+
+describe("config edge cases from the spec", () => {
+  it("routing.escalation survives load/merge without route validation", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.json",
+      JSON.stringify({
+        ...MINIMAL_FILE_SETTINGS,
+        routing: {
+          feature: { backend: "claude", model: "m" },
+          escalation: ["haiku", "sonnet", "opus"],
+        },
+      }),
+    );
+    const settings = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+      routing: Record<string, unknown>;
+    };
+    expect(settings.routing["escalation"]).toEqual(["haiku", "sonnet", "opus"]);
+    expect(settingsValidates(settings)).toBe(true);
+  });
+
+  it("empty pricing.models is valid; asOf/sources/models stay required", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.json",
+      JSON.stringify({
+        ...MINIMAL_FILE_SETTINGS,
+        pricing: { asOf: "2026-10-16", sources: ["https://example.com"], models: {} },
+      }),
+    );
+    const settings = await loadSettings({ projectDir, userConfigDir: userDir });
+    expect(settingsValidates(settings)).toBe(true);
+
+    expect(() =>
+      applyOverlay(MINIMAL_FILE_SETTINGS as never, { pricing: { sources: ["u"], models: {} } } as never),
+    ).toThrow();
+  });
+});

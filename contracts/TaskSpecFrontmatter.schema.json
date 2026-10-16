@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskSpecFrontmatter",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_-]{0,31}$"
+    },
+    "title": {
+      "type": "string"
+    },
+    "class": {
+      "type": "string"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Za-z0-9_-]{0,31}$"
+      }
+    },
+    "read": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "write": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "create": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "protected": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verify": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "timeout_s": {
+            "type": "number"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "run",
+          "timeout_s"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "effort": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_usd": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "timeout_min": {
+          "type": "number"
+        },
+        "max_turns": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "class",
+    "depends_on",
+    "read",
+    "write",
+    "create",
+    "protected",
+    "verify"
+  ],
+  "additionalProperties": false
+}

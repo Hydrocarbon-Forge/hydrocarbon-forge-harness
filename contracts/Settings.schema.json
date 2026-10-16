@@ -1,0 +1,456 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Settings",
+  "type": "object",
+  "properties": {
+    "backends": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "bin": {
+            "type": "string"
+          },
+          "version_pin": {
+            "type": "string"
+          },
+          "max_concurrency": {
+            "type": "number"
+          },
+          "extra": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "roles": {
+      "type": "object",
+      "properties": {
+        "planner": {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "opencode",
+                "agy",
+                "fake"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "effort": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          },
+          "required": [
+            "backend",
+            "model"
+          ],
+          "additionalProperties": false
+        },
+        "reviewer": {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "opencode",
+                "agy",
+                "fake"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "effort": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "backend",
+            "model",
+            "enabled"
+          ],
+          "additionalProperties": false
+        },
+        "governor": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "endpoint": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "enable_thinking": {
+              "type": "boolean"
+            },
+            "timeout_s": {
+              "type": "number"
+            },
+            "max_clarifying_turns": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "enabled",
+            "endpoint",
+            "enable_thinking",
+            "timeout_s"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "planner"
+      ],
+      "additionalProperties": false
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "backend": {
+                "type": "string",
+                "enum": [
+                  "claude",
+                  "opencode",
+                  "agy",
+                  "fake"
+                ]
+              },
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              "budget": {
+                "type": "object",
+                "properties": {
+                  "max_usd": {
+                    "type": "number"
+                  },
+                  "max_tokens": {
+                    "type": "number"
+                  },
+                  "timeout_min": {
+                    "type": "number"
+                  },
+                  "max_turns": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "backend",
+              "model"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "properties": {
+        "asOf": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "input_per_mtok": {
+                "type": "number"
+              },
+              "output_per_mtok": {
+                "type": "number"
+              },
+              "cache_read_per_mtok": {
+                "type": "number"
+              },
+              "cache_write_per_mtok": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "input_per_mtok",
+              "output_per_mtok"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "asOf",
+        "sources",
+        "models"
+      ],
+      "additionalProperties": false
+    },
+    "budgets": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "object",
+          "properties": {
+            "max_usd": {
+              "type": "number"
+            },
+            "max_tokens": {
+              "type": "number"
+            },
+            "max_wall_min": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "task": {
+          "type": "object",
+          "properties": {
+            "max_usd": {
+              "type": "number"
+            },
+            "max_tokens": {
+              "type": "number"
+            },
+            "timeout_min": {
+              "type": "number"
+            },
+            "max_turns": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "l1_replans_per_task": {
+          "type": "number"
+        },
+        "l2_per_run": {
+          "type": "number"
+        },
+        "planner_format_retries": {
+          "type": "number"
+        },
+        "approval_threshold_usd": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "run",
+        "task",
+        "l1_replans_per_task",
+        "l2_per_run",
+        "planner_format_retries",
+        "approval_threshold_usd"
+      ],
+      "additionalProperties": false
+    },
+    "concurrency": {
+      "type": "object",
+      "properties": {
+        "workers": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "workers"
+      ],
+      "additionalProperties": false
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ask": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "allow",
+        "deny"
+      ],
+      "additionalProperties": false
+    },
+    "sandbox": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "network": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "allow"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "network"
+      ],
+      "additionalProperties": false
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "on_scope_violation": {
+          "type": "string",
+          "enum": [
+            "revert",
+            "fail"
+          ]
+        },
+        "branch_prefix": {
+          "type": "string"
+        },
+        "auto_merge": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "on_scope_violation",
+        "branch_prefix",
+        "auto_merge"
+      ],
+      "additionalProperties": false
+    },
+    "instructions": {
+      "type": "object",
+      "properties": {
+        "workers": {
+          "type": "string",
+          "enum": [
+            "none",
+            "project"
+          ]
+        }
+      },
+      "required": [
+        "workers"
+      ],
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "dispatcher"
+          ]
+        }
+      },
+      "required": [
+        "strategy"
+      ],
+      "additionalProperties": false
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "timeout_s": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "required": [
+    "backends",
+    "roles",
+    "routing",
+    "pricing",
+    "budgets",
+    "concurrency",
+    "permissions",
+    "sandbox",
+    "git",
+    "instructions",
+    "execution"
+  ],
+  "additionalProperties": false
+}

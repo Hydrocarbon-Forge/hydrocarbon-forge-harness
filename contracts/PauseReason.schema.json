@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PauseReason",
+  "type": "string",
+  "enum": [
+    "needs_approval",
+    "permission_denied",
+    "budget_exhausted",
+    "rate_limited",
+    "user_cancel",
+    "needs_human",
+    "backend_unavailable"
+  ]
+}

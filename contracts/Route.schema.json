@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Route",
+  "type": "object",
+  "properties": {
+    "backend": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "opencode",
+        "agy",
+        "fake"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "effort": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    }
+  },
+  "required": [
+    "backend",
+    "model"
+  ],
+  "additionalProperties": false
+}
