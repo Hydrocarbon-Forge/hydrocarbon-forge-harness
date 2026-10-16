@@ -1,10 +1,10 @@
 ---
 name: substrate-worker-m
-description: Build worker for a medium work package (60 turns). Used only by the Substrate Build Orchestrator; never delegate to it automatically.
+description: Build worker for a medium work package (100 turns). Used only by the Substrate Build Orchestrator; never delegate to it automatically.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: haiku
 effort: medium
-maxTurns: 60
+maxTurns: 100
 permissionMode: dontAsk
 omitClaudeMd: true
 ---

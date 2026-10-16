@@ -46,7 +46,7 @@ Each invariant names its enforcement mechanism. An invariant enforced only by pr
 | I9 | **Parallel only when disjoint.** Concurrency requires dependency-ready tasks with non-overlapping write/create sets; otherwise the engine serializes. | Scheduler + linter L008 |
 | I10 | **Familiar surface.** Flags, files, formats and keybindings follow the three harnesses wherever they agree (§4). | Copy table (§4.1) |
 | I11 | **No trust in exit codes.** Success is read from structured results; denials and silent failures are detected per backend. | Adapter obligations (§11.1) |
-| I12 | **No credential handling.** Substrate only invokes the official CLIs the user is already logged into and never reads, copies or logs their tokens. | Env allowlist; redaction; code review gate (P6.4) |
+| I12 | **No credential handling.** Substrate only invokes the official CLIs the user is already logged into and never reads, copies or logs their tokens. | Env allowlist; redaction; code review gate (P6.2) |
 
 ---
 
@@ -156,7 +156,7 @@ A **session** record (`.substrate/sessions/<session_id>.json`) lists its runs, p
 - Exit codes: `0` success · `1` run failed · `2` usage/config error · `3` needs human (approval in `dontAsk`, permission denial, escalation L3) · `4` budget exhausted · `130` SIGINT · `143` SIGTERM.
 
 ### 4.7 Interactive UX (v0.3)
-Slash commands: `/help /mode /plan /run /status /tasks /cost /models /agents /permissions /config /resume /sessions /undo /doctor /init /clear /exit /hooks`. Keybindings follow Claude Code conventions: `Enter` submit · `Esc` graceful interrupt (engine pauses the run) · `Shift+Tab` cycle permission mode · `Ctrl+C` ×2 exit · `Ctrl+T` toggle task board · `Ctrl+O` verbose feed · `@` file mention · `!` shell passthrough. *These keybindings are from memory, not research; spike S5 (P0.6) verifies them before P5.6.* Status line: model/tier · run state · tasks done/total · cost vs cap. Approval dialogs for plan, cost and merge gates; session picker for `/resume`.
+Slash commands: `/help /mode /plan /run /status /tasks /cost /models /agents /permissions /config /resume /sessions /undo /doctor /init /clear /exit /hooks`. Keybindings follow Claude Code conventions: `Enter` submit · `Esc` graceful interrupt (engine pauses the run) · `Shift+Tab` cycle permission mode · `Ctrl+C` ×2 exit · `Ctrl+T` toggle task board · `Ctrl+O` verbose feed · `@` file mention · `!` shell passthrough. *These keybindings are from memory, not research; spike S5 (P0.6) verifies them before P5.3.* Status line: model/tier · run state · tasks done/total · cost vs cap. Approval dialogs for plan, cost and merge gates; session picker for `/resume`.
 
 ### 4.8 Hooks (v0.3)
 Events: `PreRun`, `PostPlan` (may block), `PreTask`, `PostTask`, `PreMerge` (may block), `PostMerge`, `RunFinished`, `Notification`. Command hooks receive JSON on stdin; exit `0` = continue, `2` = block (stderr fed back). Same contract shape as Claude Code hooks.
@@ -294,7 +294,7 @@ Deterministic checks (App. C, `L001–L027`) run in code over `manifest.yaml`, t
 ## 13. Observability and evaluation
 
 - **Ledger:** every `UsageRecord` is stored with `{run, task, role, backend, model, class, generation, attempt}`. `substrate cost` and `report` show: cost by role/tier/class, first-pass verify rate, heal rate, replans per task, escalations, scope violations, denials, wall-clock, human interventions.
-- **Benchmark harness (P6.2/P6.3):** 6–10 tasks drawn from the user's own repos (user nominates). Arms: **A** one top-tier session (`--mode solo --model <top>`), **B** one cheap-tier session, **C** Substrate `plan` with default routing, **D** Substrate with local-model workers for `mechanical|boilerplate`. Same budget cap per arm, three repetitions where affordable.
+- **Benchmark harness (P6.3):** 6–10 tasks drawn from the user's own repos (user nominates). Arms: **A** one top-tier session (`--mode solo --model <top>`), **B** one cheap-tier session, **C** Substrate `plan` with default routing, **D** Substrate with local-model workers for `mechanical|boilerplate`. Same budget cap per arm, three repetitions where affordable.
 - **Hypotheses (to test, not assumptions):** H1 — arm C matches arm A's pass rate on ≥70 % of tasks at lower cost; H2 — Substrate's first-pass verify rate beats arm B; H3 — arm D's pass rate on mechanical/boilerplate is within 10 points of arm C at near-zero marginal cost. Anthropic's +90 % multi-agent figure is a research-eval result and is *not* evidence for coding.
 
 ---
@@ -304,9 +304,9 @@ Deterministic checks (App. C, `L001–L027`) run in code over `manifest.yaml`, t
 1. **Unit/property tests** for pure modules (reducer, scheduler, DAG layering, linter, cap helpers, permission-rule parser) — written first by a test-writer (§16 "TF").
 2. **Golden tests** for normalizers using *real captured* backend output in `test/fixtures/backends/<name>/` (captured in the spikes).
 3. **Fake harness** (`test/fixtures/fake-harness/`): a deterministic binary that emulates each backend's dialect and scenario flags (success, edit files, verify-fail-then-fix, hang, crash, soft-deny, budget overshoot, rate limit, resume). No integration test calls a real model.
-4. **Adapter conformance suite** (P3.4): the same battery runs against `fake` always and against each real backend only with `SUBSTRATE_LIVE=1` and a cost cap.
-5. **Scenario suite** (P4.6; scenario 11 lives in P6.1 instead), each against throwaway git repos: (1) all-pass batch; (2) fail → heal → pass; (3) double fail → packet → L1 replan on higher tier → pass; (4) scope violation reverted; (5) protected file modified; (6) permission denial → pause (exit 3); (7) budget kill; (8) timeout kills the whole process group; (9) merge conflict → L1; (10) integration failure → bisect culprit; (11) crash and resume at *every* event boundary (P6.1); (12) rate-limit backoff; (13) planner format retry then success/fail; (14) L2 amendment invalidates dependents; (15) governor down → deterministic fallback; (16) `solo` mode.
-6. **Live smoke** (P6.0): one trivial task per available backend, cheapest model, `max_usd 0.10`.
+4. **Adapter conformance suite** (P3.1; every adapter's tests import it): the same battery runs against `fake` always and against each real backend only with `SUBSTRATE_LIVE=1` and a cost cap.
+5. **Scenario suite** (P4.3, written first; scenario 11 lives in P6.1 instead), each against throwaway git repos: (1) all-pass batch; (2) fail → heal → pass; (3) double fail → packet → L1 replan on higher tier → pass; (4) scope violation reverted; (5) protected file modified; (6) permission denial → pause (exit 3); (7) budget kill; (8) timeout kills the whole process group; (9) merge conflict → L1; (10) integration failure → bisect culprit; (11) crash and resume at *every* event boundary (P6.1); (12) rate-limit backoff; (13) planner format retry then success/fail; (14) L2 amendment invalidates dependents; (15) governor down → deterministic fallback; (16) `solo` mode.
+6. **Live smoke** (P6.1): one trivial task per available backend, cheapest model, `max_usd 0.10`.
 
 ---
 
@@ -337,13 +337,15 @@ bench/
 ```
 **Import boundaries** (checked by `scripts/check-boundaries.mjs`, P0.1): `contracts` and `util` import nothing internal except each other; `backends` imports only `contracts`, `util`; `engine` may import everything except `cli|tui|hooks`; nothing imports `cli|tui`.
 
-**Stack (ASSUMPTIONS — the infra research was dropped to save cost; each pick is revisited by the work package that first needs it):** TypeScript strict, ESM, Node ≥ 22 (dev machine: 26); `zod` (schemas + inference + JSON Schema export); `yaml`; `picomatch`; `node:util` `parseArgs`; `node:child_process` with detached process groups; `vitest`; Ink + React for the TUI (decision rechecked in P5.6 against OpenTUI); `esbuild` for bundling. **No database**: the JSONL event log plus in-memory projection is enough and diffable. Any added dependency needs a decision-log entry.
+**Stack (ASSUMPTIONS — the infra research was dropped to save cost; each pick is revisited by the work package that first needs it):** TypeScript strict, ESM, Node ≥ 22 (dev machine: 26); `zod` (schemas + inference + JSON Schema export); `yaml`; `picomatch`; `node:util` `parseArgs`; `node:child_process` with detached process groups; `vitest`; Ink + React for the TUI (decision rechecked in P5.3 against OpenTUI); `esbuild` for bundling. **No database**: the JSONL event log plus in-memory projection is enough and diffable. Any added dependency needs a decision-log entry.
 
 ---
 
 ## 16. Implementation roadmap — work packages
 
 **Reading the table.** *Tier*: H = Haiku 5.5, S = Sonnet 5.5, O = Opus 5.5 · *Eff*: lo/med/hi · *TF* (tests-first): `y` = a separate test-writer subagent writes the tests first; they must fail at base and become `protected` for the implementer · *Sz*: S/M/L (sets the worker's tool-call cap) · *Rel*: release cut line. Spike rows (P0.2–P0.6) are researcher tasks with hard tool-call caps and produce `docs/spikes/*.md` plus fixtures. `Verify` commands are what the orchestrator runs itself; `npm test -- <path>` filters vitest by path. Every row also requires `npm run typecheck` and `npm run check:boundaries` to stay green.
+
+**Sizing rule:** a work package is a subsystem slice (typically 4–12 files plus their tests, a few hundred to ~1,500 lines), never one file. One spec, one test-writer and one worker handle a whole package; fragments are merged rather than split. *Sz* maps to turn caps S 40 · M 100 · L 200.
 
 **Cut lines:** **v0.1** = the full engine, **all three adapters** (Claude Code, OpenCode, Antigravity), the governor front door, headless `substrate -p`, the fake-harness suites, live smoke on every installed harness, and the security review (unattended multi-harness workers are the riskiest part, so it ships before first real use). **v0.2** = the interactive surface: TUI, hooks, commands/skills semantics. **v0.3** = benchmark, docs, packaging. Adapter *build order* inside v0.1 is Claude → OpenCode → agy only so the conformance suite is proven on the best-documented contract first (A2). Phase 7 is unscheduled.
 
@@ -357,73 +359,47 @@ bench/
 | P0.5 | **S4** Pricing table from official pricing pages with `asOf` and source URLs (no invented numbers) | — | `docs/spikes/S4-pricing.json` | JSON validates against the `PricingTable` shape in App. A | H/hi | — | S | v0.1 |
 | P0.6 | **S5** UX conventions: slash commands, keybindings, status line of the three harnesses (docs only, capped) | — | `docs/spikes/S5-ux.md` | answers U9 | H/hi | — | S | v0.2 |
 
-### Phase 1 — contracts and core (no backends)
+### Phase 1 — foundation and state core (no backends)
 | ID | Title | Deps | Write set | Verify | Tier/Eff | TF | Sz | Rel |
 |---|---|---|---|---|---|---|---|---|
-| P1.1 | Contract schemas (App. A) + JSON Schema export | P0.1 | `src/contracts/**`, `scripts/export-schemas.mjs`, `contracts/*.schema.json`, `test/unit/contracts/**` | `npm test -- test/unit/contracts` | S/med | y | M | v0.1 |
-| P1.2 | Util: ids, safe paths, glob match, byte caps/tails, redaction, time | P0.1 | `src/util/**`, `test/unit/util/**` | `npm test -- test/unit/util` | H/med | y | S | v0.1 |
-| P1.3 | Event store: JSONL append, validation, replay/projection, torn-tail recovery, run lock | P1.1, P1.2 | `src/store/**`, `test/unit/store/**` | `npm test -- test/unit/store` | S/med | y | M | v0.1 |
-| P1.4 | Reducer + scheduler: states, DAG layering, overlap serialization, concurrency pool, budget checks, escalation ladder | P1.1, P1.3 | `src/engine/reducer.ts`, `src/engine/scheduler.ts`, `src/engine/ladder.ts`, `test/unit/engine/**` | `npm test -- test/unit/engine` | S/hi | y | L | v0.1 |
-| P1.5 | Config loader: precedence merge, JSONC, env + flag overlay, permission-rule parser | P1.1, P1.2 | `src/config/loader.ts`, `src/config/rules.ts`, `test/unit/config/**` | `npm test -- test/unit/config` | S/med | y | M | v0.1 |
-| P1.6 | Pricing, ledger core, estimates, aggregation | P1.1, P0.5 | `src/ledger/**`, `src/backends/pricing.ts`, `test/unit/ledger/**` | `npm test -- test/unit/ledger` | H/hi | y | M | v0.1 |
-| P1.7 | Definitions loader: agents (commands/skills discovery stubs) | P1.1, P1.2, P1.5 | `src/config/definitions.ts`, `test/unit/config/definitions.test.ts` | `npm test -- test/unit/config/definitions` | H/hi | y | M | v0.1 |
+| P1.1 | **Foundation modules**: contract schemas (App. A as zod, plus JSON Schema export), util (ids, safe paths, glob match, byte caps/tails, redaction, time), config (precedence loader, JSONC, env + flag overlay, permission-rule parser), definitions loader (agents; commands/skills discovery stubs) | P0.1 | `src/contracts/**`, `src/util/**`, `src/config/**`, `scripts/export-schemas.mjs`, `contracts/*.schema.json`, `test/unit/contracts/**`, `test/unit/util/**`, `test/unit/config/**` | `npm test -- test/unit/contracts test/unit/util test/unit/config` | S/hi | y | L | v0.1 |
+| P1.2 | **State core**: event store (JSONL append, validation, replay, torn-tail recovery, run lock), reducer, scheduler (DAG layering, overlap serialization, concurrency pool, budget checks), escalation ladder, usage ledger, pricing, estimates, aggregation | P1.1, P0.5 | `src/store/**`, `src/engine/reducer.ts`, `src/engine/scheduler.ts`, `src/engine/ladder.ts`, `src/ledger/**`, `src/backends/pricing.ts`, `test/unit/store/**`, `test/unit/engine/**`, `test/unit/ledger/**` | `npm test -- test/unit/store test/unit/engine test/unit/ledger` | S/hi | y | L | v0.1 |
 
-### Phase 2 — workspace and verification
+### Phase 2 — workspace and spec
 | ID | Title | Deps | Write set | Verify | Tier/Eff | TF | Sz | Rel |
 |---|---|---|---|---|---|---|---|---|
-| P2.1 | Git workspace: run/task branches, worktrees, spec materialization, scope check, revert, protected hashing, pathspec commit, cleanup | P1.1, P1.2 | `src/git/workspace.ts`, `src/git/scope.ts`, `test/integration/git/**` | `npm test -- test/integration/git` | S/med | y | M | v0.1 |
-| P2.2 | Verify runner + bwrap sandbox wrapper | P1.1, P1.2 | `src/verify/**`, `test/integration/verify/**` | `npm test -- test/integration/verify` | S/med | y | M | v0.1 |
-| P2.3 | Merger: merge-tree preflight, deterministic ordered merge, integration gate, bisect, checkpoints | P2.1, P2.2 | `src/git/merge.ts`, `src/git/integration.ts`, `test/integration/merge/**` | `npm test -- test/integration/merge` | S/hi | y | L | v0.1 |
-| P2.4 | Ecosystem detection + contract typecheck runner | P1.1, P2.2 | `src/spec/ecosystem.ts`, `src/spec/stubs.ts`, `test/unit/spec/ecosystem.test.ts` | `npm test -- test/unit/spec/ecosystem` | H/med | y | S | v0.1 |
-| P2.5 | Spec parser: manifest YAML, frontmatter + required sections | P1.1, P1.2 | `src/spec/parse.ts`, `test/unit/spec/parse.test.ts` | `npm test -- test/unit/spec/parse` | H/hi | y | M | v0.1 |
-| P2.6 | Plan linter L001–L027 (+ S-code hook points) | P1.4, P2.2, P2.4, P2.5 | `src/spec/lint/**`, `test/unit/spec/lint/**` | `npm test -- test/unit/spec/lint` | S/hi | y | L | v0.1 |
-| P2.7 | Repo map generator (deterministic file tree, sizes, instruction files) | P1.2 | `src/spec/repomap.ts`, `test/unit/spec/repomap.test.ts` | `npm test -- test/unit/spec/repomap` | H/med | y | S | v0.1 |
+| P2.1 | **Git, verify, merge**: product workspace (run/task branches, worktrees, spec materialization, scope check, protected hashing, pathspec commit, cleanup), verify runner + bwrap sandbox wrapper, merger (merge-tree preflight, ordered merge, integration gate, bisect, checkpoints) | P1.1 | `src/git/**`, `src/verify/**`, `test/integration/git/**`, `test/integration/verify/**`, `test/integration/merge/**` | `npm test -- test/integration/git test/integration/verify test/integration/merge` | S/hi | y | L | v0.1 |
+| P2.2 | **Spec and plan linter**: spec parser (manifest YAML, frontmatter, required sections), ecosystem detection + contract typecheck, repo map, plan linter L001–L027 with S-code hook points | P1.1, P1.2, P2.1 | `src/spec/**`, `test/unit/spec/**` | `npm test -- test/unit/spec` | S/hi | y | L | v0.1 |
 
 ### Phase 3 — backends
 | ID | Title | Deps | Write set | Verify | Tier/Eff | TF | Sz | Rel |
 |---|---|---|---|---|---|---|---|---|
-| P3.1 | Process supervisor + NDJSON reader: process groups, timeouts, SIGTERM→SIGKILL, caps, backpressure | P1.1, P1.2 | `src/backends/process.ts`, `src/backends/ndjson.ts`, `test/unit/backends/process.test.ts` | `npm test -- test/unit/backends/process` | S/hi | y | M | v0.1 |
-| P3.2 | Claude normalizer (golden tests from S1 fixtures) | P0.2, P1.1 | `src/backends/normalize/claude.ts`, `test/unit/backends/normalize-claude.test.ts` | `npm test -- test/unit/backends/normalize-claude` | H/hi | y | S | v0.1 |
-| P3.3 | Fake harness: scenario engine + Claude dialect | P0.2, P3.1, P3.2 | `test/fixtures/fake-harness/**` | `node test/fixtures/fake-harness/selftest.mjs` | S/med | n | M | v0.1 |
-| P3.4 | **Adapter conformance suite** (written before adapters; protected for them) | P1.1, P3.3 | `src/backends/conformance/**`, `test/integration/backends/conformance.test.ts` | `npm test -- test/integration/backends/conformance` (against `fake`) | S/med | n | M | v0.1 |
-| P3.5 | Claude adapter | P3.1, P3.2, P3.4, P1.6, P0.2 | `src/backends/adapters/claude.ts` | `npm test -- test/integration/backends/conformance -t claude` | S/hi | n | L | v0.1 |
-| P3.6 | OpenCode normalizer + fake dialect | P0.3, P3.3 | `src/backends/normalize/opencode.ts`, `test/fixtures/fake-harness/dialects/opencode.mjs`, `test/unit/backends/normalize-opencode.test.ts` | `npm test -- test/unit/backends/normalize-opencode` | H/hi | y | S | v0.1 |
-| P3.7 | OpenCode adapter (+ per-run config generation, local provider) | P3.1, P3.4, P3.6, P1.6 | `src/backends/adapters/opencode.ts` | conformance `-t opencode` | S/hi | n | L | v0.1 |
-| P3.8 | agy normalizer + fake dialect | P0.4, P3.3 | `src/backends/normalize/agy.ts`, `test/fixtures/fake-harness/dialects/agy.mjs`, `test/unit/backends/normalize-agy.test.ts` | `npm test -- test/unit/backends/normalize-agy` | H/hi | y | S | v0.1 |
-| P3.9 | agy adapter (soft-deny detection, computed cost) | P3.1, P3.4, P3.8, P1.6 | `src/backends/adapters/agy.ts` | conformance `-t agy` | S/hi | n | L | v0.1 |
+| P3.1 | **Backend foundation**: process supervisor (process groups, timeouts, SIGTERM→SIGKILL, caps, backpressure), NDJSON reader, fake harness (scenario engine + Claude dialect), **adapter conformance suite** (the shared battery every adapter imports and may not modify) | P1.1, P0.2 | `src/backends/process.ts`, `src/backends/ndjson.ts`, `test/fixtures/fake-harness/**`, `test/conformance/**`, `test/unit/backends/process.test.ts` | `npm test -- test/unit/backends/process test/conformance` | S/hi | n | L | v0.1 |
+| P3.2 | **Claude adapter**: normalizer (golden tests from the S1 fixtures) + adapter | P3.1, P0.2, P1.2 | `src/backends/normalize/claude.ts`, `src/backends/adapters/claude.ts`, `test/unit/backends/normalize-claude.test.ts`, `test/integration/backends/claude.test.ts` | `npm test -- test/unit/backends/normalize-claude test/integration/backends/claude` | S/hi | y | L | v0.1 |
+| P3.3 | **OpenCode adapter**: normalizer, fake dialect, adapter (per-run config generation, local llama.cpp provider) | P3.1, P0.3, P1.2 | `src/backends/normalize/opencode.ts`, `src/backends/adapters/opencode.ts`, `test/fixtures/fake-harness/dialects/opencode.mjs`, `test/unit/backends/normalize-opencode.test.ts`, `test/integration/backends/opencode.test.ts` | `npm test -- test/unit/backends/normalize-opencode test/integration/backends/opencode` | S/hi | y | L | v0.1 |
+| P3.4 | **agy adapter**: normalizer, fake dialect, adapter (soft-deny detection, computed cost) | P3.1, P0.4, P1.2 | `src/backends/normalize/agy.ts`, `src/backends/adapters/agy.ts`, `test/fixtures/fake-harness/dialects/agy.mjs`, `test/unit/backends/normalize-agy.test.ts`, `test/integration/backends/agy.test.ts` | `npm test -- test/unit/backends/normalize-agy test/integration/backends/agy` | S/hi | y | L | v0.1 |
 
 ### Phase 4 — roles and the run loop
 | ID | Title | Deps | Write set | Verify | Tier/Eff | TF | Sz | Rel |
 |---|---|---|---|---|---|---|---|---|
-| P4.1 | Role assets + prompt builders (planner, worker, test-writer, reviewer, replan) | P1.1, P1.7, P2.5, P2.7 | `assets/agents/*.md`, `src/roles/prompts/**`, `test/unit/roles/prompts.test.ts` | `npm test -- test/unit/roles/prompts` | S/med | y | M | v0.1 |
-| P4.2 | Governor front door: OpenAI-compatible client with tool calling, bounded intake conversation, typed tool set executed by engine code (App. A), rules-first router, advisory semantic lint, route→outcome ledger | P1.1, P1.5, P1.6 | `src/roles/governor.ts`, `src/roles/governor-tools.ts`, `src/roles/router.ts`, `test/unit/roles/governor.test.ts`, `test/unit/roles/router.test.ts` | `npm test -- test/unit/roles/governor test/unit/roles/router` | S/med | y | L | v0.1 |
-| P4.3 | Planner runner: spawn, collect artifacts, lint, engine-driven format retries, contract commit | P4.1, P2.1, P2.6, P3.4 | `src/roles/planner.ts`, `test/integration/roles/planner.test.ts` | `npm test -- test/integration/roles/planner` | S/hi | y | L | v0.1 |
-| P4.4 | Worker runner: worktree, spawn, scope→verify→heal→report/packet, classification | P2.1, P2.2, P4.1, P1.4, P1.6, P3.4 | `src/roles/worker.ts`, `src/engine/packet.ts`, `test/integration/roles/worker.test.ts` | `npm test -- test/integration/roles/worker` | S/hi | y | L | v0.1 |
-| P4.5 | Replan loop + escalation ladder + tier escalation | P4.3, P4.4 | `src/engine/replan.ts`, `test/integration/engine/replan.test.ts` | `npm test -- test/integration/engine/replan` | S/hi | y | L | v0.1 |
-| P4.6 | **Scenario suite** (the 15 scenarios of §14.5 except #11, which is P6.1; protected for P4.7) | P3.3, P2.1, P2.2, P1.4 | `test/integration/scenarios/**` | scenarios run red against a stub engine | S/med | n | M | v0.1 |
-| P4.7 | Run orchestrator (`Engine.run/resume`): effects runner, gates, merge, integration, cancel, budget kill | P1.3, P1.4, P2.3, P4.2, P4.3, P4.4, P4.5, P4.6 | `src/engine/engine.ts`, `src/engine/effects.ts` | `npm test -- test/integration/scenarios` (all green) | S/hi | n | L | v0.1 |
+| P4.1 | **Roles**: role assets and prompt builders (planner, worker, test-writer, reviewer, replan), governor front door (OpenAI-compatible client with tool calling, bounded intake, typed tool set per App. A), rules-first router, advisory semantic lint, route→outcome ledger | P1.1, P1.2, P2.2 | `assets/agents/*.md`, `src/roles/prompts/**`, `src/roles/governor.ts`, `src/roles/governor-tools.ts`, `src/roles/router.ts`, `test/unit/roles/**` | `npm test -- test/unit/roles` | S/hi | y | L | v0.1 |
+| P4.2 | **Planner and worker runners**: planner runner (spawn, collect artifacts, lint, engine-driven format retries, contract commit), worker runner (worktree, spawn, scope→verify→heal→report), failure packets, replan loop with escalation ladder and tier escalation | P4.1, P2.1, P2.2, P3.1 | `src/roles/planner.ts`, `src/roles/worker.ts`, `src/engine/packet.ts`, `src/engine/replan.ts`, `test/integration/roles/**`, `test/integration/engine/replan.test.ts` | `npm test -- test/integration/roles test/integration/engine/replan` | S/hi | y | L | v0.1 |
+| P4.3 | **Run orchestrator and scenario suite**: the 15 scenarios of §14.5 except #11 (written first, protected), then `Engine.run/resume` (effects runner, gates, merge, integration, cancel, budget kill) | P4.2, P1.2, P2.1, P3.1 | `src/engine/engine.ts`, `src/engine/effects.ts`, `test/integration/scenarios/**` | `npm test -- test/integration/scenarios` | S/hi | y | L | v0.1 |
 
 ### Phase 5 — surface
 | ID | Title | Deps | Write set | Verify | Tier/Eff | TF | Sz | Rel |
 |---|---|---|---|---|---|---|---|---|
-| P5.1 | CLI core: flags per §4.1, subcommands, text/json/stream-json, exit codes, stdin prompt | P4.7, P1.5, P1.7, P1.6 | `src/cli/**` (command modules self-register through `src/cli/registry.ts`; later WPs add their own command files, so this excludes `doctor.ts`, `init.ts`, `bench.ts`, `agents-import.ts`), `bin/substrate.mjs`, `test/integration/cli/**` | `npm test -- test/integration/cli` | S/med | y | L | v0.1 |
-| P5.2 | Session index, `--resume/--continue/--fork-session` | P1.3, P5.1 | `src/store/sessions.ts`, `test/unit/store/sessions.test.ts` | `npm test -- test/unit/store/sessions` | H/hi | y | S | v0.1 |
-| P5.3 | `doctor` and `init` commands (`backends`/`models`/`agents`/`sessions` listing commands belong to P5.1) | P5.1, P3.5, P3.7, P3.9 | `src/cli/doctor.ts`, `src/cli/init.ts`, `test/integration/cli/doctor.test.ts` | `npm test -- test/integration/cli/doctor` | H/hi | y | M | v0.1 |
-| P5.4 | Hooks runner and gate integration | P1.5, P4.7 | `src/hooks/**`, `test/integration/hooks/**` | `npm test -- test/integration/hooks` | S/med | y | M | v0.2 |
-| P5.5 | Commands/skills semantics + `agents import` | P1.7, P5.1 | `src/config/commands.ts`, `src/config/skills.ts`, `src/cli/agents-import.ts`, `test/unit/config/commands.test.ts` | `npm test -- test/unit/config/commands` | H/hi | y | M | v0.2 |
-| P5.6 | TUI state: slash-command registry, keymap, gates (pure, no rendering) | P5.1, P5.2, P0.6 | `src/tui/state/**`, `test/unit/tui/**` | `npm test -- test/unit/tui` | S/med | y | M | v0.2 |
-| P5.7 | TUI rendering (Ink): prompt, event feed, task board, status line, dialogs, session picker | P5.6 | `src/tui/components/**`, `src/tui/app.tsx`, `test/unit/tui/render/**` | `npm test -- test/unit/tui/render` | S/med | n | L | v0.2 |
+| P5.1 | **CLI**: flags per §4.1; subcommands (run, plan, resume, status, tasks, cost, report, verify, merge, undo, discard, models, agents, backends, sessions, config, doctor, init); session index with `--resume/--continue/--fork-session`; text/json/stream-json output; exit codes; stdin prompt | P4.3, P3.2, P3.3, P3.4, P1.1, P1.2 | `src/cli/**` (command modules self-register through `src/cli/registry.ts`; later WPs add their own command files, so this excludes `bench.ts` and `agents-import.ts`), `src/store/sessions.ts`, `bin/substrate.mjs`, `test/integration/cli/**`, `test/unit/store/sessions.test.ts` | `npm test -- test/integration/cli test/unit/store/sessions` | S/hi | y | L | v0.1 |
+| P5.2 | **Hooks, commands, skills**: hooks runner and gate integration, commands and skills semantics, `agents import` | P5.1, P4.3 | `src/hooks/**`, `src/config/commands.ts`, `src/config/skills.ts`, `src/cli/agents-import.ts`, `test/integration/hooks/**`, `test/unit/config/commands.test.ts` | `npm test -- test/integration/hooks test/unit/config/commands` | S/hi | y | L | v0.2 |
+| P5.3 | **TUI**: state (slash-command registry, keymap, approval gates; pure) and rendering (Ink: prompt, event feed, task board, status line, dialogs, session picker) | P5.1, P0.6 | `src/tui/**`, `test/unit/tui/**` | `npm test -- test/unit/tui` | S/hi | y | L | v0.2 |
 
 ### Phase 6 — evaluation and hardening
 | ID | Title | Deps | Write set | Verify | Tier/Eff | TF | Sz | Rel |
 |---|---|---|---|---|---|---|---|---|
-| P6.0 | Live smoke on every installed harness (opt-in, cost-capped) | P5.1, P3.5, P3.7, P3.9 | `test/live/smoke.test.ts` | `SUBSTRATE_LIVE=1 npm test -- test/live` | S/lo | n | S | v0.1 |
-| P6.1 | Crash/resume chaos tests (kill at every event boundary, corrupt tail, double lock) | P4.7 | `test/integration/chaos/**` | `npm test -- test/integration/chaos` | S/hi | n | M | v0.1 |
-| P6.2 | Benchmark harness: task format, arms A–D, report | P4.7, P1.6, P5.1 | `bench/**`, `src/cli/bench.ts`, `scripts/bench.mjs`, `test/unit/bench/**` | `npm test -- test/unit/bench` | S/med | y | M | v0.3 |
-| P6.3 | Benchmark task suite (**user nominates repos/tasks**) | P6.2 | `bench/tasks/**` | `npm run bench -- --dry-run` | human + H/med | n | S | v0.3 |
-| P6.4 | Security review (read-only): sandbox, env scrubbing, redaction, path traversal in globs, credential handling (I12). Each finding becomes a follow-up WP `P6.4.n` created by the orchestrator through a spec-writer with an explicit write set; more than 3 follow-ups need user approval before spawning | P4.7, P2.2 | `docs/reference/security-review.md` | review report written; follow-up WPs (if any) green | O/hi (reviewer) | — | M | v0.1 |
-| P6.5 | Docs: README, generated config + CLI reference, adapter guide | P5.1, P1.1 | `README.md`, `docs/reference/config.md`, `docs/reference/cli.md`, `docs/reference/adapters.md`, `scripts/docs-check.mjs` | `npm run docs:check` | H/med | n | M | v0.3 |
-| P6.6 | Packaging: bundle script and `npm pack` dry run | P5.1 | `scripts/bundle.mjs` | `npm run bundle && npm pack --dry-run` | H/med | n | S | v0.3 |
+| P6.1 | **Hardening**: crash/resume chaos tests (kill at every event boundary, corrupt tail, double lock) and live smoke on every installed harness (opt-in, cost-capped) | P4.3, P5.1 | `test/integration/chaos/**`, `test/live/**` | `npm test -- test/integration/chaos` | S/hi | n | M | v0.1 |
+| P6.2 | Security review (read-only): sandbox, env scrubbing, redaction, path traversal in globs, credential handling (I12). Each finding becomes a follow-up WP `P6.4.n` created by the orchestrator through a spec-writer with an explicit write set; more than 3 follow-ups need user approval before spawning | P4.3, P2.1 | `docs/reference/security-review.md` | review report written; follow-up WPs (if any) green | O/hi (reviewer) | — | M | v0.1 |
+| P6.3 | **Benchmark**: harness (task format, arms A–D, report) and task suite (**user nominates repos/tasks**) | P4.3, P1.2, P5.1 | `bench/**`, `src/cli/bench.ts`, `scripts/bench.mjs`, `test/unit/bench/**` | `npm test -- test/unit/bench` | S/med | y | M | v0.3 |
+| P6.4 | **Docs and packaging**: README, generated config + CLI reference, adapter guide, docs check, bundle script | P5.1, P1.1 | `README.md`, `docs/reference/config.md`, `docs/reference/cli.md`, `docs/reference/adapters.md`, `scripts/docs-check.mjs`, `scripts/bundle.mjs` | `npm run docs:check && npm run bundle && npm pack --dry-run` | H/med | n | M | v0.3 |
 
 ### Phase 7 — unscheduled
 Dispatcher-mode experiment (native subagent fan-out where a backend proves reliable in headless) · ACP backend (needs a spike: per-session model pinning, usage reporting, clean kill) · MCP server exposing Substrate · reviewer role on by default · learned routing from the ledger · daemon/remote-control · further backends.
@@ -431,12 +407,12 @@ Dispatcher-mode experiment (native subagent fan-out where a backend proves relia
 ### Phase gates
 | Gate | Passes when |
 |---|---|
-| G0 | scaffold green; S1–S4 delivered (S5 is needed only before P5.6) |
+| G0 | scaffold green; S1–S4 delivered (S5 is needed only before P5.3) |
 | G1 | contracts + core unit/property tests green; boundary check green |
 | G2 | git/verify/merge integration tests green on throwaway repos; linter catalogue implemented |
 | G3 | conformance suite green for `fake`, `claude`, `opencode` and `agy` |
-| G4 | all 15 P4.6 scenarios green with fake backends |
-| G5 (v0.1) | CLI headless works; chaos tests green; live smoke passes within its cost cap on every installed harness; P6.4 findings resolved or explicitly accepted |
+| G4 | all 15 P4.3 scenarios green with fake backends |
+| G5 (v0.1) | CLI headless works; chaos tests green; live smoke passes within its cost cap on every installed harness; P6.2 findings resolved or explicitly accepted |
 
 ---
 
@@ -444,21 +420,21 @@ Dispatcher-mode experiment (native subagent fan-out where a backend proves relia
 
 | ID | Unknown | Resolved by | Blocks |
 |---|---|---|---|
-| U1 | OpenCode v2: restricting worker tools/permissions headless | P0.3 | P3.7 |
-| U2 | OpenCode effort control (meaning of `#variant`) | P0.3 | P3.7 |
-| U3 | OpenCode failure exit codes / error events | P0.3 | P3.6 |
-| U4 | agy agent definition, instruction file, skill path, sandbox semantics | P0.4 | P3.9, P5.5 |
-| U5 | agy resume semantics + conversation id capture | P0.4 | P3.8 |
-| U6 | Claude minimal worker context without `--bare` on subscription auth (docs: agent frontmatter `omitClaudeMd: true`, v2.1.271+; S1 measures the actual overhead) | P0.2 | P3.5, P4.1 |
-| U7 | Claude `dontAsk` + `--permission-prompts none` behavior; denial reporting | P0.2 | P3.5 |
-| U8 | Pricing table | P0.5 | P1.6 |
-| U9 | Exact slash-command/keybinding conventions | P0.6 | P5.6 |
+| U1 | OpenCode v2: restricting worker tools/permissions headless | P0.3 | P3.3 |
+| U2 | OpenCode effort control (meaning of `#variant`) | P0.3 | P3.3 |
+| U3 | OpenCode failure exit codes / error events | P0.3 | P3.3 |
+| U4 | agy agent definition, instruction file, skill path, sandbox semantics | P0.4 | P3.4, P5.2 |
+| U5 | agy resume semantics + conversation id capture | P0.4 | P3.4 |
+| U6 | Claude minimal worker context without `--bare` on subscription auth (docs: agent frontmatter `omitClaudeMd: true`, v2.1.271+; S1 measures the actual overhead) | P0.2 | P3.2, P4.1 |
+| U7 | Claude `dontAsk` + `--permission-prompts none` behavior; denial reporting | P0.2 | P3.2 |
+| U8 | Pricing table | P0.5 | P1.2 |
+| U9 | Exact slash-command/keybinding conventions | P0.6 | P5.3 |
 | U10 | ACP viability | Phase 7 spike | — |
 | U11 | Principles from the Reddit thread | user pastes text (optional) | — |
 | U12 | Prior-art beyond the three tools reviewed | optional research | — |
-| U13 | Subscription rate limits under parallel workers | P6.2 benchmark; concurrency defaults 2–3 | — |
-| U14 | Local-model routing quality | P6.2 arm D; rules-first until then | — |
-| U15 | Ink vs OpenTUI | decided at P5.6 start | P5.7 |
+| U13 | Subscription rate limits under parallel workers | P6.3 benchmark; concurrency defaults 2–3 | — |
+| U14 | Local-model routing quality | P6.3 arm D; rules-first until then | — |
+| U15 | Ink vs OpenTUI | decided at P5.3 start | P5.3 |
 
 **Top risks and mitigations:** (R1) silent under-delivery from soft denials → denial events per backend, conformance test; (R2) cost overrun → engine kill, estimates, approval threshold, phase gates; (R3) CLI drift after updates → version pins, conformance suite, `doctor`; (R4) vague specs → linter, advisory semantic lint, replan caps; (R5) Substrate scope creep → cut lines v0.1/0.2/0.3, MVP on one backend; (R6) bootstrapping without Substrate → ORCHESTRATOR-PROMPT.md defines a manual protocol with the same invariants.
 

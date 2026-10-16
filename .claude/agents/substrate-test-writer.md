@@ -4,7 +4,7 @@ description: Test-writer subagent (Sonnet, medium effort): writes tests first. U
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 effort: medium
-maxTurns: 30
+maxTurns: 60
 permissionMode: dontAsk
 omitClaudeMd: true
 ---

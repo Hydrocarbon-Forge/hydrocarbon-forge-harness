@@ -1,5 +1,5 @@
 ---
-description: Research or spike subagent (Haiku, high effort). Used only by the Substrate Build Orchestrator.
+description: "Research or spike subagent (Haiku, high effort). Used only by the Substrate Build Orchestrator."
 mode: subagent
 model: opencode/muse-spark-1.3-contributor-free#xhigh
 steps: 30

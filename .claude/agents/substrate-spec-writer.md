@@ -4,7 +4,7 @@ description: Spec-writer subagent (Haiku, high effort): expands one work package
 tools: Read, Grep, Glob, Write
 model: haiku
 effort: high
-maxTurns: 15
+maxTurns: 25
 permissionMode: dontAsk
 omitClaudeMd: true
 ---

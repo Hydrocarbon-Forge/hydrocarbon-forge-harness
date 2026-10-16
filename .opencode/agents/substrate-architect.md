@@ -1,5 +1,5 @@
 ---
-description: Architect subagent (Opus, high effort): re-plans a failed work package. Used only by the Substrate Build Orchestrator.
+description: "Architect subagent (Opus, high effort): re-plans a failed work package. Used only by the Substrate Build Orchestrator."
 mode: subagent
 model: opencode/muse-spark-1.3-contributor-free#xhigh
 steps: 20

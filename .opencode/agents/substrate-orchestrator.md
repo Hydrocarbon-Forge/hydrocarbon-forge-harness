@@ -1,5 +1,5 @@
 ---
-description: Substrate Build Orchestrator. Reads ORCHESTRATOR-PROMPT.md and SUBSTRATE-PLAN.md, then builds Substrate by conducting subagents.
+description: "Substrate Build Orchestrator. Reads ORCHESTRATOR-PROMPT.md and SUBSTRATE-PLAN.md, then builds Substrate by conducting subagents."
 mode: primary
 model: opencode/muse-spark-1.3-contributor-free#xhigh
 ---

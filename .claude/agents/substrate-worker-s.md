@@ -1,10 +1,10 @@
 ---
 name: substrate-worker-s
-description: Build worker for a small work package (30 turns). Used only by the Substrate Build Orchestrator; never delegate to it automatically.
+description: Build worker for a small work package (40 turns). Used only by the Substrate Build Orchestrator; never delegate to it automatically.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: haiku
 effort: medium
-maxTurns: 30
+maxTurns: 40
 permissionMode: dontAsk
 omitClaudeMd: true
 ---

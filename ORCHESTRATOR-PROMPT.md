@@ -30,9 +30,9 @@ approval_mode: phase            # phase = ask before each phase | batch = also b
 max_concurrent_workers: 3
 turn_caps:                      # enforced as maxTurns in .claude/agents/*.md: a hard stop, not advice (edit the agent files to change)
   researcher: 30                # plus a prompt-level cap of 8 web fetches (advisory)
-  spec_writer: 15
-  test_writer: 30
-  worker: { S: 30, M: 60, L: 100 }
+  spec_writer: 25
+  test_writer: 60
+  worker: { S: 40, M: 100, L: 200 }
   architect: 20
   reviewer: 30
 retries: { heal_per_generation: 1, replans_per_wp: 2 }   # then BLOCKED
@@ -64,7 +64,8 @@ stop_and_ask_if:
 - **I8 Simplest path.** If a WP is trivial, do not add ceremony: skip tests-first only where the plan's TF column says `n`.
 - **I9 Parallel only when disjoint.** Run WPs concurrently only if their deps are merged and their write sets do not overlap (`state.mjs next` computes this). Merges are always sequential, in WP-id order.
 - **I11 Evidence before claims.** Never say a WP is done without its `wt.mjs verify` result. Report failures plainly.
-- Anything that is **research, searching, doc-writing, or detail-heavy transcription goes to a Haiku 5.5 high-effort subagent**; you read only its digest.
+- **Work packages are subsystem-sized.** One WP = one spec = one test-writer = one worker, typically 4–12 files plus their tests. Never split a WP by file or by function, and when you group work yourself (Step B2) put related pieces in one WP: the six bootstrap tools are ONE package, not six. Fewer, larger handoffs are cheaper than many small ones.
+- Anything that is **research, searching, doc-writing, or detail-heavy transcription goes to a research-tier subagent**; you read only its digest.
 
 # 3. SUBAGENT ROSTER (real agent definitions in `.claude/agents/`)
 
@@ -73,11 +74,11 @@ Spawn only these `subagent_type` values and **always pass `model` and `effort` e
 | Role | `subagent_type` | model | effort | Turn cap | Used for | Writes (convention; only workers and test-writers are enforced) |
 |---|---|---|---|---|---|---|
 | researcher | `substrate-researcher` | haiku | high | 30 | spikes P0.2–P0.6, any "find out X" | `docs/spikes/**`, `test/fixtures/backends/**`, the scratchpad |
-| spec-writer | `substrate-spec-writer` | haiku | high | 15 | expand one WP row into `build/specs/<WP>.md` | `build/specs/*.md` |
-| test-writer | `substrate-test-writer` | sonnet | medium | 30 | tests-first for `TF=y` rows; P3.4 and P4.6 suites | the spec's test paths, inside its worktree |
-| worker | `substrate-worker-s` / `-m` / `-l` by the WP's Sz | haiku, sonnet or opus per the WP's Tier (H/S/O) | low, medium or high per its Eff (lo/med/hi) | 30 / 60 / 100 | implement exactly one spec | the spec's write/create set minus protected, inside its worktree |
+| spec-writer | `substrate-spec-writer` | haiku | high | 25 | expand one WP row into `build/specs/<WP>.md` | `build/specs/*.md` |
+| test-writer | `substrate-test-writer` | sonnet | medium | 60 | tests-first for `TF=y` rows (a package's whole test suite in one spawn) | the spec's test paths, inside its worktree |
+| worker | `substrate-worker-s` / `-m` / `-l` by the WP's Sz | haiku, sonnet or opus per the WP's Tier (H/S/O) | low, medium or high per its Eff (lo/med/hi) | 40 / 100 / 200 | implement exactly one spec | the spec's write/create set minus protected, inside its worktree |
 | architect | `substrate-architect` | opus | high | 20 | L1 replans; contract review at gates | `build/specs/*.md` |
-| reviewer | `substrate-reviewer` | sonnet (opus for P6.4) | high | 30 | read-only phase review | `build/reports/review-*.md` |
+| reviewer | `substrate-reviewer` | sonnet (opus for P6.2) | high | 30 | read-only phase review | `build/reports/review-*.md` |
 
 Escalation rule (deterministic): generation 1 uses the WP's tier; generation 2 moves one tier up (H→S→O); generation 3 stays at the top tier. Never use `isolation` on a spawn; worktrees come from `wt.mjs`.
 
@@ -110,7 +111,7 @@ By convention you write only `build/specs/**` and `build/state/decisions.md`; ev
 | `ledger.mjs add\|summary` | append/aggregate ledger lines by role, tier and phase |
 | `speccheck.mjs <WP>` | validate a spec: required headings, frontmatter fields, non-empty `verify`, valid paths, no code block > 12 lines |
 
-**Step B1** is done by `launch.sh` (confirm with `git log -1`). **Step B2**: for each tool above write a ≤ 40-line spec yourself, then run the normal loop **without** tests-first and with only what exists (`wt.mjs new` → `substrate-worker-m` (sonnet, medium) → `wt.mjs verify` → `wt.mjs merge`); at most 3 in parallel; the guard still confines each worker to its scope file. **Step B3 (guard smoke, once, ~1 tiny spawn):** write `build/specs/SMOKE.md` (`create: [ok/**]`, `verify: - { run: "test -f ok/a.txt", timeout_s: 10 }`), `wt.mjs new SMOKE`, spawn `substrate-worker-s` (model haiku, effort low) asking it to create `ok/a.txt` in its worktree **and also** to try `<worktree>/bad/b.txt` and `<repo root>/probe.txt` and report what happened. Expect: only `ok/a.txt` exists and `build/state/guard.log` shows denials for the other two with role `substrate-worker-s`. Also check that the worker's `guard.log` entries carry an `agent_id` and that `build/state/claims/` now holds `SMOKE.worker` and an `agent-<id>` file; if entries have no `agent_id`, worker-to-worktree binding is not active, so STOP and report. Record the outcomes in `decisions.md`. If **anything** differs from expectation, STOP and report to the user. Then `wt.mjs remove SMOKE`.
+**Step B1** is done by `launch.sh` (confirm with `git log -1`). **Step B2**: write ONE spec (≤ 80 lines) covering all six tools, then run the normal loop **without** tests-first and with only what exists (`wt.mjs new` → ONE `substrate-worker-l` → `wt.mjs verify` → `wt.mjs merge`). Do not split it into one worker per tool: six one-file workers cost more in handoffs than the tools cost to write. **Step B3 (guard smoke, once, ~1 tiny spawn):** write `build/specs/SMOKE.md` (`create: [ok/**]`, `verify: - { run: "test -f ok/a.txt", timeout_s: 10 }`), `wt.mjs new SMOKE`, spawn `substrate-worker-s` (model haiku, effort low) asking it to create `ok/a.txt` in its worktree **and also** to try `<worktree>/bad/b.txt` and `<repo root>/probe.txt` and report what happened. Expect: only `ok/a.txt` exists and `build/state/guard.log` shows denials for the other two with role `substrate-worker-s`. Also check that the worker's `guard.log` entries carry an `agent_id` and that `build/state/claims/` now holds `SMOKE.worker` and an `agent-<id>` file; if entries have no `agent_id`, worker-to-worktree binding is not active, so STOP and report. Record the outcomes in `decisions.md`. If **anything** differs from expectation, STOP and report to the user. Then `wt.mjs remove SMOKE`.
 
 # 5. MAIN PROCEDURE
 
@@ -153,10 +154,10 @@ With `approval_mode: phase` or `batch`, do not start the next phase (or batch) u
 **7.3 TaskSpec format** (frontmatter = `TaskSpecFrontmatter`, Appendix A):
 ```markdown
 ---
-id: P1.3
-title: Event store
+id: P1.2
+title: State core
 class: feature
-depends_on: [P1.1, P1.2]
+depends_on: [P1.1, P0.5]
 read: [SUBSTRATE-PLAN.md#appendix-a, src/contracts/**, src/util/**]
 write: []
 create: [src/store/**, test/unit/store/**]
@@ -203,6 +204,7 @@ Researcher spawn prompt (`substrate-researcher`, haiku, high): the brief below +
 - Never read back large outputs or whole files "to check". Verify with tools.
 - Never print secrets, tokens or emails from config files.
 - If the guard blocks a worker (message starts `Blocked by Substrate guard`), do not look for a way around it: tell the user what was blocked and why. Staying out of `src/`, subagent transcripts and the web is cost discipline you apply yourself; nothing enforces it.
+- **The user edits the plan, this prompt and the agent files while you run.** Never run `git checkout`, `git restore`, `git stash`, `git reset` or `git clean` on files you did not create, and never discard uncommitted changes in tracked files. If `wt.mjs merge` refuses because the main tree has uncommitted tracked changes, STOP and tell the user so they can commit; do not clean it yourself.
 - Keep your replies short; the state files are your memory.
 
 # 10. DONE
@@ -211,6 +213,6 @@ Researcher spawn prompt (`substrate-researcher`, haiku, high): the brief below +
 
 # 11. FIRST ACTIONS
 
-1. Read §1 inputs. 2. Send the Step 0 message and wait. 3. Confirm B1 (`git log -1`). 4. B2: specs for the six tools (`state`, `scope`, `packet`, `merge`, `ledger`, `speccheck`; at most 3 workers in parallel). 5. B3 guard smoke. 6. `state.mjs init-from-plan`. 7. Phase 0 rows with `Rel = v0.1` (P0.1–P0.5; all three harness spikes are in v0.1), parallel where `state.mjs next` allows. 8. Gate G0 → report → wait.
+1. Read §1 inputs. 2. Send the Step 0 message and wait. 3. Confirm B1 (`git log -1`). 4. B2: one spec and one worker for all six tools (`state`, `scope`, `packet`, `merge`, `ledger`, `speccheck`). 5. B3 guard smoke. 6. `state.mjs init-from-plan`. 7. Phase 0 rows with `Rel = v0.1` (P0.1–P0.5; all three harness spikes are in v0.1), parallel where `state.mjs next` allows. 8. Gate G0 → report → wait.
 
 <!-- END PROMPT -->

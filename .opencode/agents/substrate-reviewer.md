@@ -1,5 +1,5 @@
 ---
-description: Read-only reviewer subagent (Sonnet, high effort): reviews a merged phase against the plan. Used only by the Substrate Build Orchestrator.
+description: "Read-only reviewer subagent (Sonnet, high effort): reviews a merged phase against the plan. Used only by the Substrate Build Orchestrator."
 mode: subagent
 model: opencode/muse-spark-1.3-contributor-free#xhigh
 steps: 30
