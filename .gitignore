@@ -6,3 +6,5 @@ build/reports/
 build/packets/
 .substrate/runs/
 .substrate/worktrees/
+dist/
+coverage/
