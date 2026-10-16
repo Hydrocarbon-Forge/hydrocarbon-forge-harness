@@ -74,6 +74,20 @@ function getWorkspaceLifecycle(): WorkspaceLifecycle {
   return mod as WorkspaceLifecycle;
 }
 
+function getRunBranch(runId: Contracts.RunId): string {
+  const mod = WorkspaceModule as any;
+  if (typeof mod.getRunBranch === "function") return mod.getRunBranch(runId);
+  if (mod.default?.getRunBranch) return mod.default.getRunBranch(runId);
+  return mod.getRunBranch(runId);
+}
+
+function getTaskBranch(runId: Contracts.RunId, taskId: Contracts.TaskId, generation: number): string {
+  const mod = WorkspaceModule as any;
+  if (typeof mod.getTaskBranch === "function") return mod.getTaskBranch(runId, taskId, generation);
+  if (mod.default?.getTaskBranch) return mod.default.getTaskBranch(runId, taskId, generation);
+  return mod.getTaskBranch(runId, taskId, generation);
+}
+
 function makeSpec(id: string = "TaskA"): Contracts.TaskSpecFrontmatter {
   return Contracts.TaskSpecFrontmatter.parse({
     id,
@@ -88,6 +102,40 @@ function makeSpec(id: string = "TaskA"): Contracts.TaskSpecFrontmatter {
   });
 }
 
+describe("git: branch naming helpers", () => {
+  it("getRunBranch returns substrate/runs/<run_id>", () => {
+    const runId = createRunId();
+    expect(getRunBranch(runId)).toBe(`substrate/runs/${runId}`);
+  });
+
+  it("getTaskBranch returns substrate/tasks/<run_id>/<task_id>-g<generation>", () => {
+    const runId = createRunId();
+    expect(getTaskBranch(runId, "TaskA", 1)).toBe(`substrate/tasks/${runId}/TaskA-g1`);
+    expect(getTaskBranch(runId, "TaskB", 2)).toBe(`substrate/tasks/${runId}/TaskB-g2`);
+  });
+
+  it("ensures run and task branches use non-conflicting Git ref hierarchies (no D/F conflict)", () => {
+    const repo = createTestRepo("substrate-df-test-");
+    try {
+      const runId = createRunId();
+      const runBranch = getRunBranch(runId);
+      const taskBranch = getTaskBranch(runId, "TaskA", 1);
+
+      // In Git, refs/heads/substrate/<run_id> and refs/heads/substrate/<run_id>/<task_id>-g1
+      // would produce a D/F (directory/file) conflict.
+      // With substrate/runs/<run_id> and substrate/tasks/<run_id>/<task_id>-g1, both refs can coexist cleanly.
+      repo.createBranch(runBranch, "main");
+      repo.createBranch(taskBranch, "main");
+
+      const branches = repo.git(["branch", "--list"]);
+      expect(branches).toContain(runBranch);
+      expect(branches).toContain(taskBranch);
+    } finally {
+      repo.cleanup();
+    }
+  });
+});
+
 describe("git: WorkspaceManager - run and task branch management", () => {
   let repo: TestRepo;
 
@@ -99,12 +147,12 @@ describe("git: WorkspaceManager - run and task branch management", () => {
     repo.cleanup();
   });
 
-  it("creates run branch substrate/<run_id> from base_ref when it does not exist", async () => {
+  it("creates run branch substrate/runs/<run_id> from base_ref when it does not exist", async () => {
     const manager = getWorkspaceManager();
     const runId = createRunId();
 
     const branchName = await manager.createRunBranch(repo.dir, runId, "main");
-    expect(branchName).toBe(`substrate/${runId}`);
+    expect(branchName).toBe(`substrate/runs/${runId}`);
 
     // Verify branch exists in git and points to main HEAD
     const branches = repo.git(["branch", "--list", branchName]);
@@ -122,8 +170,8 @@ describe("git: WorkspaceManager - run and task branch management", () => {
     const branch1 = await manager.createRunBranch(repo.dir, runId, "main");
     const branch2 = await manager.createRunBranch(repo.dir, runId, "main");
 
-    expect(branch1).toBe(`substrate/${runId}`);
-    expect(branch2).toBe(`substrate/${runId}`);
+    expect(branch1).toBe(`substrate/runs/${runId}`);
+    expect(branch2).toBe(`substrate/runs/${runId}`);
   });
 
   it("preserves user base branch isolation without modifying main branch ref", async () => {
@@ -137,15 +185,15 @@ describe("git: WorkspaceManager - run and task branch management", () => {
     expect(currentMainSha).toBe(initialMainSha);
   });
 
-  it("derives branch name substrate/<run_id>/<task_id>-g<generation> and creates worktree", async () => {
+  it("derives branch name substrate/tasks/<run_id>/<task_id>-g<generation> and creates worktree", async () => {
     const manager = getWorkspaceManager();
     const runId = createRunId();
     await manager.createRunBranch(repo.dir, runId, "main");
 
     const spec = makeSpec("TaskA");
-    const info: WorktreeInfo = await manager.createTaskWorktree(repo.dir, runId, spec, 1, `substrate/${runId}`);
+    const info: WorktreeInfo = await manager.createTaskWorktree(repo.dir, runId, spec, 1, `substrate/runs/${runId}`);
 
-    expect(info.branch).toBe(`substrate/${runId}/TaskA-g1`);
+    expect(info.branch).toBe(`substrate/tasks/${runId}/TaskA-g1`);
     expect(info.taskId).toBe("TaskA");
     expect(info.generation).toBe(1);
     expect(info.worktreePath).toBe(join(repo.dir, ".substrate", "worktrees", "TaskA-g1"));

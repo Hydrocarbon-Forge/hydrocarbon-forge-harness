@@ -52,7 +52,7 @@ describe("verify: BwrapSandbox - wrapCommand arguments", () => {
     // Writable worktree only
     expect(wrapped).toContain("--bind");
     const worktreeBindIdx = wrapped.findIndex(
-      (arg, i) => arg === "--bind" && wrapped[i + 1] === options.worktreePath && wrapped[i + 2] === options.worktreePath,
+      (arg: string, i: number) => arg === "--bind" && wrapped[i + 1] === options.worktreePath && wrapped[i + 2] === options.worktreePath,
     );
     expect(worktreeBindIdx).toBeGreaterThanOrEqual(0);
 
@@ -99,7 +99,7 @@ describe("verify: BwrapSandbox - wrapCommand arguments", () => {
     const wrapped = sandbox.wrapCommand(["npm", "test"], options);
 
     const extraBindIdx = wrapped.findIndex(
-      (arg, i) => (arg === "--bind" || arg === "--ro-bind") && wrapped[i + 1] === "/home/user/.npm",
+      (arg: string, i: number) => (arg === "--bind" || arg === "--ro-bind") && wrapped[i + 1] === "/home/user/.npm",
     );
     expect(extraBindIdx).toBeGreaterThanOrEqual(0);
   });

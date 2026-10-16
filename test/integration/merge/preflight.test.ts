@@ -38,14 +38,14 @@ describe("merge: TaskMerger - preflight conflict detection", () => {
     const merger = getTaskMerger();
 
     // Create target run branch from main
-    repo.createBranch("substrate/run-1", "main");
+    repo.createBranch("substrate/runs/run-1", "main");
     // Diverge target branch by modifying fileA
-    repo.git(["checkout", "substrate/run-1"]);
+    repo.git(["checkout", "substrate/runs/run-1"]);
     repo.commitFile("fileA.txt", "feature A\n");
 
     // Create task branch from main (before target commit)
-    repo.createBranch("substrate/run-1/taskA-g1", "main");
-    repo.git(["checkout", "substrate/run-1/taskA-g1"]);
+    repo.createBranch("substrate/tasks/run-1/taskA-g1", "main");
+    repo.git(["checkout", "substrate/tasks/run-1/taskA-g1"]);
     repo.commitFile("fileB.txt", "feature B\n");
 
     // Checkout main again to verify working tree remains clean
@@ -53,8 +53,8 @@ describe("merge: TaskMerger - preflight conflict detection", () => {
 
     const preflight: PreflightResult = await merger.preflight(
       repo.dir,
-      "substrate/run-1",
-      "substrate/run-1/taskA-g1",
+      "substrate/runs/run-1",
+      "substrate/tasks/run-1/taskA-g1",
     );
 
     expect(preflight.clean).toBe(true);
@@ -71,15 +71,15 @@ describe("merge: TaskMerger - preflight conflict detection", () => {
     const merger = getTaskMerger();
 
     // Target branch modifies base.txt
-    repo.createBranch("substrate/run-2", "main");
-    repo.git(["checkout", "substrate/run-2"]);
+    repo.createBranch("substrate/runs/run-2", "main");
+    repo.git(["checkout", "substrate/runs/run-2"]);
     writeFileSync(join(repo.dir, "base.txt"), "target branch version\n", "utf8");
     repo.git(["add", "base.txt"]);
     repo.git(["commit", "-m", "target modifies base.txt"]);
 
     // Task branch also modifies base.txt conflictingly
-    repo.createBranch("substrate/run-2/taskConflict-g1", "main");
-    repo.git(["checkout", "substrate/run-2/taskConflict-g1"]);
+    repo.createBranch("substrate/tasks/run-2/taskConflict-g1", "main");
+    repo.git(["checkout", "substrate/tasks/run-2/taskConflict-g1"]);
     writeFileSync(join(repo.dir, "base.txt"), "task branch version\n", "utf8");
     repo.git(["add", "base.txt"]);
     repo.git(["commit", "-m", "task modifies base.txt"]);
@@ -88,8 +88,8 @@ describe("merge: TaskMerger - preflight conflict detection", () => {
 
     const preflight: PreflightResult = await merger.preflight(
       repo.dir,
-      "substrate/run-2",
-      "substrate/run-2/taskConflict-g1",
+      "substrate/runs/run-2",
+      "substrate/tasks/run-2/taskConflict-g1",
     );
 
     expect(preflight.clean).toBe(false);
