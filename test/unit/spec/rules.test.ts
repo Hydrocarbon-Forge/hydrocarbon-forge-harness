@@ -1,0 +1,716 @@
+import { describe, expect, it } from "vitest";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+import { lintPlan } from "../../../src/spec/linter.js";
+import {
+  createTempRepo,
+  sampleManifest,
+  sampleTaskSpecFrontmatter,
+  sampleParsedTaskSpec,
+  sampleParsedPlan,
+  sampleSettings,
+  SAMPLE_REQUIRED_SECTIONS,
+} from "./fixtures.js";
+
+describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
+  it("L001: emits error when manifest or spec frontmatter fails schema", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    // Manifest missing run_id (schema violation)
+    const badManifest = sampleManifest();
+    (badManifest as any).run_id = "invalid-run-id";
+    const plan = sampleParsedPlan({ manifest: badManifest });
+
+    const result = await lintPlan(plan, repo, settings);
+    expect(result.ok).toBe(false);
+    expect(result.hasErrors).toBe(true);
+    expect(result.diagnostics.some((d) => d.code === "L001" && d.severity === "error")).toBe(true);
+  });
+
+  it("L002: emits error on malformed or duplicate task IDs", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    // Duplicate task ID in manifest
+    const dupPlan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [
+          { id: "T1", spec: "tasks/T1.md" },
+          { id: "T1", spec: "tasks/T1_dup.md" },
+        ],
+      }),
+    });
+    const dupResult = await lintPlan(dupPlan, repo, settings);
+    expect(dupResult.diagnostics.some((d) => d.code === "L002" && d.severity === "error")).toBe(true);
+
+    // Malformed task ID (starts with lowercase or special symbol)
+    const badIdPlan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [{ id: "badId_lower" as any, spec: "tasks/bad.md" }],
+      }),
+    });
+    const badIdResult = await lintPlan(badIdPlan, repo, settings);
+    expect(badIdResult.diagnostics.some((d) => d.code === "L002" && d.severity === "error")).toBe(true);
+  });
+
+  it("L003: emits error when spec file is missing on disk or orphan exists", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    // Spec file missing on disk
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [{ id: "T1", spec: "tasks/missing_spec.md" }],
+      }),
+    });
+    const resultMissing = await lintPlan(plan, repo, settings);
+    expect(resultMissing.diagnostics.some((d) => d.code === "L003" && d.severity === "error")).toBe(true);
+
+    // Orphan spec file exists in tasks/ directory
+    writeFileSync(join(repo, "tasks", "orphan.md"), "orphan spec", "utf8");
+    const validSpecPath = join(repo, "tasks", "T1.md");
+    writeFileSync(validSpecPath, "spec content", "utf8");
+    const validPlan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [{ id: "T1", spec: "tasks/T1.md" }],
+      }),
+    });
+    const resultOrphan = await lintPlan(validPlan, repo, settings);
+    expect(resultOrphan.diagnostics.some((d) => d.code === "L003" && d.severity === "error")).toBe(true);
+  });
+
+  it("L004: emits error when depends_on references an unknown task ID", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const specWithGhostDep = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        depends_on: ["GHOST_TASK"],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [specWithGhostDep],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    expect(result.diagnostics.some((d) => d.code === "L004" && d.severity === "error")).toBe(true);
+  });
+
+  it("L005: emits error when task dependency graph has cycles", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    // Self dependency
+    const selfDepSpec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({ id: "T1", depends_on: ["T1"] }),
+    });
+    const selfDepPlan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [selfDepSpec],
+    });
+    const selfResult = await lintPlan(selfDepPlan, repo, settings);
+    const diagSelf = selfResult.diagnostics.find((d) => d.code === "L005");
+    expect(diagSelf).toBeDefined();
+    expect(diagSelf?.severity).toBe("error");
+    expect(diagSelf?.message).toContain("T1");
+
+    // Mutual cycle: T1 -> T2 -> T1
+    const t1 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({ id: "T1", depends_on: ["T2"] }),
+    });
+    const t2 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({ id: "T2", depends_on: ["T1"] }),
+    });
+    const mutualPlan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [
+          { id: "T1", spec: "tasks/T1.md" },
+          { id: "T2", spec: "tasks/T2.md" },
+        ],
+      }),
+      specs: [t1, t2],
+    });
+    const mutualResult = await lintPlan(mutualPlan, repo, settings);
+    expect(mutualResult.diagnostics.some((d) => d.code === "L005" && d.severity === "error")).toBe(true);
+  });
+
+  it("L006: emits error when path escapes repository root", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const specWithEscape = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        read: ["/etc/passwd"],
+        write: ["../escaped.txt"],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [{ id: "T1", spec: "tasks/T1.md" }],
+        contracts: {
+          files: ["../../outside.ts"],
+          typecheck: [{ run: "echo ok", timeout_s: 10, cwd: "/root" }],
+        },
+      }),
+      specs: [specWithEscape],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diags = result.diagnostics.filter((d) => d.code === "L006");
+    expect(diags.length).toBeGreaterThan(0);
+    expect(diags.every((d) => d.severity === "error")).toBe(true);
+  });
+
+  it("L007: emits error when spec.write pattern matches no existing files at base", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        write: ["src/does_not_exist_at_base.ts"],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L007");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L008: emits warning when concurrent DAG-ready tasks have overlapping write/create sets", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    writeFileSync(join(repo, "src", "shared.ts"), "shared", "utf8");
+
+    // T1 and T2 both at layer 0 (no depends_on) modifying same file
+    const t1 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        depends_on: [],
+        write: ["src/shared.ts"],
+      }),
+    });
+    const t2 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T2",
+        depends_on: [],
+        write: ["src/shared.ts"],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [
+          { id: "T1", spec: "tasks/T1.md" },
+          { id: "T2", spec: "tasks/T2.md" },
+        ],
+      }),
+      specs: [t1, t2],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L008");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("warn");
+  });
+
+  it("L009: emits error when task write/create intersects another task protected patterns", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    writeFileSync(join(repo, "src", "contracts", "index.ts"), "types", "utf8");
+
+    const t1 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        protected: ["src/contracts/**"],
+      }),
+    });
+    // T2 is class "feature" attempting to write to protected contracts
+    const t2 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T2",
+        class: "feature",
+        write: ["src/contracts/index.ts"],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [
+          { id: "T1", spec: "tasks/T1.md" },
+          { id: "T2", spec: "tasks/T2.md" },
+        ],
+      }),
+      specs: [t1, t2],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L009");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L010: emits error when verify command is empty or missing", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        verify: [] as any,
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L010");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+});
+
+describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)", () => {
+  it("L011: emits error when verify binary cannot be resolved or verify.cwd does not exist", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const specBadBin = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        verify: [{ run: "non_existent_binary_xyz_12345 --test", timeout_s: 10 }],
+      }),
+    });
+    const planBadBin = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [specBadBin],
+    });
+    const resBadBin = await lintPlan(planBadBin, repo, settings);
+    expect(resBadBin.diagnostics.some((d) => d.code === "L011" && d.severity === "error")).toBe(true);
+
+    const specBadCwd = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        verify: [{ run: "node -v", cwd: "invalid_dir_abc", timeout_s: 10 }],
+      }),
+    });
+    const planBadCwd = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [specBadCwd],
+    });
+    const resBadCwd = await lintPlan(planBadCwd, repo, settings);
+    expect(resBadCwd.diagnostics.some((d) => d.code === "L011" && d.severity === "error")).toBe(true);
+  });
+
+  it("L012: emits error when verify references uncreated and non-existent test path", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        verify: [{ run: "npm test -- test/unit/missing.test.ts", timeout_s: 30 }],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L012");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L013: emits error when placeholder tokens appear in Interface or Behavior", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const sections = new Map(Object.entries(SAMPLE_REQUIRED_SECTIONS));
+    sections.set("Behavior", "Step 1: TODO complete implementation.");
+
+    const spec = sampleParsedTaskSpec({ sections });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L013");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L014: emits error when any required section is missing or empty", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const sections = new Map(Object.entries(SAMPLE_REQUIRED_SECTIONS));
+    sections.delete("Guardrails"); // Missing required section
+
+    const spec = sampleParsedTaskSpec({ sections });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L014");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L015: emits error when spec.class is not present in settings.routing", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings(); // routing has "feature"
+
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        class: "unregistered_class",
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L015");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L016: emits error when task budget is missing or exceeds per-task cap", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings({
+      budgets: {
+        ...sampleSettings().budgets,
+        task: { max_usd: 0.5 },
+      },
+    });
+
+    const specOverBudget = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        budget: { max_usd: 1.5 }, // Exceeds 0.5
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [specOverBudget],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L016");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L017: emits error when task read set exceeds context budget cap", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    // Create 60 files to exceed default cap of 50
+    mkdirSync(join(repo, "src", "bulk"), { recursive: true });
+    for (let i = 0; i < 60; i++) {
+      writeFileSync(join(repo, "src", "bulk", `file_${i}.ts`), "content", "utf8");
+    }
+
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        read: ["src/bulk/*.ts"],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L017");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L018: emits error when contract typecheck command fails", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+    writeFileSync(join(repo, "src", "contracts", "index.ts"), "export type A = 1;", "utf8");
+
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        contracts: {
+          files: ["src/contracts/index.ts"],
+          typecheck: [{ run: "node -e 'process.exit(1)'", timeout_s: 10 }],
+        },
+      }),
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L018");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L019: emits error when Interface references undeclared contract file", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const sections = new Map(Object.entries(SAMPLE_REQUIRED_SECTIONS));
+    sections.set("Interface", "Import from `src/contracts/missing_types.ts`.");
+
+    const spec = sampleParsedTaskSpec({ sections });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [{ id: "T1", spec: "tasks/T1.md" }],
+        contracts: { files: ["src/contracts/index.ts"], typecheck: [] },
+      }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L019");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+
+  it("L020: emits diagnostic when code fence contains implementation bodies", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const spec = sampleParsedTaskSpec({
+      codeBlocks: [
+        {
+          lang: "ts",
+          code: `
+function executeProcess(input: string) {
+  let acc = "";
+  for (let i = 0; i < input.length; i++) {
+    if (input[i] !== " ") {
+      acc += input[i];
+    }
+  }
+  return acc;
+}
+`,
+          lineStart: 12,
+          lineCount: 10,
+        },
+      ],
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L020");
+    expect(diag).toBeDefined();
+  });
+});
+
+describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, limits)", () => {
+  it("L021: emits warning when manifest.integration_verify is empty", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        integration_verify: [],
+      }),
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L021");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("warn");
+  });
+
+  it("L022: emits gate diagnostic when estimated cost exceeds approval threshold", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings({
+      budgets: {
+        ...sampleSettings().budgets,
+        approval_threshold_usd: 1.0,
+      },
+    });
+
+    const t1 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        budget: { max_usd: 0.8 },
+      }),
+    });
+    const t2 = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T2",
+        budget: { max_usd: 0.8 },
+      }),
+    });
+    // Total = 1.6 > 1.0
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        tasks: [
+          { id: "T1", spec: "tasks/T1.md" },
+          { id: "T2", spec: "tasks/T2.md" },
+        ],
+      }),
+      specs: [t1, t2],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    expect(result.hasGates).toBe(true);
+    const diag = result.diagnostics.find((d) => d.code === "L022");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("gate");
+  });
+
+  it("L023: emits warning or error when verify passes at base ref (red-check)", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        verify: [{ run: "node -e 'process.exit(0)'", timeout_s: 10 }],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    // Default mode: severity warn
+    const warnResult = await lintPlan(plan, repo, settings, { redCheck: false });
+    const warnDiag = warnResult.diagnostics.find((d) => d.code === "L023");
+    expect(warnDiag).toBeDefined();
+    expect(warnDiag?.severity).toBe("warn");
+
+    // redCheck mode: severity error
+    const errResult = await lintPlan(plan, repo, settings, { redCheck: true });
+    const errDiag = errResult.diagnostics.find((d) => d.code === "L023");
+    expect(errDiag).toBeDefined();
+    expect(errDiag?.severity).toBe("error");
+  });
+
+  it("L024: emits warning when class tests writes non-test or non-tests writes tests", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    writeFileSync(join(repo, "src", "code.ts"), "code", "utf8");
+    writeFileSync(join(repo, "test", "unit.test.ts"), "test", "utf8");
+
+    // tests-class writing src/code.ts
+    const testsClassBad = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        class: "tests",
+        write: ["src/code.ts"],
+      }),
+    });
+    const plan1 = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [testsClassBad],
+    });
+    const res1 = await lintPlan(plan1, repo, settings);
+    expect(res1.diagnostics.some((d) => d.code === "L024" && d.severity === "warn")).toBe(true);
+
+    // feature-class writing test/unit.test.ts
+    const featureClassBad = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T2",
+        class: "feature",
+        write: ["test/unit.test.ts"],
+      }),
+    });
+    const plan2 = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T2", spec: "tasks/T2.md" }] }),
+      specs: [featureClassBad],
+    });
+    const res2 = await lintPlan(plan2, repo, settings);
+    expect(res2.diagnostics.some((d) => d.code === "L024" && d.severity === "warn")).toBe(true);
+  });
+
+  it("L025: emits warning when manifest budget exceeds run cap", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings({
+      budgets: {
+        ...sampleSettings().budgets,
+        run: { max_usd: 5.0 },
+      },
+    });
+
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        budget: { max_usd: 25.0 }, // Exceeds run max_usd 5.0
+      }),
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L025");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("warn");
+  });
+
+  it("L026: emits warning when total task count exceeds max_tasks limit", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    // 5 tasks with maxTasks: 3
+    const tasks = Array.from({ length: 5 }, (_, i) => ({
+      id: `T${i + 1}`,
+      spec: `tasks/T${i + 1}.md`,
+    }));
+    const specs = tasks.map((t) =>
+      sampleParsedTaskSpec({
+        frontmatter: sampleTaskSpecFrontmatter({ id: t.id }),
+        filePath: t.spec,
+      })
+    );
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks }),
+      specs,
+    });
+
+    const result = await lintPlan(plan, repo, settings, { maxTasks: 3 });
+    const diag = result.diagnostics.find((d) => d.code === "L026");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("warn");
+  });
+
+  it("L027: emits error when protected path does not exist at base and not created earlier", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        protected: ["src/missing_protected.ts"],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L027");
+    expect(diag).toBeDefined();
+    expect(diag?.severity).toBe("error");
+  });
+});
