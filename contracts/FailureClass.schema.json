@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FailureClass",
+  "type": "string",
+  "enum": [
+    "verify_failed",
+    "scope_violation",
+    "protected_modified",
+    "budget_exceeded",
+    "timeout",
+    "worker_crashed",
+    "permission_denied",
+    "rate_limited",
+    "merge_conflict",
+    "integration_failed",
+    "spec_invalid"
+  ]
+}

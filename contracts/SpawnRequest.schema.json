@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SpawnRequest",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "governor",
+        "planner",
+        "worker",
+        "test-writer",
+        "reviewer"
+      ]
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "system_append": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "effort": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    "permission": {
+      "type": "object",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "allow",
+        "deny"
+      ],
+      "additionalProperties": false
+    },
+    "json_schema": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_usd": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "timeout_min": {
+          "type": "number"
+        },
+        "max_turns": {
+          "type": "number"
+        },
+        "timeout_ms": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "timeout_ms"
+      ],
+      "additionalProperties": false
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "add_dirs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "session": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "resume": {
+          "type": "string"
+        },
+        "fork": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "role",
+    "cwd",
+    "prompt",
+    "model",
+    "permission",
+    "budget"
+  ],
+  "additionalProperties": false
+}

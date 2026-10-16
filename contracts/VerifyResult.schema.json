@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VerifyResult",
+  "type": "object",
+  "properties": {
+    "cmd": {
+      "type": "string"
+    },
+    "exit_code": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timed_out": {
+      "type": "boolean"
+    },
+    "duration_ms": {
+      "type": "number"
+    },
+    "stdout_tail": {
+      "type": "string"
+    },
+    "stderr_tail": {
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cmd",
+    "exit_code",
+    "timed_out",
+    "duration_ms",
+    "stdout_tail",
+    "stderr_tail",
+    "truncated"
+  ],
+  "additionalProperties": false
+}

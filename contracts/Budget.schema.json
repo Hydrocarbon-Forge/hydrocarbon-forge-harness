@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Budget",
+  "type": "object",
+  "properties": {
+    "max_usd": {
+      "type": "number"
+    },
+    "max_tokens": {
+      "type": "number"
+    },
+    "timeout_min": {
+      "type": "number"
+    },
+    "max_turns": {
+      "type": "number"
+    }
+  },
+  "additionalProperties": false
+}

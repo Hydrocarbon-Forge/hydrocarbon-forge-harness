@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunOptions",
+  "type": "object",
+  "properties": {
+    "prompt": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "solo",
+        "plan"
+      ]
+    },
+    "permission_mode": {
+      "type": "string",
+      "enum": [
+        "default",
+        "plan",
+        "acceptEdits",
+        "dontAsk",
+        "bypassPermissions"
+      ]
+    },
+    "overrides": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object"
+      }
+    },
+    "resume": {
+      "type": "string",
+      "pattern": "^r_[A-Z2-7]{12}$"
+    },
+    "signal": {
+      "type": "object"
+    },
+    "onEvent": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "prompt",
+    "cwd",
+    "mode",
+    "permission_mode"
+  ],
+  "additionalProperties": false
+}
