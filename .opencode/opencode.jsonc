@@ -1,0 +1,4 @@
+{
+  // Open directly into the build orchestrator
+  "default_agent": "substrate-orchestrator"
+}

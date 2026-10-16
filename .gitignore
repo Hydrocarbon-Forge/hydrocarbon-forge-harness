@@ -1,0 +1,8 @@
+node_modules/
+.worktrees/
+.substrate-task/
+build/state/
+build/reports/
+build/packets/
+.substrate/runs/
+.substrate/worktrees/

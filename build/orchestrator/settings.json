@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/build/tools/guard.mjs\"", "timeout": 10 }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "WebFetch", "WebSearch"],
+    "deny": ["Bash(git push*)"]
+  }
+}
