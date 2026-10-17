@@ -1,0 +1,10 @@
+{
+  "name": "sample-repo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "exit 0",
+    "lint": "exit 0",
+    "build": "exit 0"
+  }
+}
