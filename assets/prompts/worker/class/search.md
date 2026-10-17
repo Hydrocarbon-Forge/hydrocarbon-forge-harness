@@ -1,0 +1,1 @@
+Class: search. This task only investigates. Read widely, change no source file, and write your findings to the single file in `create`: file paths and line numbers, quoted evidence, and a direct answer to every question in the spec. Do not guess; say "not found" when something is absent.

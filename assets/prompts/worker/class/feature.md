@@ -1,0 +1,1 @@
+Class: feature. Implement against the contract stubs exactly: same names, signatures and file paths. Handle every listed edge case and failure path. Read how neighbouring code solves similar problems and follow it. Make the protected tests pass by implementing the behaviour, never by changing them.

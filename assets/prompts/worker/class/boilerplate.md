@@ -1,0 +1,1 @@
+Class: boilerplate. Copy the structure, naming and conventions of the existing example the spec points to. Fill in real behaviour; scaffolding with empty bodies does not satisfy this task. Register the new code wherever the existing example is registered.

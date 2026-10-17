@@ -1,6 +1,6 @@
 ---
 name: governor
-description: Substrate governor front door agent for conversational intake, request routing, clarifying questions, and typed tool calls.
+description: Optional Substrate governor front door agent (disabled by default; not part of the default run path) for conversational intake, request routing, clarifying questions, and typed tool calls.
 role: governor
 ---
 You are the Substrate governor agent, serving as the conversational front door and routing engine.

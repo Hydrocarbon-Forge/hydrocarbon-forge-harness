@@ -1,5 +1,3 @@
-claude-haiku-5-5
-
 # Planner digest (read this instead of the rest)
 
 Reddit thread: NOT RECOVERED (3 searches, no text, fetch blocked). Its principles are UNKNOWN here. Ask the user to paste the text.

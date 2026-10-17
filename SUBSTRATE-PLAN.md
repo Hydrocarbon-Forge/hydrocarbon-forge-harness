@@ -1,6 +1,16 @@
 # Substrate — Architecture & Implementation Plan (v2)
 
-> Status: draft for user review · Date: 2026-10-16 · Supersedes `PLAN.md` (working title "Valence").
+> **Status (2026-10-17): this document is the original v2 design and is partly SUPERSEDED. `docs/plan/DECISIONS.md` is binding; where this file disagrees with it, DECISIONS.md wins.** Work is tracked in `docs/plan/`; start at `START-HERE.md`. The original draft v1 plan ("Valence") is archived at `docs/archive/PLAN-v1-valence.md`.
+
+| Section here | Status | Authority |
+|---|---|---|
+| §1 line 24, §6.1 governor row, §6.3, §4.2 governor wording, §18 OD3, App. A `GovernorTool`/`RoutingDecision`, App. B `governor` | **Superseded.** The governor/local triage model is retired from the default path; a local model is only an OpenCode worker route. | DECISIONS A2, A5 |
+| §3 diagram "governor" box, §10 sandbox/network-denial, A10, G5 "P6.2 findings" | **Superseded.** Security hardening is out of scope. | DECISIONS A6 |
+| §16 work-package table, §14 test counts, gates G0-G5 | **Historical.** All 24 original WPs are merged. New work is `docs/plan/IMPLEMENTATION-PLAN.md`. | docs/plan |
+| §4.6 stream-json names, §7 `contracts/` layout, §7 worktree path | **Superseded** by the resolved-contradictions table. | DECISIONS |
+| Everything else (invariants §2, state machine §5, git/merge §8, verify §9, linter §12, App. A contracts, App. C, App. D) | **Still authoritative** unless DECISIONS says otherwise. | this file |
+
+> Original status line: draft for user review · Date: 2026-10-16.
 > Authored in the **Planner** role: this document contains invariants, contracts, verification criteria and work-package boundaries. It contains **no implementation bodies**. Where a fact is unverified it is marked `UNKNOWN`/`ASSUMPTION` and routed to a spike (§17).
 
 ---
@@ -10,7 +20,7 @@
 | If you are… | Read |
 |---|---|
 | The user | §1, §4, §16 (cut lines), §18 (assumptions to confirm) |
-| The build orchestrator | everything; `ORCHESTRATOR-PROMPT.md` cites sections by number |
+| The implementer (human or model) | `START-HERE.md`, then `docs/plan/DECISIONS.md`, then your WP spec in `docs/plan/wp/` |
 | A spec-writer / worker | your task spec + the Appendix A declarations it references; do not read the rest |
 
 Evidence base: `research/01-harness-conventions.md` (Claude Code / OpenCode / Antigravity CLI facts, real samples) and `research/02-principles-and-prior-art.md` (principles). Only their *Planner digests* were used to write this plan. Two research gaps are known: the Reddit thread could not be retrieved (its principles are not attributed anywhere here), and prior-art coverage beyond Claude Code subagents, Roo Orchestrator and Aider is thin.
@@ -118,8 +128,8 @@ Each invariant names its enforcement mechanism. An invariant enforced only by pr
 
 | Command | Purpose |
 |---|---|
-| `substrate [prompt]` | Interactive TUI; optional initial prompt (like `claude "q"`). The prompt goes to the governor (front door) unless `--mode` or `--no-governor` is given |
-| `substrate -p "<prompt>"` / `substrate run "<prompt>"` | Headless run; prompt may come from stdin; same governor/flag rule; `--no-governor` forces the deterministic path |
+| `substrate [prompt]` | Interactive TUI; optional initial prompt (like `claude "q"`). ~~The prompt goes to the governor (front door) unless `--mode` or `--no-governor` is given~~ **Superseded (DECISIONS A2): there is no governor on the default path; the prompt goes to the deterministic router, then `plan`.** |
+| `substrate -p "<prompt>"` / `substrate run "<prompt>"` | Headless run; prompt may come from stdin; ~~same governor/flag rule~~ **superseded: see DECISIONS A4 (request schema)** |
 | `substrate plan "<prompt>"` | Plan + lint + estimate, then stop (≡ `--permission-mode plan`) |
 | `substrate resume [run_id\|session_id]` | Resume a paused or crashed run (also `--resume`) |
 | `substrate status [run]` · `tasks [run]` · `cost [run\|--since]` · `report <run>` | Inspection |
@@ -190,6 +200,8 @@ Side states: `PAUSED(reason ∈ PauseReason)`, `FAILED`, `CANCELLED`. `PAUSED` i
 ## 6. Roles, routing, governor
 
 ### 6.1 Roles
+
+> The Governor row below is superseded (DECISIONS A2).
 | Role | Default tier | Reads | Writes | Notes |
 |---|---|---|---|---|
 | Governor (front door) | local model, called **directly** by Substrate over an OpenAI-compatible API | your request, repo summary, run status | schema-constrained routing decisions and calls to a fixed typed tool set; clarifying questions; advisory lint | cannot plan, implement, edit the repo, or change caps/verdicts (§6.3) |
@@ -202,6 +214,8 @@ Side states: `PAUSED(reason ∈ PauseReason)`, `FAILED`, `CANCELLED`. `PAUSED` i
 The Planner assigns each task a **class** from the configured set; the engine maps class → `{backend, model, effort, budget}`. The Planner cannot name a model. Default class set and mapping are in Appendix B (config values, not code). Generation ≥ 2 moves up `routing.escalation` (default `haiku → sonnet → opus`). Local-model workers (OpenCode + llama.cpp) are an **opt-in routing entry**, justified only by the benchmark (§13), and are capped by `backends.opencode.max_concurrency` (the local server has 2 slots).
 
 ### 6.3 Governor (the front door) and router
+
+> **SUPERSEDED (DECISIONS A2, A5).** The governor is retired from the default path. Only the deterministic router rules (rule 2 below) remain in use. Read the rest of this section as history.
 
 The governor is how a project **starts**: what you type in the prompt box, or pass to `substrate -p`, goes to the local model first, unless explicit flags (`--mode`, `--no-governor`) select the deterministic path. It may (a) ask up to `max_clarifying_turns` short clarifying questions, (b) choose mode, task class and planner route (schema-constrained output), (c) start and control runs through a **fixed typed tool set** (`start_run`, `plan_only`, `resume_run`, `run_status`, `show_cost`, `cancel_run`, `ask_user`; Appendix A) whose calls the engine validates and executes, and (d) narrate status and give advisory semantic lint. It **cannot plan, implement, edit the repo, or change caps, verdicts or state**: planning and implementation belong to the harnesses and everything else to the engine (I1). This is the one place Substrate itself calls a model, directly, with no harness in between. Conversation state lives in the session record.
 Order of decision (first match wins): (1) explicit flags; (2) deterministic rules (named single file + mechanical verb → `solo`/`mechanical`); (3) governor LLM if enabled and `/health` passes within 10 s; (4) default `plan`. Governor calls use `response_format: json_schema` and **thinking disabled** (`chat_template_kwargs.enable_thinking=false`); thinking is allowed only for advisory semantic lint (App. C, S-codes). *Measured on 2026-10-16:* the llama.cpp server (Qwen3.8-27B Q4_K_M, 128k ctx) supports schema-constrained output and native tool calling; with thinking on, a small `max_tokens` is consumed by hidden reasoning and content comes back empty; on one toy request it routed a trivial rename to `medium`/`sonnet` (n=1, not a conclusion). Every routing decision and its eventual outcome is written to the ledger so the rules can be calibrated from data. If the governor is unreachable the engine falls through to rule 4; it never blocks.
@@ -281,7 +295,7 @@ Task specs are **materialized** into the worktree at `.substrate-task/TASK.md` (
 | Native headless subagents | yes (20 concurrent, depth 3) — **not used**, workers get `Agent` denied | UNKNOWN | UNKNOWN |
 | Known traps | `--bare` skips CLAUDE.md/hooks **but needs an API key**, so it breaks subscription auth ⇒ minimal worker context must come from an agent definition (`omitClaudeMd`), spike S1 | v2 dropped agent fields `permission/tools/prompt/temperature/maxSteps`; tool restriction must go through config (S2); background service interference ⇒ always `--standalone` | soft-deny in `-p` returns exit 0; no cost field; doc conflicts ⇒ pin and test against 1.4.0 |
 
-Local model as a backend: OpenCode custom provider → `http://192.168.1.72:8080/v1` (llama.cpp, tool calling works). This address is user-local and belongs in `settings.local.json`.
+Local model as a backend: OpenCode custom provider → the user's OpenAI-compatible endpoint (llama.cpp, tool calling works). The address is user-local, belongs in `settings.local.json`, and must never appear in a committed file.
 
 ---
 
@@ -312,12 +326,12 @@ Deterministic checks (App. C, `L001–L027`) run in code over `manifest.yaml`, t
 
 ## 15. Repository layout and stack
 
-Repo root = this directory (needs `git init`; it is not a repository yet).
+Repo root = this directory.
 
 ```text
 package.json  tsconfig.json  vitest.config.ts  .gitignore
-SUBSTRATE-PLAN.md  ORCHESTRATOR-PROMPT.md  PLAN.md(historical)  research/  docs/{spikes,reference}/
-build/            bootstrap-only: specs/ state/ tools/ packets/ reports/ (see ORCHESTRATOR-PROMPT.md)
+SUBSTRATE-PLAN.md  START-HERE.md  research/  docs/{plan,reference,spikes,archive}/
+build/            legacy bootstrap kit (specs of the 24 merged WPs, tools); not used by the R-series. Retired orchestrator files: docs/archive/bootstrap/
 contracts/        generated JSON Schemas
 src/
   contracts/      zod schemas + inferred types (App. A)
@@ -412,7 +426,7 @@ Dispatcher-mode experiment (native subagent fan-out where a backend proves relia
 | G2 | git/verify/merge integration tests green on throwaway repos; linter catalogue implemented |
 | G3 | conformance suite green for `fake`, `claude`, `opencode` and `agy` |
 | G4 | all 15 P4.3 scenarios green with fake backends |
-| G5 (v0.1) | CLI headless works; chaos tests green; live smoke passes within its cost cap on every installed harness; P6.2 findings resolved or explicitly accepted |
+| G5 (v0.1) | CLI headless works; chaos tests green; live smoke passes within its cost cap on every installed harness; ~~P6.2 findings resolved or explicitly accepted~~ (security is out of scope, DECISIONS A6) |
 
 ---
 
@@ -442,9 +456,9 @@ Dispatcher-mode experiment (native subagent fan-out where a backend proves relia
 
 ## 18. Decision log and assumptions
 
-**Confirmed by the user:** the name **Substrate**; the engine is **TypeScript**; Substrate is its own product and supports Claude Code, Antigravity and OpenCode as peer runners for planning or implementation (no privileged backend, no model runtime of its own); the design must closely mirror those three harnesses; research and detail-heavy design work goes to Haiku 5.5 high-effort subagents; the implementation is driven by an orchestrating agent that uses subagents.
+**Confirmed by the user:** the name **Substrate**; the engine is **TypeScript**; Substrate is its own product and supports Claude Code, Antigravity and OpenCode as peer runners for planning or implementation (no privileged backend, no model runtime of its own); the design must closely mirror those three harnesses; research and detail-heavy design work goes to Haiku 5.5 high-effort subagents; the original implementation was driven by an orchestrating agent that used subagents (retired; see `docs/archive/bootstrap/`).
 
-**Resolved by the user:** all three adapters ship in v0.1 (OD2); the local model is called directly by Substrate and is how a project starts, while Substrate still cannot plan or implement by itself (OD3).
+**Resolved by the user:** all three adapters ship in v0.1 (OD2); ~~the local model is called directly by Substrate and is how a project starts~~ **(OD3 superseded by DECISIONS A2: the governor is retired)**.
 
 **Open decision (the plan shows the current default):**
 | # | Question | Current default |
@@ -617,7 +631,7 @@ export interface RoutingDecision { mode: "solo" | "plan"; task_class?: TaskClass
   "roles": {
     "planner":  { "backend": "claude", "model": "claude-opus-5-5", "effort": "high" },   // top tier: user-configurable
     "reviewer": { "enabled": false, "backend": "claude", "model": "claude-opus-5-5", "effort": "high" },
-    "governor": { "enabled": true, "endpoint": "http://192.168.1.72:8080/v1", "enable_thinking": false, "timeout_s": 10 }  // user-local → settings.local.json
+    "governor": { "enabled": true, "endpoint": "<set in settings.local.json>", "enable_thinking": false, "timeout_s": 10 }  // user-local → settings.local.json
   },
   "routing": {
     "search":      { "backend": "claude", "model": "claude-haiku-5-5",  "effort": "low" },
@@ -679,7 +693,7 @@ export interface RoutingDecision { mode: "solo" | "plan"; task_class?: TaskClass
 
 `run.created` · `run.routed` · `plan.started` · `plan.produced` · `plan.lint` · `plan.approved` · `plan.rejected` · `contracts.committed` · `setup.done` · `batch.started` · `task.ready` · `task.worktree.created` · `task.session.started` · `task.session.ended` · `task.scope.checked` · `task.verify.started` · `task.verify.finished` · `task.healing` · `task.passed` · `task.failed` · `task.merged` · `task.blocked` · `replan.started` · `replan.finished` · `batch.merged` · `integration.started` · `integration.finished` · `usage.recorded` · `run.paused` · `run.resumed` · `run.budget.warning` · `run.budget.exceeded` · `run.finished`. Every event is an `EngineEvent` with a monotonically increasing `seq`.
 
-## Appendix E — Changes from `PLAN.md` (Valence)
+## Appendix E — Changes from `PLAN.md` (Valence; archived at `docs/archive/PLAN-v1-valence.md`)
 
 | Original | Substrate |
 |---|---|

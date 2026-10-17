@@ -17,7 +17,8 @@
     "export-schemas": "node scripts/export-schemas.mjs",
     "bench": "node scripts/bench.mjs",
     "docs:check": "node scripts/docs-check.mjs",
-    "bundle": "node scripts/bundle.mjs"
+    "bundle": "node scripts/bundle.mjs",
+    "check:plan": "node scripts/check-plan.mjs"
   },
   "dependencies": {
     "picomatch": "^4.0.2",

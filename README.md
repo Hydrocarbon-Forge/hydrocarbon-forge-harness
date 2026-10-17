@@ -1,3 +1,5 @@
+> **Status (2026-10-17): under remediation.** Parts of this README describe intended behavior that is not implemented yet (the interactive TUI, the `SUBSTRATE_*` environment layer, `bench`/`agents-import`, several flags, and a working `bin/substrate.mjs`). The accurate state and the plan to fix it are in [`docs/plan/PROGRESS.md`](docs/plan/PROGRESS.md); contributors start at [`START-HERE.md`](START-HERE.md). This notice is removed by work package R5.2.
+
 # Substrate
 
 Substrate is a deterministic orchestration engine that drives external peer agent harnesses (Claude Code, OpenCode, Antigravity) without privileged backends. It provides structured task planning, isolated git worktrees, automated verification gates, append-only event logging, and cost accounting, while delegating code generation and reasoning to external command-line agent harnesses running as unprivileged peers.

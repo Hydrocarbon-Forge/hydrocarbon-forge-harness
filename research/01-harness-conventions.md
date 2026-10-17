@@ -1,5 +1,3 @@
-claude-haiku-5-5
-
 # 01 Harness conventions: Claude Code, OpenCode, Antigravity (agy)
 
 Evidence tags: [LOCAL] observed in this sandbox; [DOCS url] from fetched docs; [UNVERIFIED] not checked; UNKNOWN = not found.

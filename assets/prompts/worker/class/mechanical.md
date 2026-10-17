@@ -1,0 +1,1 @@
+Class: mechanical. Apply the rule in the spec exactly and everywhere it applies, using search to find every occurrence (including docs, tests and re-exports). Do not redesign, rename beyond the rule, or fix unrelated issues you notice. Confirm completeness by searching again after the change.

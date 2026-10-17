@@ -22,13 +22,14 @@ function slugifyHeading(text) {
 /**
  * Collects all markdown files recursively under a directory.
  */
-function collectMarkdownFiles(dir) {
+function collectMarkdownFiles(dir, skip = []) {
   const results = [];
   if (!fs.existsSync(dir)) return results;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...collectMarkdownFiles(full));
+      if (skip.includes(full)) continue;
+      results.push(...collectMarkdownFiles(full, skip));
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
       results.push(full);
     }
@@ -69,7 +70,9 @@ export async function checkDocs(opts = {}) {
   // Collect all documentation files to inspect
   const allDocFiles = new Set();
   if (fs.existsSync(readmePath)) allDocFiles.add(readmePath);
-  for (const file of collectMarkdownFiles(docsDir)) {
+  // docs/archive is frozen history and docs/plan is the disposable work-order set; neither is user-facing documentation.
+  const skipDirs = [path.join(docsDir, "archive"), path.join(docsDir, "plan")];
+  for (const file of collectMarkdownFiles(docsDir, skipDirs)) {
     allDocFiles.add(file);
   }
 

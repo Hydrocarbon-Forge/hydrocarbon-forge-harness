@@ -1,0 +1,1 @@
+Class: refactor. Behaviour must not change. Run the existing tests before you start to learn the baseline, change structure in small steps, and run them again at the end. Do not alter public signatures unless the spec says to, and update every caller.

@@ -4,7 +4,6 @@ node_modules/
 build/state/
 build/reports/
 build/packets/
-.substrate/runs/
-.substrate/worktrees/
+.substrate/
 dist/
 coverage/

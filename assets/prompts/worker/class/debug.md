@@ -1,0 +1,1 @@
+Class: debug. Reproduce the failure first and keep the reproduction. Find the root cause before changing code; fix the cause, not the symptom, and do not special-case the failing input. Confirm that the reproduction now passes and that nothing nearby broke.

@@ -1,3 +1,5 @@
+> **SUPERSEDED. Do not implement from this file.** This is the first draft ('Valence'). It made a local model the outer governor and a cheap model the inner dispatcher; both ideas were dropped. The current design is `SUBSTRATE-PLAN.md` as amended by `docs/plan/DECISIONS.md`.
+
 # System Architecture & Implementation Plan: Multi-Harness Agentic Orchestrator
 
 ## 1. System Vision & Core Operating Principles
