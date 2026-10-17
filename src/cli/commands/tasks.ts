@@ -1,0 +1,163 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import type { Effort, Engine, PermissionMode, TaskId } from "../../contracts/index.js";
+import type { SessionStore } from "../../store/sessions.js";
+
+export interface CliGlobalFlags {
+  print?: boolean;
+  outputFormat?: "text" | "json" | "stream-json";
+  model?: string;
+  workerModel?: string;
+  effort?: Effort;
+  sessionId?: string;
+  resume?: string;
+  continue?: boolean;
+  forkSession?: boolean;
+  mode?: "auto" | "solo" | "plan";
+  noGovernor?: boolean;
+}
+
+export interface CliGovernanceFlags {
+  permissionMode?: PermissionMode;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  worktree?: boolean;
+  maxBudgetUsd?: number;
+  timeout?: number;
+  sandbox?: boolean;
+  settings?: string;
+}
+
+export type ParsedCliFlags = CliGlobalFlags & CliGovernanceFlags;
+
+export interface CommandContext {
+  cwd: string;
+  flags: ParsedCliFlags;
+  rawArgs: string[];
+  stdin?: string;
+  stdout: NodeJS.WriteStream;
+  stderr: NodeJS.WriteStream;
+  engine?: Engine;
+  sessionStore?: SessionStore;
+}
+
+export interface CliCommand {
+  name: string;
+  aliases?: string[];
+  description: string;
+  execute(ctx: CommandContext): Promise<number>;
+}
+
+const { registry } = await import(`../registry.js`);
+
+interface TaskDisplayInfo {
+  id: TaskId;
+  taskClass?: string;
+  state: string;
+  generation: number;
+  attempt: number;
+  failureClass?: string;
+  verdict?: string;
+}
+
+export const tasksCommand: CliCommand = {
+  name: "tasks",
+  description: "Display table of tasks for a run",
+  async execute(ctx: CommandContext): Promise<number> {
+    const runsDir = path.join(ctx.cwd, ".substrate", "runs");
+    let targetRunId = ctx.rawArgs[0];
+
+    if (!targetRunId) {
+      if (!fs.existsSync(runsDir)) {
+        ctx.stderr.write("Error: No runs directory found\n");
+        return 2;
+      }
+      const entries = fs.readdirSync(runsDir, { withFileTypes: true });
+      const candidates: { id: string; mtime: number }[] = [];
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.startsWith("r_")) {
+          const full = path.join(runsDir, entry.name);
+          try {
+            const stat = fs.statSync(full);
+            candidates.push({ id: entry.name, mtime: stat.mtimeMs });
+          } catch {
+            // ignore
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => b.mtime - a.mtime);
+        targetRunId = candidates[0].id;
+      }
+    }
+
+    if (!targetRunId) {
+      ctx.stderr.write("Error: Run ID required or no prior runs exist\n");
+      return 2;
+    }
+
+    const runDir = path.join(runsDir, targetRunId);
+    const eventsFile = path.join(runDir, "events.jsonl");
+
+    if (!fs.existsSync(eventsFile)) {
+      ctx.stderr.write(`Error: Run '${targetRunId}' not found at ${eventsFile}\n`);
+      return 2;
+    }
+
+    const content = fs.readFileSync(eventsFile, "utf8");
+    const lines = content.trim().split("\n").filter((l) => l.trim().length > 0);
+
+    const taskMap = new Map<TaskId, TaskDisplayInfo>();
+
+    for (const line of lines) {
+      try {
+        const ev = JSON.parse(line);
+        const data = (ev.data ?? {}) as Record<string, any>;
+        const tid = (data.task_id || data.id) as TaskId | undefined;
+
+        if (tid) {
+          let task = taskMap.get(tid);
+          if (!task) {
+            task = {
+              id: tid,
+              taskClass: data.class || "feature",
+              state: "PENDING",
+              generation: data.generation ?? 1,
+              attempt: data.attempt ?? 1,
+            };
+            taskMap.set(tid, task);
+          }
+          if (data.class) task.taskClass = data.class;
+          if (data.generation) task.generation = data.generation;
+          if (data.attempt) task.attempt = data.attempt;
+
+          if (ev.type === "task.started") {
+            task.state = "RUNNING";
+          } else if (ev.type === "task.verified") {
+            task.verdict = data.verdict ?? "pass";
+            task.state = task.verdict === "pass" ? "VERIFIED" : "VERIFY_FAILED";
+          } else if (ev.type === "task.failed") {
+            task.state = "FAILED";
+            task.failureClass = data.failure_class;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    ctx.stdout.write(`Tasks for Run ${targetRunId}:\n\n`);
+    ctx.stdout.write(`ID\tClass\tState\tGen\tAtt\tFailure\tVerdict\n`);
+    ctx.stdout.write(`----------------------------------------------------------------\n`);
+    for (const t of taskMap.values()) {
+      ctx.stdout.write(
+        `${t.id}\t${t.taskClass ?? "feature"}\t${t.state}\t${t.generation}\t${t.attempt}\t${t.failureClass ?? "-"}\t${t.verdict ?? "-"}\n`,
+      );
+    }
+
+    return 0;
+  },
+};
+
+registry.register(tasksCommand);
