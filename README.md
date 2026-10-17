@@ -1,4 +1,4 @@
-> **Status (2026-10-17): under remediation.** Parts of this README describe intended behavior that is not implemented yet (the interactive TUI, the `SUBSTRATE_*` environment layer, `bench`/`agents-import`, several flags, and a working `bin/substrate.mjs`). The accurate state and the plan to fix it are in [`docs/plan/PROGRESS.md`](docs/plan/PROGRESS.md); contributors start at [`START-HERE.md`](START-HERE.md). This notice is removed by work package R5.2.
+> **Status (2026-10-17): under remediation.** Parts of this README describe intended behavior that is not implemented yet (the interactive TUI, the `SUBSTRATE_*` environment layer, `bench`/`agents-import`, several flags, and a working `bin/substrate.mjs`). The accurate state and the plan to fix it are in [`docs/plan/PROGRESS.md`](docs/plan/PROGRESS.md); contributors start at [`START-HERE.md`](START-HERE.md). This notice is removed by work package R5.1.
 
 # Substrate
 

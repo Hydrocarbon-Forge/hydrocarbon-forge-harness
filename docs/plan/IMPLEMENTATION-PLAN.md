@@ -28,7 +28,7 @@ R2.2, R1.7, R2.9 → R3.1 → R3.2 → R3.3 (needs R2.3) → R3.4 → R3.5
 R3.3 → R3.6 → R3.7 ;  R3.3 → R3.8
 R2.9, R1.8 → R4.1 ;  R3.1, R4.1 → R4.2 ;  R2.4, R2.9 → R4.3
 R3.2 → R4.4 → R4.5 (needs R3.1) ;  R2.7, R2.8, R3.4 → R4.6
-R4.2, R2.8 → R5.1 ; all → R5.2 → R5.3 → R5.4 → R5.5 ; R5.6 optional
+R1.8, R2.8, R2.10, R3.7, R3.8, R4.2, R4.6 → R5.1 → R5.2 → R5.3 → R5.4 (optional)
 ```
 Size: S ≈ 40 turns, M ≈ 100, L ≈ 200. Write sets are the files you may change.
 
@@ -324,26 +324,20 @@ Done when: tests over fixture runs; E2E after two runs shows non-empty stats.
 
 ## Phase R5: truth and gates
 
-### R5.1 Caller guide for agents  [S] deps: R4.2, R2.8
-Create: `assets/prompts/caller/substrate-caller.md`, `docs/reference/caller-guide.md` (same content). Do: a short guide an agent such as Hermes can load: list models, pick providers, build a request, run, handle `needs_input`, read usage. Every command shown must be executed against the E2E fixture by a test (copy the commands into a test table).
-Done when: the test runs each documented command and checks exit codes.
+### R5.1 Docs reconciliation, caller guide and stronger docs-check  [M] deps: R1.8, R2.8, R2.10, R3.7, R3.8, R4.2, R4.6
+Write: `README.md`, `docs/reference/**`, `scripts/docs-check.mjs`, `SUBSTRATE-PLAN.md`; create `assets/prompts/caller/substrate-caller.md`, `docs/reference/caller-guide.md`, `test/e2e/caller-guide.test.ts`.
+Do: README, cli.md, config.md, adapters.md describe only what exists (no TUI claims, no governor default, no `-w` flag). `docs-check` also verifies: each documented flag is parsed in `src/cli`, each documented command is reachable from the dispatcher, each documented `SUBSTRATE_*` variable is read, each documented settings key has a reader. Mark SUBSTRATE-PLAN.md sections superseded by DECISIONS.md. Write the short guide an agent such as Hermes loads (list models, choose providers, build a request, run, handle `needs_input`, read usage); a test executes every command the guide shows through the built CLI.
+Done when: `npm run docs:check` passes with the new rules (and fails on seeded violations); the caller-guide e2e test passes. Full spec: `docs/plan/wp/R5.1.md`.
 
-### R5.2 Docs reconciliation and stronger docs-check  [M] deps: all R1-R4
-Write: `README.md`, `docs/reference/**`, `scripts/docs-check.mjs`, `SUBSTRATE-PLAN.md`.
-Do: README, cli.md, config.md, adapters.md describe only what exists (no TUI claims, no governor default). `docs-check` also verifies: each documented flag is parsed in `src/cli`, each documented command is reachable from the dispatcher, each documented `SUBSTRATE_*` variable is read, each documented settings key has a reader. Mark SUBSTRATE-PLAN.md sections superseded by DECISIONS.md.
-Done when: `npm run docs:check` passes with the new rules; seeded-violation tests.
-
-### R5.3 Live smoke and gate G5  [M] deps: R5.2
+### R5.2 Live smoke and gate G5  [M] deps: R5.1
 Write: `test/live/**`, `scripts/gate-g5.mjs`, `package.json`.
-Do: `npm run test:live` runs a full `run` on a toy repo ("add a function and its test") for each installed harness within a cost cap of $0.25 each; `npm run gate:g5` fails if any installed harness lacks a recorded pass in `.substrate/ledger/live-smoke.json` or if a live test was skipped. Security is out of scope (DECISIONS A6).
+Do: `npm run test:live` runs a full `run` on a toy repo ("add a function and its test") for each installed harness within a cost cap of $0.25 each (it spends real money: get the owner's go-ahead first); `npm run gate:g5` fails if any installed harness lacks a recorded pass in `.substrate/ledger/live-smoke.json` or if a live test was skipped. Security is out of scope (DECISIONS A6).
 Done when: on this machine `npm run gate:g5` passes for every installed harness (record which).
 
-### R5.4 Final wiring audit and E2E matrix  [M] deps: R5.3
-Create: `test/e2e/matrix.test.ts`. Do: the 16 scenarios of SUBSTRATE-PLAN §14 through the CLI with real adapters and fake executables; governor-free request run; local-model route; SIGKILL then resume; merge/undo/discard on a temp repo; JSON and stream-json parse cleanly; every dialect. `scripts/debt-allowlist.json` must be empty.
-Done when: `npm test` and `npm run check` pass with an empty allowlist.
+### R5.3 Final wiring audit, E2E matrix and archive  [M] deps: R5.2
+Create: `test/e2e/matrix.test.ts`. Write: `scripts/debt-allowlist.json`, `START-HERE.md`, `docs/plan/PROGRESS.md`.
+Do: the 16 scenarios of SUBSTRATE-PLAN §14 through the CLI with real adapters and fake executables; request run; local-model route; SIGKILL then resume; merge/undo/discard on a temp repo; JSON and stream-json parse cleanly; every dialect. `scripts/debt-allowlist.json` must hold no entry except the governor's `DEFERRED` ones (they stay unless the optional R5.4 runs). Then archive the R-series: move `docs/plan/wp/`, `IMPLEMENTATION-PLAN.md` and `PROGRESS.md` to `docs/archive/<date>-r-series/` (keep `DECISIONS.md`), and rewrite `START-HERE.md` for the post-remediation state.
+Done when: `npm test`, `npm run check` and `npm run docs:check` pass with no allowlist entry other than `DEFERRED`; `docs/plan` holds only `DECISIONS.md` and `reference/`.
 
-### R5.5 Archive the R-series  [S] deps: R5.4
-Do: move `docs/plan/wp/` and `docs/plan/IMPLEMENTATION-PLAN.md` and `docs/plan/PROGRESS.md` to `docs/archive/<date>-r-series/`; keep `docs/plan/DECISIONS.md`; update `START-HERE.md` to the post-remediation state. Done when: `npm run docs:check` passes.
-
-### R5.6 OPTIONAL: retire the governor  [S] deps: R5.4
-Only on the owner's instruction. Delete `src/roles/{governor,governor-tools}.ts`, the `roles.governor` setting, `assets/agents/governor.md`, their tests, and the update to `test/unit/roles/assets.test.ts` (4 agents instead of 5).
+### R5.4 OPTIONAL: retire the governor  [S] deps: R5.3
+Only on the owner's instruction. Delete `src/roles/{governor,governor-tools}.ts` and every `DEFERRED` allowlist entry (they all concern the governor), the `roles.governor` setting, `assets/agents/governor.md`, their tests, and update `test/unit/roles/assets.test.ts` (4 agents instead of 5).

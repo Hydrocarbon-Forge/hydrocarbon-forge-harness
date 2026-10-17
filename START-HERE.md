@@ -63,7 +63,7 @@ src/                       engine, CLI, adapters, roles, git, verify, spec, stor
 test/                      unit, integration, conformance, e2e (new), fixtures
 scripts/                   build and check scripts
 SUBSTRATE-PLAN.md          original design; still authoritative except where DECISIONS.md overrides (see banner at top)
-docs/reference/            user-facing reference docs (partly inaccurate until R5.2)
+docs/reference/            user-facing reference docs (partly inaccurate until R5.1)
 docs/archive/              old material; do not implement from it
 build/                     legacy bootstrap kit; ignore it (see build/README.md)
 ```
@@ -78,4 +78,4 @@ Create or append to `docs/plan/BLOCKED.md` (WP id, what you tried, the exact err
 Do not guess, do not work around, do not mark the WP DONE.
 
 ## 9. After the last WP
-R5.5 archives the plan and updates this page. Until then, keep this page unchanged.
+R5.3 archives the plan and updates this page. Until then, keep this page unchanged.

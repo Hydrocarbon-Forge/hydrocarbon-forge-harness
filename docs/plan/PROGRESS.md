@@ -45,9 +45,7 @@ Current WP: **R0.1** (first). Take the first TODO row whose dependencies are all
 | R4.4 | Archive writer, history, gc | M | R3.2 | TODO | |
 | R4.5 | Charter and planner context | M | R4.4 R3.1 | TODO | |
 | R4.6 | models --stats insights | M | R2.7 R2.8 R3.4 | TODO | |
-| R5.1 | Caller guide for agents | S | R4.2 R2.8 | TODO | |
-| R5.2 | Docs reconciliation and stronger docs-check | M | R1.8 R2.10 R3.7 R3.8 R4.6 | TODO | |
-| R5.3 | Live smoke and gate G5 | M | R5.2 | TODO | |
-| R5.4 | Final wiring audit and E2E matrix | M | R5.3 | TODO | |
-| R5.5 | Archive the R-series | S | R5.4 | TODO | |
-| R5.6 | OPTIONAL: retire the governor | S | R5.4 | TODO | Only if the owner asks. |
+| R5.1 | Docs reconciliation, caller guide and stronger docs-check | M | R1.8 R2.8 R2.10 R3.7 R3.8 R4.2 R4.6 | TODO | |
+| R5.2 | Live smoke and gate G5 | M | R5.1 | TODO | |
+| R5.3 | Final wiring audit, E2E matrix and archive | M | R5.2 | TODO | |
+| R5.4 | OPTIONAL: retire the governor | S | R5.3 | TODO | Only if the owner asks. |
