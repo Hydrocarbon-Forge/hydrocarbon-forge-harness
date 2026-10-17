@@ -16,7 +16,7 @@ The code in `src/` was written as scaffolding: many modules are tested but never
 ```
 R0.1 → R0.2 → R0.3
 R0.1 → R0.4 → R0.5 (also needs R0.2)
-R0.1 → R0.6   (do it right after R0.1; required before R1.2)
+R0.1 → R0.7 → R0.6   (do both right after R0.1; R0.6 is required before R1.2)
 R0.1 → R1.7                      R0.3 → R1.1
 R0.4, R0.5 → R1.2 → R1.3
               R1.2 → R1.4 → R2.1
@@ -41,6 +41,11 @@ Goal: make scaffolding impossible to hide. Static checks that fail the build for
 Write/create: `scripts/check-wired.mjs`, `scripts/check-events.mjs`, `scripts/check-settings.mjs`, `scripts/check-purity.mjs`, `scripts/check-plan.mjs` (already exists, keep), `scripts/debt-allowlist.json`, `scripts/lib/scan.mjs`, `package.json` (scripts only), `test/unit/scripts/*.test.ts`, `test/fixtures/check/**`.
 Do: see `docs/plan/wp/R0.1.md` (fully specified).
 Done when: `npm run check` passes with a populated allowlist; each script fails on seeded violations in `test/fixtures/check`.
+
+### R0.7 Remove the inert TUI scaffold  [S] deps: R0.1
+Goal: delete the TUI code. Callers are agents and CLI users; the TUI cannot render (no entry point, `ink` and `react` not installed, `.tsx` files not covered by `tsconfig.json`), and keeping it misleads every reader and dead-code check.
+Write: delete `src/tui/**` and `test/unit/tui/**`; edit `scripts/check-boundaries.mjs`, `README.md`, `docs/reference/cli.md`, `scripts/debt-allowlist.json`; move `docs/spikes/S5-ux.md` to `docs/archive/S5-ux-tui-research.md`.
+Done when: `src/tui` is gone, `npm test`, `npm run check` and `npm run check:boundaries` pass, and no user-facing doc mentions a TUI. Full spec: `docs/plan/wp/R0.7.md`.
 
 ### R0.2 Fake harness that edits files  [M] deps: R0.1
 Goal: fake `claude`, `opencode` and `agy` executables that behave like the real CLIs for everything Substrate uses and can really change files, so tests never need the engine to fabricate edits.
@@ -81,10 +86,10 @@ Do:
 Done when: `npm test` and `npm run check` pass with the allowlist entries tagged `R0.5` removed; `git grep -n 'val_\${' src` is empty.
 Audit refs: C-H1, C-H8, C-H19, C-M7.
 
-### R0.6 Dead-export analysis  [M] deps: R0.1
+### R0.6 Dead-export analysis  [M] deps: R0.1, R0.7
 Goal: catch the exact failure that created this repo's problems: functions that are exported and even imported, but never called. Module-level reachability (R0.1) cannot see them.
 Create: `scripts/check-dead-exports.mjs`, `test/unit/scripts/check-dead-exports.test.ts`, `test/fixtures/check/dead-exports/**`. Write: `scripts/check-wired.mjs` (call the new analysis), `scripts/debt-allowlist.json`, `package.json`.
-Do: with the TypeScript compiler API (`typescript` is already a devDependency), load `tsconfig.json`, and for every exported function, class, const and type-valued re-export in `src/**` (excluding `src/tui/**` until it is un-deferred), list references from other files that are not import or export specifiers. A symbol is LIVE if it is referenced from a LIVE declaration or from top-level code of a file reachable from `src/cli/dispatcher.ts` or `src/index.ts`; iterate to a fixed point so that code used only by dead code is also dead. Everything else is DEAD. Report DEAD symbols as `file:line name`. The allowlist gains a `dead` list with `{symbol, path, until}` entries; stale entries (now live) fail the check. Generate the initial `dead` entries with `--init-allowlist` and tag them with the WP that will wire them (mapping in `docs/plan/wp/R0.6.md`).
+Do: with the TypeScript compiler API (`typescript` is already a devDependency), load `tsconfig.json`, and for every exported function, class, const and type-valued re-export in `src/**` , list references from other files that are not import or export specifiers. A symbol is LIVE if it is referenced from a LIVE declaration or from top-level code of a file reachable from `src/cli/dispatcher.ts` or `src/index.ts`; iterate to a fixed point so that code used only by dead code is also dead. Everything else is DEAD. Report DEAD symbols as `file:line name`. The allowlist gains a `dead` list with `{symbol, path, until}` entries; stale entries (now live) fail the check. Generate the initial `dead` entries with `--init-allowlist` and tag them with the WP that will wire them (mapping in `docs/plan/wp/R0.6.md`).
 Done when: the fixture test proves `import {a} from "./a"` with no call is reported DEAD and a chain A→B (A dead) reports both; `npm run check` passes with the generated entries; the known dead symbols (`runWorker`, `runPlanner`, `executeReplan`, `scheduleNextTasks`, `appendRouteOutcome`, `aggregateLedger`, `generateRepoMap`) appear in the allowlist.
 Audit refs: C-H21.
 

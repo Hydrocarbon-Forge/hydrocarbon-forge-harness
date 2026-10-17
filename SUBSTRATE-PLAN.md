@@ -6,6 +6,7 @@
 |---|---|---|
 | §1 line 24, §6.1 governor row, §6.3, §4.2 governor wording, §18 OD3, App. A `GovernorTool`/`RoutingDecision`, App. B `governor` | **Superseded.** The governor/local triage model is retired from the default path; a local model is only an OpenCode worker route. | DECISIONS A2, A5 |
 | §3 diagram "governor" box, §10 sandbox/network-denial, A10, G5 "P6.2 findings" | **Superseded.** Security hardening is out of scope. | DECISIONS A6 |
+| §4.7 interactive UX, P5.3 TUI, the `tui/` entries in §15 and the import-boundary rule | **Superseded.** No TUI; `src/tui/` is deleted (R0.7). | DECISIONS |
 | §16 work-package table, §14 test counts, gates G0-G5 | **Historical.** All 24 original WPs are merged. New work is `docs/plan/IMPLEMENTATION-PLAN.md`. | docs/plan |
 | §4.6 stream-json names, §7 `contracts/` layout, §7 worktree path | **Superseded** by the resolved-contradictions table. | DECISIONS |
 | Everything else (invariants §2, state machine §5, git/merge §8, verify §9, linter §12, App. A contracts, App. C, App. D) | **Still authoritative** unless DECISIONS says otherwise. | this file |

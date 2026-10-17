@@ -42,8 +42,8 @@ Substrate is a CLI that other agents (mainly "Hermes") and people call to get co
 | Planner questions | A `QUESTIONS.md` file plus the finish line `NEEDS INPUT` pauses the run (exit 3) and surfaces the questions to the caller. |
 | `.substrate/` in git | `substrate init` writes `.substrate/.gitignore` for runtime paths. It does not add `.substrate/` to `.git/info/exclude`. |
 | Release tag | New work packages use `v0.3`. |
-| Bare `substrate` | No arguments: print help. The TUI is not built (it is v0.2 in the original plan and out of scope here). Any other first word that is not a command is a prompt (so a single-word prompt works). |
+| Bare `substrate` | No arguments: print help. There is no TUI: the inert scaffold in `src/tui/` is deleted by R0.7. Any other first word that is not a command is a prompt (so a single-word prompt works). |
 | Prompts | All prompt text lives in `assets/agents/*.md` and `assets/prompts/**` (already written). Code loads and renders them; it never contains prompt text. |
 
 ## Out of scope (do not build, do not "scaffold")
-TUI, hooks, slash commands, skills semantics, MCP server, benchmark execution, security work (A6), the governor (A2), an orchestrator LLM (A1), native subagents (A1), packaging for npm publication.
+A TUI (the existing scaffold is deleted by R0.7), hooks, slash commands, skills semantics, MCP server, benchmark execution, security work (A6), the governor (A2), an orchestrator LLM (A1), native subagents (A1), packaging for npm publication.

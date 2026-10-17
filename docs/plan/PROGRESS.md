@@ -7,11 +7,12 @@ Current WP: **R0.1** (first). Take the first TODO row whose dependencies are all
 | ID | Title | Size | Deps | Status | Notes |
 |---|---|---|---|---|---|
 | R0.1 | Tripwire scripts and npm run check | S | - | TODO | |
+| R0.7 | Remove the inert TUI scaffold | S | R0.1 | TODO | |
 | R0.2 | Fake harness that edits files | M | R0.1 | TODO | |
 | R0.3 | E2E driver and smoke test | M | R0.2 | TODO | |
 | R0.4 | Split effects.ts | M | R0.1 | TODO | |
 | R0.5 | Remove fabrications and test hacks | M | R0.2 R0.4 | TODO | |
-| R0.6 | Dead-export analysis | M | R0.1 | TODO | |
+| R0.6 | Dead-export analysis | M | R0.1 R0.7 | TODO | |
 | R1.1 | Entry point, build and signals | M | R0.3 | TODO | |
 | R1.2 | Event catalog and typed emit | M | R0.4 R0.5 R0.6 | TODO | |
 | R1.3 | Status, tasks, report, summary and clean output | M | R1.2 | TODO | |
