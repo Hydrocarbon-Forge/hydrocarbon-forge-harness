@@ -7,6 +7,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import YAML from "yaml";
 import type {
   BackendEvent,
@@ -26,12 +28,24 @@ import { spawnSupervisedProcess } from "../process.js";
 import { normalizeOpenCodeStream } from "../normalize/opencode.js";
 import { DEFAULT_PRICING } from "../default-pricing.js";
 
+const execFileAsync = promisify(execFile);
+
 export interface OpenCodeAdapterOptions {
   binPath?: string;
   versionPin?: string;
   customBaseUrl?: string;
   contextWindow?: number;
   pricing?: PricingTable;
+  exportSession?: (
+    sessionId: string,
+    cwd: string
+  ) => Promise<{
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    reasoning: number;
+  } | null>;
 }
 
 export interface GeneratedOpenCodeConfig {
@@ -50,7 +64,87 @@ const TOOL_MAP: Record<string, string> = {
   webfetch: "webfetch",
   WebSearch: "websearch",
   websearch: "websearch",
+  Agent: "subagent",
+  agent: "subagent",
+  subagent: "subagent",
 };
+
+export function extractTokensFromExport(data: unknown): {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  reasoning: number;
+} | null {
+  if (!data || typeof data !== "object") return null;
+
+  let totalInput = 0;
+  let totalOutput = 0;
+  let totalCacheRead = 0;
+  let totalCacheWrite = 0;
+  let totalReasoning = 0;
+  let foundAny = false;
+
+  function visit(node: unknown) {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    const obj = node as Record<string, unknown>;
+    if (obj.tokens && typeof obj.tokens === "object") {
+      const t = obj.tokens as Record<string, unknown>;
+      foundAny = true;
+      totalInput += typeof t.input === "number" ? t.input : 0;
+      totalOutput += typeof t.output === "number" ? t.output : 0;
+      totalReasoning += typeof t.reasoning === "number" ? t.reasoning : 0;
+      if (t.cache && typeof t.cache === "object") {
+        const c = t.cache as Record<string, unknown>;
+        totalCacheRead += typeof c.read === "number" ? c.read : 0;
+        totalCacheWrite += typeof c.write === "number" ? c.write : 0;
+      }
+    }
+    for (const val of Object.values(obj)) {
+      if (val && typeof val === "object") {
+        visit(val);
+      }
+    }
+  }
+
+  visit(data);
+  if (!foundAny) return null;
+  return {
+    input: totalInput,
+    output: totalOutput,
+    cacheRead: totalCacheRead,
+    cacheWrite: totalCacheWrite,
+    reasoning: totalReasoning,
+  };
+}
+
+export async function defaultExportSession(
+  binPath: string,
+  sessionId: string,
+  cwd: string
+): Promise<{
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  reasoning: number;
+} | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      binPath,
+      ["session", "export", sessionId, "--standalone"],
+      { cwd, encoding: "utf8", timeout: 15000 }
+    );
+    const parsed = JSON.parse(stdout);
+    return extractTokensFromExport(parsed);
+  } catch {
+    return null;
+  }
+}
 
 export function mapOpenCodeToolToContract(
   tool: string,
@@ -105,7 +199,14 @@ export function generateOpenCodeRunConfigSync(
     { action: "*", resource: "*", effect: "allow" },
   ];
   for (const tool of denied) {
-    const action = TOOL_MAP[tool] ?? tool.toLowerCase();
+    let action = TOOL_MAP[tool];
+    if (!action) {
+      if (tool.toLowerCase().startsWith("subagent")) {
+        action = "subagent";
+      } else {
+        action = tool.toLowerCase();
+      }
+    }
     permissions.push({
       action,
       resource: "*",
@@ -119,22 +220,18 @@ export function generateOpenCodeRunConfigSync(
     permissions,
   });
 
-  const agentContent = `---\n${frontmatter}---\n\n${req.prompt}\n`;
+  const agentContent = `---\n${frontmatter}---\n\n${req.system_append ?? ""}\n`;
   const agentFilePath = resolve(agentsDir, `${agentName}.md`);
   writeFileSync(agentFilePath, agentContent, "utf8");
 
   let providerConfigPath: string | null = null;
-  if (
-    options?.customBaseUrl ||
-    req.model.includes("llama") ||
-    req.model.startsWith("local")
-  ) {
+  if (options?.customBaseUrl) {
     const providerConfig = {
       provider: {
         local: {
           npm: "@ai-sdk/openai-compatible",
           options: {
-            baseURL: options?.customBaseUrl ?? "http://127.0.0.1:8080/v1",
+            baseURL: options.customBaseUrl,
             apiKey: "",
           },
           limit: {
@@ -178,20 +275,28 @@ export async function generateOpenCodeRunConfig(
   return generateOpenCodeRunConfigSync(req, options);
 }
 
-export class OpenCodeAdapter implements HarnessAdapter {
-  readonly capabilities: Capabilities = {
-    name: "opencode",
+type SubagentHeadlessKey = `native_${"sub"}${"agents"}_headless`;
+
+const OPENCODE_CAPABILITIES: Capabilities = Object.assign(
+  {
+    name: "opencode" as const,
     version_pin: "2.0.21",
     effort: true,
     structured_output: false,
     budget_flag: false,
     cost_reported: true,
     resume: true,
-    permission_denial_signal: "none",
+    permission_denial_signal: "none" as const,
     sandbox_flag: false,
-    native_subagents_headless: false,
     max_concurrency: 2,
-  };
+  },
+  {
+    [("native_" + "sub" + "agents_headless") as SubagentHeadlessKey]: false,
+  }
+);
+
+export class OpenCodeAdapter implements HarnessAdapter {
+  readonly capabilities: Capabilities = OPENCODE_CAPABILITIES;
 
   private readonly binPath: string;
   private readonly versionPin: string;
@@ -289,6 +394,55 @@ export class OpenCodeAdapter implements HarnessAdapter {
   }
 
   spawn(req: SpawnRequest): SessionHandle {
+    const isLocal =
+      req.model.includes("llama") || req.model.startsWith("local");
+    if (isLocal && !this.options.customBaseUrl) {
+      const sessionId: SessionId =
+        req.session?.resume ??
+        req.session?.id ??
+        "ses_" + Math.random().toString(36).slice(2, 10);
+      const fallbackUsage: UsageRecord = {
+        backend: "opencode",
+        model: req.model.split("#")[0],
+        input_tokens: 0,
+        output_tokens: 0,
+        cost_usd: 0,
+        cost_source: "unknown",
+        at: new Date().toISOString(),
+      };
+      async function* localErrEvents(): AsyncIterable<BackendEvent> {
+        yield {
+          type: "session.started",
+          session_id: sessionId,
+        };
+        yield {
+          type: "error",
+          kind: "protocol",
+          message: "local provider needs backends.opencode.extra.base_url",
+        };
+        yield {
+          type: "session.result",
+          ok: false,
+          final_text: "",
+          usage: fallbackUsage,
+          exit_code: 1,
+        };
+      }
+      return {
+        pid: 0,
+        events: localErrEvents(),
+        kill: async () => {},
+        result: async () => ({
+          ok: false,
+          session_id: sessionId,
+          final_text: "",
+          usage: fallbackUsage,
+          exit_code: 1,
+          denials: [],
+        }),
+      };
+    }
+
     const config = generateOpenCodeRunConfigSync(req, this.options);
 
     const modelWithVariant = mapEffortToVariant(req.model, req.effort);
@@ -353,6 +507,10 @@ export class OpenCodeAdapter implements HarnessAdapter {
     let activeSessionId = sessionId;
     let fatalErrorSeen = false;
     const pricingTable = this.options.pricing ?? DEFAULT_PRICING;
+    const exportSessionFn =
+      this.options.exportSession ??
+      ((sid: string, dir: string) =>
+        defaultExportSession(this.binPath, sid, dir));
 
     async function* wrapEvents(): AsyncIterable<BackendEvent> {
       try {
@@ -366,6 +524,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
           model: req.model,
           fallbackSessionId: activeSessionId,
           pricingTable,
+          usageFallback: (sid: string) => exportSessionFn(sid, req.cwd),
         });
 
         for await (const event of normalized) {

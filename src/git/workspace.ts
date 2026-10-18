@@ -121,6 +121,9 @@ export class WorkspaceManagerImpl implements WorkspaceManager {
     if (!currentExclude.includes(".substrate-task/")) {
       linesToAdd.push(".substrate-task/");
     }
+    if (!currentExclude.includes(".opencode/")) {
+      linesToAdd.push(".opencode/");
+    }
     if (linesToAdd.length > 0) {
       const sep =
         currentExclude.endsWith("\n") || currentExclude.length === 0 ? "" : "\n";

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import crypto from "node:crypto";
 
@@ -123,6 +123,28 @@ describe("git: ScopeEnforcer - checkScope and policies", () => {
     expect(result.violations).toHaveLength(0);
     expect(result.protectedModified).toHaveLength(0);
     expect(result.allowedChanges).toContain("src/feature/worker.ts");
+  });
+
+  it("ignores changed .opencode/agents/x.md without reporting a scope violation", async () => {
+    const enforcer = getScopeEnforcer();
+    const spec = makeSpec({
+      write: ["src/feature/**"],
+      create: ["test/unit/**"],
+      protected: ["src/contracts/**"],
+    });
+
+    const initialHashes = await enforcer.hashProtectedFiles(repo.dir, spec.protected);
+
+    // Create an agent file under .opencode/agents
+    const opencodeDir = join(repo.dir, ".opencode", "agents");
+    mkdirSync(opencodeDir, { recursive: true });
+    writeFileSync(join(opencodeDir, "x.md"), "---\nmode: primary\n---\nSystem text\n", "utf8");
+
+    const result = await enforcer.checkScope(repo.dir, spec, initialHashes, "fail");
+
+    expect(result.ok).toBe(true);
+    expect(result.violations).toHaveLength(0);
+    expect(result.protectedModified).toHaveLength(0);
   });
 
   it("detects out-of-scope modifications and file creation with policy 'fail'", async () => {

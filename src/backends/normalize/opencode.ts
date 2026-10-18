@@ -6,6 +6,7 @@ import type {
 } from "../../contracts/index.js";
 import { nowIsoTimestamp } from "../../util/index.js";
 import { calculateCostUsd } from "../pricing.js";
+import { log } from "../../util/log.js";
 
 export interface OpenCodeRawEvent {
   type: string;
@@ -19,6 +20,13 @@ export interface OpenCodeNormalizeOptions {
   model: string;
   pricingTable?: PricingTable;
   fallbackSessionId?: SessionId;
+  usageFallback?: (sessionId: string) => Promise<{
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    reasoning?: number;
+  } | null>;
 }
 
 export function parseOpenCodeEvent(
@@ -146,8 +154,9 @@ export function parseOpenCodeEvent(
         let costUsd = Number(part.cost ?? 0);
         let costSource: "reported" | "computed" | "unknown" = "reported";
 
+        const cleanModel = options.model.split("#")[0];
         if (costUsd === 0 && options.pricingTable) {
-          const computed = calculateCostUsd(options.pricingTable, options.model, {
+          const computed = calculateCostUsd(options.pricingTable, cleanModel, {
             input_tokens: inputTokens,
             output_tokens: outputTokens,
             cache_read_tokens: cacheReadTokens,
@@ -164,7 +173,7 @@ export function parseOpenCodeEvent(
 
         const usageRecord: UsageRecord = {
           backend: "opencode",
-          model: options.model,
+          model: cleanModel,
           input_tokens: inputTokens,
           output_tokens: outputTokens,
           ...(reasoningTokens !== undefined ? { reasoning_tokens: reasoningTokens } : {}),
@@ -312,23 +321,92 @@ export async function* normalizeOpenCodeStream(
     started = true;
   }
 
+  const cleanModel = options.model.split("#")[0];
   let finalUsageRecord: UsageRecord;
   if (!hasSeenStepFinish) {
-    // Record warning regarding missing step_finish on stdout
-    process.stdout.write("Warning: missing step_finish in OpenCode stream\n");
-    finalUsageRecord = {
-      backend: "opencode",
-      model: options.model,
-      input_tokens: 0,
-      output_tokens: 0,
-      cost_usd: 0,
-      cost_source: "reported",
-      at: nowIsoTimestamp(),
-    };
+    log.warn("missing step_finish in OpenCode stream");
+    let recovered: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      reasoning?: number;
+    } | null = null;
+
+    if (options.usageFallback) {
+      try {
+        recovered = await options.usageFallback(activeSessionId);
+      } catch {
+        recovered = null;
+      }
+    }
+
+    if (recovered) {
+      let costUsd = 0;
+      let costSource: "reported" | "computed" | "unknown" = "unknown";
+      if (options.pricingTable) {
+        const computed = calculateCostUsd(options.pricingTable, cleanModel, {
+          input_tokens: recovered.input,
+          output_tokens: recovered.output,
+          cache_read_tokens: recovered.cacheRead,
+          cache_write_tokens: recovered.cacheWrite,
+        });
+        costUsd = computed.cost_usd;
+        costSource = computed.cost_source;
+      }
+
+      finalUsageRecord = {
+        backend: "opencode",
+        model: cleanModel,
+        input_tokens: recovered.input,
+        output_tokens: recovered.output,
+        ...(recovered.reasoning !== undefined
+          ? { reasoning_tokens: recovered.reasoning }
+          : {}),
+        ...(recovered.cacheRead !== undefined
+          ? { cache_read_tokens: recovered.cacheRead }
+          : {}),
+        ...(recovered.cacheWrite !== undefined
+          ? { cache_write_tokens: recovered.cacheWrite }
+          : {}),
+        cost_usd: costUsd,
+        cost_source: costSource,
+        at: nowIsoTimestamp(),
+      };
+
+      yield {
+        type: "usage",
+        cumulative: false,
+        record: finalUsageRecord,
+      };
+    } else {
+      finalUsageRecord = {
+        backend: "opencode",
+        model: cleanModel,
+        input_tokens: 0,
+        output_tokens: 0,
+        cost_usd: 0,
+        cost_source: "unknown",
+        at: nowIsoTimestamp(),
+      };
+
+      yield {
+        type: "usage",
+        cumulative: false,
+        record: finalUsageRecord,
+      };
+
+      yield {
+        type: "error",
+        kind: "protocol",
+        message: `opencode usage unavailable for session ${activeSessionId}`,
+      };
+      hasFatalError = true;
+    }
   } else {
     finalUsageRecord = {
       backend: "opencode",
-      model: options.model,
+      model: cleanModel,
       input_tokens: cumulativeTokens.input,
       output_tokens: cumulativeTokens.output,
       ...(cumulativeTokens.hasReasoning

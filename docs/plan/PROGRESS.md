@@ -2,7 +2,7 @@
 
 Update this file at the end of every work package: set the Status to DONE, write one line in Notes (what you ran to prove it), and commit it with the code. Statuses: TODO, DOING, DONE, BLOCKED. `scripts/check-*.mjs` read the Status column, so keep the table format exactly (five `|`-separated columns before Notes; do not put `|` inside a cell).
 
-Current WP: **R2.3**. Take the first TODO row whose dependencies are all DONE.
+Current WP: **R2.5**. Take the first TODO row whose dependencies are all DONE.
 
 | ID | Title | Size | Deps | Status | Notes |
 |---|---|---|---|---|---|
@@ -24,7 +24,7 @@ Current WP: **R2.3**. Take the first TODO row whose dependencies are all DONE.
 | R2.1 | Price table and unknown-cost policy | M | R1.4 | DONE | test/unit/backends/pricing.test.ts, normalize-agy.test.ts, normalize-claude.test.ts, normalize-opencode.test.ts pass (96 tests in backends+ledger); typecheck, check, npm test (1110 passed, 1 skipped) exit 0 |
 | R2.2 | Adapter registry; FakeAdapter leaves src | M | R0.3 R1.5 | DONE | git grep fake-adapter src and git grep ctx.adapter src print nothing; vitest test/e2e/adapters.test.ts passed; typecheck, bundle, check, npm test (1111 passed) exit 0 |
 | R2.3 | Claude adapter correctness | M | R2.2 R1.7 | DONE | VERIFY FIRST 1: claude --help confirmed --append-system-prompt. VERIFY FIRST 2: claude with non-UUID session-id exits 1. Step 2 (npm run bundle && npx vitest run test/e2e/adapters.test.ts): 1 passed (124ms) asserting argv --session-id is UUID, --append-system-prompt has system text, --disallowedTools has Bash(git commit*) and Agent. Backends tests (100 passed), typecheck, check, npm test (1124 passed) exit 0. |
-| R2.4 | OpenCode adapter correctness | M | R2.2 R1.7 | TODO | |
+| R2.4 | OpenCode adapter correctness | M | R2.2 R1.7 | DONE | Verified export JSON path: tokens at messages[].tokens (and part.tokens) with keys input, output, reasoning, cache.read, cache.write. Step 3 grep checks: grep 127.0.0.1/8080 in opencode adapter, grep subagents in opencode adapter, and grep 127.0.0.1 in src all printed nothing. Tests (74 backends/git passed), typecheck, check, npm test (1137 passed) exit 0. |
 | R2.5 | agy adapter correctness | M | R2.2 R2.1 R1.7 | TODO | |
 | R2.6 | listModels for each adapter | M | R2.3 R2.4 R2.5 | TODO | |
 | R2.7 | substrate models | M | R2.6 R2.1 | TODO | |

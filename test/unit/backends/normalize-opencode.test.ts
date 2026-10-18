@@ -44,10 +44,17 @@ const SAMPLE_PRICING: PricingTable = PricingTable.parse({
 });
 
 describe("OpenCode Normalizer: Golden Fixtures (S2 Spike)", () => {
-  it("normalizes success.ndjson: handles missing step_finish gracefully and yields fallback usage", async () => {
+  it("normalizes success.ndjson: handles missing step_finish gracefully and recovers usage via usageFallback", async () => {
     const rawStream = readFixtureStream("success.ndjson");
     const options: OpenCodeNormalizeOptions = {
       model: "opencode/deepseek-v4.1-flash-free",
+      usageFallback: async () => ({
+        input: 6196,
+        output: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+      }),
     };
 
     const events: BackendEvent[] = [];
@@ -56,8 +63,8 @@ describe("OpenCode Normalizer: Golden Fixtures (S2 Spike)", () => {
       events.push(event);
     }
 
-    // Must yield session.started, assistant.text, and session.result
-    expect(events.length).toBeGreaterThanOrEqual(3);
+    // Must yield session.started, assistant.text, usage, and session.result
+    expect(events.length).toBeGreaterThanOrEqual(4);
 
     // 1. session.started
     expect(events[0].type).toBe("session.started");
@@ -72,7 +79,16 @@ describe("OpenCode Normalizer: Golden Fixtures (S2 Spike)", () => {
       expect(textEvent.text).toBe("OK");
     }
 
-    // 3. session.result (with synthesized fallback usage because step_finish was omitted on stdout)
+    // 3. usage event from usageFallback
+    const usageEvent = events.find((e) => e.type === "usage");
+    expect(usageEvent).toBeDefined();
+    if (usageEvent && usageEvent.type === "usage") {
+      expect(usageEvent.cumulative).toBe(false);
+      expect(usageEvent.record.input_tokens).toBe(6196);
+      expect(usageEvent.record.output_tokens).toBe(2);
+    }
+
+    // 4. session.result (with recovered usage)
     const resultEvent = events[events.length - 1];
     expect(resultEvent.type).toBe("session.result");
     if (resultEvent.type === "session.result") {
@@ -81,7 +97,44 @@ describe("OpenCode Normalizer: Golden Fixtures (S2 Spike)", () => {
       expect(resultEvent.usage).toBeDefined();
       expect(resultEvent.usage?.backend).toBe("opencode");
       expect(resultEvent.usage?.model).toBe("opencode/deepseek-v4.1-flash-free");
-      expect(resultEvent.usage?.cost_usd).toBe(0);
+      expect(resultEvent.usage?.input_tokens).toBe(6196);
+      expect(resultEvent.usage?.output_tokens).toBe(2);
+    }
+  });
+
+  it("normalizes success.ndjson with absent or failing usageFallback: yields protocol error and unknown cost_source", async () => {
+    const rawStream = readFixtureStream("success.ndjson");
+    const options: OpenCodeNormalizeOptions = {
+      model: "opencode/deepseek-v4.1-flash-free",
+      usageFallback: async () => null,
+    };
+
+    const events: BackendEvent[] = [];
+    for await (const event of normalizeOpenCodeStream(rawStream, options)) {
+      expect(BackendEvent.safeParse(event).success).toBe(true);
+      events.push(event);
+    }
+
+    const errEvent = events.find((e) => e.type === "error");
+    expect(errEvent).toBeDefined();
+    if (errEvent && errEvent.type === "error") {
+      expect(errEvent.kind).toBe("protocol");
+      expect(errEvent.message).toContain("opencode usage unavailable for session");
+    }
+
+    const usageEvent = events.find((e) => e.type === "usage");
+    expect(usageEvent).toBeDefined();
+    if (usageEvent && usageEvent.type === "usage") {
+      expect(usageEvent.cumulative).toBe(false);
+      expect(usageEvent.record.cost_source).toBe("unknown");
+      expect(usageEvent.record.input_tokens).toBe(0);
+      expect(usageEvent.record.output_tokens).toBe(0);
+    }
+
+    const resultEvent = events[events.length - 1];
+    expect(resultEvent.type).toBe("session.result");
+    if (resultEvent.type === "session.result") {
+      expect(resultEvent.ok).toBe(false);
     }
   });
 
@@ -157,6 +210,10 @@ describe("OpenCode Normalizer: Golden Fixtures (S2 Spike)", () => {
     const rawStream = readFixtureStream("denial.ndjson");
     const options: OpenCodeNormalizeOptions = {
       model: "opencode/deepseek-v4.1-flash-free",
+      usageFallback: async () => ({
+        input: 100,
+        output: 20,
+      }),
     };
 
     const events: BackendEvent[] = [];
@@ -193,6 +250,10 @@ describe("OpenCode Normalizer: Golden Fixtures (S2 Spike)", () => {
     const rawStream = readFixtureStream("resume.ndjson");
     const options: OpenCodeNormalizeOptions = {
       model: "opencode/deepseek-v4.1-flash-free",
+      usageFallback: async () => ({
+        input: 150,
+        output: 30,
+      }),
     };
 
     const events: BackendEvent[] = [];
@@ -217,6 +278,46 @@ describe("OpenCode Normalizer: Golden Fixtures (S2 Spike)", () => {
     if (resultEvent.type === "session.result") {
       expect(resultEvent.ok).toBe(true);
       expect(resultEvent.final_text).toContain("TOOL_OK_123");
+    }
+  });
+
+  it("strips #variant from model name in usage record and session.result", async () => {
+    async function* rawGenerator() {
+      yield {
+        type: "step_start",
+        sessionID: "ses_variant_123",
+        part: { type: "step-start" },
+      };
+      yield {
+        type: "step_finish",
+        sessionID: "ses_variant_123",
+        part: {
+          type: "step-finish",
+          cost: 0.001,
+          tokens: { input: 100, output: 20 },
+        },
+      };
+    }
+
+    const options: OpenCodeNormalizeOptions = {
+      model: "opencode/deepseek-v4.1-flash-free#high",
+    };
+
+    const events: BackendEvent[] = [];
+    for await (const event of normalizeOpenCodeStream(rawGenerator(), options)) {
+      events.push(event);
+    }
+
+    const usageEvt = events.find((e) => e.type === "usage");
+    expect(usageEvt).toBeDefined();
+    if (usageEvt && usageEvt.type === "usage") {
+      expect(usageEvt.record.model).toBe("opencode/deepseek-v4.1-flash-free");
+    }
+
+    const resultEvt = events.find((e) => e.type === "session.result");
+    expect(resultEvt).toBeDefined();
+    if (resultEvt && resultEvt.type === "session.result") {
+      expect(resultEvt.usage?.model).toBe("opencode/deepseek-v4.1-flash-free");
     }
   });
 

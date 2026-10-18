@@ -6,16 +6,6 @@
       "until": "R2.5"
     },
     {
-      "rule": "P9",
-      "path": "src/backends/adapters/opencode.ts",
-      "until": "R2.4"
-    },
-    {
-      "rule": "P2",
-      "path": "src/backends/normalize/opencode.ts",
-      "until": "R2.4"
-    },
-    {
       "rule": "P6",
       "path": "src/roles/governor.ts",
       "until": "DEFERRED"

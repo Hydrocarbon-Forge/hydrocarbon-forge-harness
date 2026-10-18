@@ -34,7 +34,7 @@ function collectRelativeFiles(dir: string, base = ""): string[] {
   if (!existsSync(dir)) return result;
   const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === ".git") continue;
+    if (entry.name === ".git" || entry.name === ".opencode") continue;
     const rel = base ? `${base}/${entry.name}` : entry.name;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
@@ -129,7 +129,8 @@ export class ScopeEnforcerImpl implements ScopeEnforcer {
       if (
         filePath === ".git" ||
         filePath.startsWith(".substrate/") ||
-        filePath.startsWith(".substrate-task/")
+        filePath.startsWith(".substrate-task/") ||
+        filePath.startsWith(".opencode/")
       ) {
         continue;
       }
