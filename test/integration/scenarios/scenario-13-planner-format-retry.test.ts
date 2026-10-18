@@ -7,6 +7,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   readEventLog,
@@ -17,7 +18,6 @@ import {
 import {
   sampleValidManifestYaml,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 13: Planner Format Retry (§14.5 #13)", () => {
@@ -42,109 +42,100 @@ describe("Scenario 13: Planner Format Retry (§14.5 #13)", () => {
     const spawnedRequests: SpawnRequest[] = [];
     let plannerAttempts = 0;
 
-    const mockAdapter = createMockAdapter({
-      onSpawn(req) {
-        spawnedRequests.push(req);
+    const fakeClaude = fakeClaudeAdapter([
+      {
+        reply: "INVALID YAML: { unclosed bracket: [",
       },
-      nextSession(req, index) {
-        if (req.role === "planner" || index === 0) {
-          plannerAttempts++;
-          if (plannerAttempts === 1) {
-            // Attempt 1: malformed YAML output
-            return {
-              result: {
-                ok: true,
-                exit_code: 0,
-                final_text: "INVALID YAML: { unclosed bracket: [",
-              },
-            };
-          } else {
-            // Attempt 2: valid manifest and task spec output
-            return {
-              result: {
-                ok: true,
-                exit_code: 0,
-                final_text: `\`\`\`yaml:manifest.yaml\n${sampleValidManifestYaml()}\n\`\`\`\n\n\`\`\`markdown:tasks/T1.md\n${sampleValidTaskSpecMarkdown()}\n\`\`\``,
-              },
-            };
-          }
-        }
-        return {
-          result: {
-            ok: true,
-            exit_code: 0,
-            final_text: "Worker passed",
+      {
+        reply: `\`\`\`yaml:manifest.yaml\n${sampleValidManifestYaml()}\n\`\`\`\n\n\`\`\`markdown:tasks/T1.md\n${sampleValidTaskSpecMarkdown()}\n\`\`\``,
+      },
+    ]);
+
+    const origSpawn = fakeClaude.adapter.spawn.bind(fakeClaude.adapter);
+    fakeClaude.adapter.spawn = (req: SpawnRequest) => {
+      spawnedRequests.push(req);
+      if (req.role === "planner") {
+        plannerAttempts++;
+      }
+      return origSpawn(req);
+    };
+
+    try {
+      const engine = engineMod.createEngine({
+        settings: {
+          ...env.settings,
+          budgets: {
+            ...env.settings.budgets,
+            planner_format_retries: 2,
           },
-        };
-      },
-    });
-
-    const engine = engineMod.createEngine({
-      settings: {
-        ...env.settings,
-        budgets: {
-          ...env.settings.budgets,
-          planner_format_retries: 2,
         },
-      },
-      adapter: mockAdapter,
-    });
+        adapter: fakeClaude.adapter,
+      });
 
-    const summary: RunSummary = await engine.run({
-      prompt: "Plan and implement feature",
-      cwd: env.repoRoot,
-      mode: "plan",
-      permission_mode: "plan", // plan mode completes after planning
-    });
+      const summary: RunSummary = await engine.run({
+        prompt: "Plan and implement feature",
+        cwd: env.repoRoot,
+        mode: "plan",
+        permission_mode: "plan", // plan mode completes after planning
+      });
 
-    // Plan-only complete exits 0
-    expect(summary.status).toBe("finished");
-    expect(summary.exit_code).toBe(0);
+      // Plan-only complete exits 0
+      expect(summary.status).toBe("finished");
+      expect(summary.exit_code).toBe(0);
 
-    // Planner retried once
-    expect(plannerAttempts).toBe(2);
+      // Planner retried once
+      expect(plannerAttempts).toBe(2);
 
-    // Prompt in second planner attempt must include format retry hint
-    expect(spawnedRequests[1]?.prompt).toContain("format");
+      // Prompt in second planner attempt must include format retry hint
+      expect(spawnedRequests[1]?.prompt).toContain("format");
+    } finally {
+      fakeClaude.cleanup();
+    }
   });
 
   it("fails run with exit code 1 when planner exhausts format retries", async () => {
     let plannerAttempts = 0;
 
-    const mockAdapter = createMockAdapter({
-      nextSession() {
+    const fakeClaude = fakeClaudeAdapter([
+      { reply: "Continually malformed YAML: :::invalid:::" },
+      { reply: "Continually malformed YAML: :::invalid:::" },
+      { reply: "Continually malformed YAML: :::invalid:::" },
+      { reply: "Continually malformed YAML: :::invalid:::" },
+    ]);
+
+    const origSpawn = fakeClaude.adapter.spawn.bind(fakeClaude.adapter);
+    fakeClaude.adapter.spawn = (req: SpawnRequest) => {
+      if (req.role === "planner") {
         plannerAttempts++;
-        return {
-          result: {
-            ok: true,
-            exit_code: 0,
-            final_text: "Continually malformed YAML: :::invalid:::",
+      }
+      return origSpawn(req);
+    };
+
+    try {
+      const engine = engineMod.createEngine({
+        settings: {
+          ...env.settings,
+          budgets: {
+            ...env.settings.budgets,
+            planner_format_retries: 2,
           },
-        };
-      },
-    });
-
-    const engine = engineMod.createEngine({
-      settings: {
-        ...env.settings,
-        budgets: {
-          ...env.settings.budgets,
-          planner_format_retries: 2,
         },
-      },
-      adapter: mockAdapter,
-    });
+        adapter: fakeClaude.adapter,
+      });
 
-    const summary: RunSummary = await engine.run({
-      prompt: "Plan with broken output",
-      cwd: env.repoRoot,
-      mode: "plan",
-      permission_mode: "plan",
-    });
+      const summary: RunSummary = await engine.run({
+        prompt: "Plan with broken output",
+        cwd: env.repoRoot,
+        mode: "plan",
+        permission_mode: "plan",
+      });
 
-    // Fails run when retries exhausted
-    expect(summary.status).toBe("failed");
-    expect(summary.exit_code).toBe(1);
-    expect(plannerAttempts).toBeGreaterThanOrEqual(2);
+      // Fails run when retries exhausted
+      expect(summary.status).toBe("failed");
+      expect(summary.exit_code).toBe(1);
+      expect(plannerAttempts).toBeGreaterThanOrEqual(2);
+    } finally {
+      fakeClaude.cleanup();
+    }
   });
 });

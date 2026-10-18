@@ -15,6 +15,7 @@ import {
   extractFencedFiles,
   type Emit,
 } from "./shared.js";
+import { log } from "../../util/log.js";
 
 export async function runPlanAction(
   action: EngineAction,
@@ -48,7 +49,7 @@ export async function runPlanAction(
     );
     const errors = lintRes.diagnostics.filter((d: any) => d.severity === "error");
     if (errors.length > 0) {
-      console.log("[DEBUG] lint errors:", JSON.stringify(errors, null, 2));
+      log.debug("[DEBUG] lint errors:", JSON.stringify(errors, null, 2));
     }
 
     if (errors.length > 0) {
@@ -146,7 +147,7 @@ export async function runPlanAction(
       emit("plan.produced", { manifest, tasks: manifest.tasks });
       return;
     } catch (err: any) {
-      console.log("[DEBUG] plan manifest read error:", err?.message);
+      log.debug("[DEBUG] plan manifest read error:", err?.message);
     }
   }
 
@@ -208,7 +209,7 @@ export async function runPlanAction(
           emit("plan.produced", { manifest, tasks: manifest.tasks });
           return;
         } catch (err: any) {
-          console.log("[DEBUG] plan parse error:", err?.message);
+          log.debug("[DEBUG] plan parse error:", err?.message);
         }
       }
     }

@@ -11,6 +11,7 @@ import type {
 import type { EngineState } from "../../../src/engine/reducer.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -22,13 +23,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -36,11 +37,28 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
   });
 
   beforeEach(async () => {
-    env = await setupScenarioEnv("02-heal-pass");
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: {
+          "src/feature.ts": "// attempt 1\n",
+          "test/feature.test.ts": "// test\n",
+        },
+        reply: "Attempt 1 failed verify",
+      },
+      {
+        edits: {
+          "src/feature.ts": "// PASS: attempt 2 healed\n",
+          "test/feature.test.ts": "// test\n",
+        },
+        reply: "Attempt 2 healed",
+      },
+    ]);
+    env = await setupScenarioEnv("02-heal-pass", { adapter: fakeClaude.adapter });
   });
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("resumes session with capped failure output tail and passes on attempt 2", async () => {
@@ -50,34 +68,21 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
     const spawnedRequests: SpawnRequest[] = [];
     const resumedPrompts: string[] = [];
 
-    const mockAdapter = createMockAdapter({
-      onSpawn(req) {
-        spawnedRequests.push(req);
-        if (req.session?.resume) {
-          resumedPrompts.push(req.prompt);
-        }
-      },
-      nextSession(req, index) {
-        if (index === 0) {
-          // Attempt 1: finishes session, but verify will fail
-          return {
-            result: { ok: true, exit_code: 0, final_text: "First attempt done" },
-          };
-        } else {
-          // Attempt 2: heal session succeeds
-          return {
-            result: { ok: true, exit_code: 0, final_text: "Healed attempt done" },
-          };
-        }
-      },
-    });
+    const origSpawn = fakeClaude!.adapter.spawn.bind(fakeClaude!.adapter);
+    fakeClaude!.adapter.spawn = (req: SpawnRequest) => {
+      spawnedRequests.push(req);
+      if (req.session?.resume) {
+        resumedPrompts.push(req.prompt);
+      }
+      return origSpawn(req);
+    };
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
       tasks: [{ id: "T1", spec: "tasks/T1.md" }],
     };
 
-    // Verify command that fails on attempt 1 (file missing) and passes when marker file exists
+    // Verify command that fails on attempt 1 (lacks PASS) and passes when PASS exists
     const t1Spec = sampleValidTaskSpecMarkdown({
       frontmatter: {
         id: "T1",
@@ -85,7 +90,12 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
         depends_on: [],
         write: ["src/feature.ts"],
         create: ["test/feature.test.ts"],
-        verify: [{ run: "node -e 'process.exit(0)'", timeout_s: 30 }],
+        verify: [
+          {
+            run: "node -e 'const fs=require(\"fs\"); const s=fs.readFileSync(\"src/feature.ts\",\"utf8\"); if (!s.includes(\"PASS\")) process.exit(1);'",
+            timeout_s: 30,
+          },
+        ],
       },
     });
 
@@ -93,7 +103,7 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude!.adapter,
     });
 
     const summary: RunSummary = await engine.run({

@@ -26,6 +26,7 @@ import {
 } from "./effects.js";
 import { RunLockImpl } from "../store/run-lock.js";
 import { getRunBranch } from "../git/index.js";
+import { log } from "../util/log.js";
 
 export interface EngineOptions {
   settings?: Settings;
@@ -132,7 +133,7 @@ export class EngineImpl implements Engine {
     };
 
     try {
-      console.log("[DEBUG] engine.run: creating run.created");
+      log.debug("[DEBUG] engine.run: creating run.created");
       const createdEvt: EngineEvent = {
         v: 1,
         seq: 1,
@@ -151,9 +152,9 @@ export class EngineImpl implements Engine {
       opts.onEvent?.(createdEvt);
       state = reduce(state, createdEvt);
 
-      console.log("[DEBUG] engine.run: entering runEffectsLoop, state:", state.state);
+      log.debug("[DEBUG] engine.run: entering runEffectsLoop, state:", state.state);
       state = await runEffectsLoop(ctx, state);
-      console.log("[DEBUG] engine.run: exited runEffectsLoop, state:", state.state);
+      log.debug("[DEBUG] engine.run: exited runEffectsLoop, state:", state.state);
 
       let finalStatus: "finished" | "paused" | "failed" | "cancelled" = "finished";
       let finalExitCode = 0;

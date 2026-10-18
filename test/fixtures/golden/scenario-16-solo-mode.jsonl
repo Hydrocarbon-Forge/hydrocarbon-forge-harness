@@ -1,9 +1,0 @@
-{"v":1,"seq":1,"ts":"<ts>","run_id":"<run_id>","type":"run.created","data":{"run_id":"<run_id>","prompt":"Fix typo in src/solo.ts directly","mode":"solo","permission_mode":"bypassPermissions"}}
-{"v":1,"seq":2,"ts":"<ts>","run_id":"<run_id>","type":"run.routed","data":{"mode":"solo"}}
-{"v":1,"seq":3,"ts":"<ts>","run_id":"<run_id>","type":"setup.done","data":{}}
-{"v":1,"seq":4,"ts":"<ts>","run_id":"<run_id>","type":"task.ready","data":{"task_id":"solo"}}
-{"v":1,"seq":5,"ts":"<ts>","run_id":"<run_id>","type":"usage.recorded","data":{"record":{"backend":"fake","model":"claude-haiku-5-5","input_tokens":100,"output_tokens":50,"cost_usd":0.001,"cost_source":"computed","at":"<iso_timestamp>"},"role":"worker"}}
-{"v":1,"seq":6,"ts":"<ts>","run_id":"<run_id>","type":"task.passed","data":{"task_id":"solo"}}
-{"v":1,"seq":7,"ts":"<ts>","run_id":"<run_id>","type":"task.merged","data":{"task_id":"solo"}}
-{"v":1,"seq":8,"ts":"<ts>","run_id":"<run_id>","type":"integration.finished","data":{"passed":true}}
-{"v":1,"seq":9,"ts":"<ts>","run_id":"<run_id>","type":"run.finished","data":{"exit_code":0}}

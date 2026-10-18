@@ -11,6 +11,7 @@ import type {
 import type { EngineState } from "../../../src/engine/reducer.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -22,13 +23,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass (§14.5 #3)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -53,44 +54,45 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("escalates to higher tier model after double failure, builds failure packet, and passes at generation 2", async () => {
     const runId: RunId = "r_333333ABCDEF";
     const spawnedModels: string[] = [];
 
-    const mockAdapter = createMockAdapter({
-      onSpawn(req: SpawnRequest) {
-        spawnedModels.push(req.model);
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: {
+          "src/replan.ts": "// attempt 1\n",
+          "test/replan.test.ts": "// test\n",
+        },
+        reply: "Attempt 1",
       },
-      nextSession(req, index) {
-        if (index === 0) {
-          // Attempt 1: fail verify
-          return { result: { ok: true, exit_code: 0, final_text: "Attempt 1" } };
-        } else if (index === 1) {
-          // Attempt 2: fail verify again (L0 exhausted)
-          return { result: { ok: true, exit_code: 0, final_text: "Attempt 2" } };
-        } else if (index === 2) {
-          // Planner replan session: produces revised spec for generation 2
-          return {
-            result: {
-              ok: true,
-              exit_code: 0,
-              final_text: "Planner revised spec for generation 2",
-            },
-          };
-        } else {
-          // Attempt 3 (g2 worker on higher tier): passes
-          return {
-            result: {
-              ok: true,
-              exit_code: 0,
-              final_text: "Worker passed on higher tier",
-            },
-          };
-        }
+      {
+        edits: {
+          "src/replan.ts": "// attempt 2\n",
+          "test/replan.test.ts": "// test\n",
+        },
+        reply: "Attempt 2",
       },
-    });
+      {
+        reply: "Planner revised spec for generation 2",
+      },
+      {
+        edits: {
+          "src/replan.ts": "// PASS: g2\n",
+          "test/replan.test.ts": "// test\n",
+        },
+        reply: "Worker passed on higher tier",
+      },
+    ]);
+
+    const origSpawn = fakeClaude.adapter.spawn.bind(fakeClaude.adapter);
+    fakeClaude.adapter.spawn = (req: SpawnRequest) => {
+      spawnedModels.push(req.model);
+      return origSpawn(req);
+    };
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -104,7 +106,12 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
         depends_on: [],
         write: ["src/replan.ts"],
         create: ["test/replan.test.ts"],
-        verify: [{ run: "echo verify replan", timeout_s: 30 }],
+        verify: [
+          {
+            run: "node -e 'const fs=require(\"fs\"); const s=fs.readFileSync(\"src/replan.ts\",\"utf8\"); if (!s.includes(\"PASS\")) process.exit(1);'",
+            timeout_s: 30,
+          },
+        ],
       },
     });
 
@@ -112,7 +119,7 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({

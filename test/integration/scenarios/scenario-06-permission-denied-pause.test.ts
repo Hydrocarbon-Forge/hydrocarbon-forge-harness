@@ -9,6 +9,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -20,13 +21,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 06: Permission Denial -> Pause (Exit 3) (§14.5 #6)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -34,40 +35,22 @@ describe("Scenario 06: Permission Denial -> Pause (Exit 3) (§14.5 #6)", () => {
   });
 
   beforeEach(async () => {
-    env = await setupScenarioEnv("06-permission-denied");
+    fakeClaude = fakeClaudeAdapter([
+      {
+        failure: "permission_denial",
+        reply: "Denied by policy",
+      },
+    ]);
+    env = await setupScenarioEnv("06-permission-denied", { adapter: fakeClaude.adapter });
   });
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("kills session, emits run.paused(permission_denied), does not replan, and exits with code 3", async () => {
     const runId: RunId = "r_666666ABCDEF";
-    let killCalledWith: string | undefined;
-
-    const mockAdapter = createMockAdapter({
-      nextSession() {
-        return {
-          events: [
-            { type: "session.started", session_id: "sess-denied-1" },
-            {
-              type: "permission.denied",
-              tool: "Bash",
-              reason: "Unauthorized shell command",
-            },
-          ],
-          result: {
-            ok: false,
-            exit_code: 1,
-            final_text: "Denied by policy",
-            denials: [{ tool: "Bash", reason: "Unauthorized shell command" }],
-          },
-          onKill(reason) {
-            killCalledWith = reason;
-          },
-        };
-      },
-    });
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -88,7 +71,7 @@ describe("Scenario 06: Permission Denial -> Pause (Exit 3) (§14.5 #6)", () => {
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude!.adapter,
     });
 
     const summary: RunSummary = await engine.run({

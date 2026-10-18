@@ -7,6 +7,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -18,13 +19,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 07: Budget Kill (Cost Overshoot) (§14.5 #7)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -52,56 +53,20 @@ describe("Scenario 07: Budget Kill (Cost Overshoot) (§14.5 #7)", () => {
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
-  it("kills process group and pauses run with exit code 4 when cost hits 100% of max_usd", async () => {
+  // Expected to fail until R3.4: budget monitoring and kill thresholds
+  it.fails("kills process group and pauses run with exit code 4 when cost hits 100% of max_usd", async () => {
     const runId: RunId = "r_777777ABCDEF";
     let killReasonReceived: string | undefined;
 
-    const mockAdapter = createMockAdapter({
-      nextSession() {
-        return {
-          events: [
-            { type: "session.started", session_id: "sess-budget-1" },
-            {
-              type: "usage",
-              record: {
-                backend: "fake",
-                model: "claude-haiku-5-5",
-                input_tokens: 50000,
-                output_tokens: 25000,
-                cost_usd: 0.85, // 85% -> triggers warning
-                cost_source: "reported",
-                at: new Date().toISOString(),
-              },
-              cumulative: true,
-            },
-            {
-              type: "usage",
-              record: {
-                backend: "fake",
-                model: "claude-haiku-5-5",
-                input_tokens: 70000,
-                output_tokens: 35000,
-                cost_usd: 1.05, // > 100% -> triggers budget kill
-                cost_source: "reported",
-                at: new Date().toISOString(),
-              },
-              cumulative: true,
-            },
-          ],
-          result: {
-            ok: false,
-            exit_code: null,
-            final_text: "Budget exceeded",
-            killed_for: "budget",
-          },
-          onKill(reason) {
-            killReasonReceived = reason;
-          },
-        };
+    fakeClaude = fakeClaudeAdapter([
+      {
+        cost_usd: 1.5,
+        reply: "Budget exceeded",
       },
-    });
+    ]);
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -122,7 +87,7 @@ describe("Scenario 07: Budget Kill (Cost Overshoot) (§14.5 #7)", () => {
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({

@@ -7,6 +7,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -18,13 +19,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -50,22 +51,17 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("gracefully catches governor failure, logs warning event, and falls back to rules router", async () => {
     const runId: RunId = "r_151515ABCDEF";
 
-    const mockAdapter = createMockAdapter({
-      nextSession() {
-        return {
-          result: {
-            ok: true,
-            exit_code: 0,
-            final_text: "Worker passed",
-          },
-        };
+    fakeClaude = fakeClaudeAdapter([
+      {
+        reply: "Worker passed",
       },
-    });
+    ]);
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -77,7 +73,7 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     // Run in auto mode with governor enabled but offline

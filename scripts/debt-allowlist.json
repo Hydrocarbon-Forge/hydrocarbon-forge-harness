@@ -31,34 +31,9 @@
       "until": "R2.2"
     },
     {
-      "rule": "P2",
-      "path": "src/engine/actions/plan.ts",
-      "until": "R0.5"
-    },
-    {
-      "rule": "P2",
-      "path": "src/engine/effects.ts",
-      "until": "R0.5"
-    },
-    {
-      "rule": "P5",
-      "path": "src/engine/actions/task.ts",
-      "until": "R0.5"
-    },
-    {
-      "rule": "P7",
-      "path": "src/engine/actions/task.ts",
-      "until": "R0.5"
-    },
-    {
       "rule": "P1",
       "path": "src/engine/engine.ts",
       "until": "R2.2"
-    },
-    {
-      "rule": "P2",
-      "path": "src/engine/engine.ts",
-      "until": "R0.5"
     },
     {
       "rule": "P8",
@@ -89,11 +64,6 @@
       "rule": "P6",
       "path": "src/roles/prompts/test-writer.ts",
       "until": "R1.7"
-    },
-    {
-      "rule": "P3",
-      "path": "src/spec/parser.ts",
-      "until": "R0.5"
     }
   ],
   "wired": [

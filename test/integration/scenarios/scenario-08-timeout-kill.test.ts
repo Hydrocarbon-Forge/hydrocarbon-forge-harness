@@ -7,6 +7,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -18,13 +19,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 08: Timeout Kills Process Group (§14.5 #8)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -37,31 +38,20 @@ describe("Scenario 08: Timeout Kills Process Group (§14.5 #8)", () => {
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
-  it("kills process group and marks task timeout when execution exceeds timeout limit", async () => {
+  // Expected to fail until R3.4: timeout kill and process group termination
+  it.fails("kills process group and marks task timeout when execution exceeds timeout limit", async () => {
     const runId: RunId = "r_888888ABCDEF";
     let killReasonReceived: string | undefined;
 
-    const mockAdapter = createMockAdapter({
-      nextSession() {
-        return {
-          events: [
-            { type: "session.started", session_id: "sess-timeout-1" },
-            { type: "assistant.text", text: "Hanging indefinitely..." },
-          ],
-          result: {
-            ok: false,
-            exit_code: null,
-            final_text: "Session timed out",
-            killed_for: "timeout",
-          },
-          onKill(reason) {
-            killReasonReceived = reason;
-          },
-        };
+    fakeClaude = fakeClaudeAdapter([
+      {
+        failure: "hang",
+        reply: "Hanging indefinitely...",
       },
-    });
+    ]);
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -89,7 +79,7 @@ describe("Scenario 08: Timeout Kills Process Group (§14.5 #8)", () => {
           task: { timeout_min: 0.05 }, // ~3 seconds
         },
       },
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({

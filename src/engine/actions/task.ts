@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 import type { SpawnRequest, Manifest, UsageRecord } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
@@ -61,7 +63,7 @@ export async function runTaskAction(
   const generation = taskState.generation ?? 1;
   const isHeal = action.type === "heal" || taskState.state === "HEALING";
   const attempt = isHeal ? 2 : (taskState.attempt ?? 1);
-  const sessionId = taskState.session_id ?? `worker-${taskId}-g${generation}-a${attempt}`;
+  const sessionId = taskState.session_id ?? crypto.randomUUID();
 
   if (isHeal) {
     emit("task.healing", { task_id: taskId, generation, attempt: 2 });
@@ -109,7 +111,7 @@ export async function runTaskAction(
     system_append: buildWorkerPrompt(specPath).system,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
-    session: isHeal ? { resume: taskState.session_id ?? `worker-${taskId}-g${generation}-a1` } : { id: sessionId },
+    session: isHeal ? { resume: taskState.session_id ?? sessionId } : { id: sessionId },
     permission: {
       allow: [worktreeInfo.worktreePath],
       deny: [],
@@ -129,7 +131,7 @@ export async function runTaskAction(
   };
 
   const effectiveSessionId = isHeal
-    ? (taskState.session_id ?? `worker-${taskId}-g${generation}-a1`)
+    ? (taskState.session_id ?? sessionId)
     : sessionId;
 
   emit("task.session.started", {
@@ -248,29 +250,31 @@ export async function runTaskAction(
     }
   }
 
-  const resAny = res as any;
-  if (resAny.files_changed && Array.isArray(resAny.files_changed)) {
-    for (const f of resAny.files_changed) {
-      const full = path.join(worktreeInfo.worktreePath, f);
-      if (!fs.existsSync(full)) {
-        fs.mkdirSync(path.dirname(full), { recursive: true });
-        fs.writeFileSync(full, `// modified ${taskId}\n`, "utf8");
-      } else {
-        fs.appendFileSync(full, `\n// modified ${taskId}\n`, "utf8");
+  const statusOut = execFileSync(
+    "git",
+    ["-C", worktreeInfo.worktreePath, "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { encoding: "utf8" }
+  );
+  const changedFiles: string[] = [];
+  if (statusOut) {
+    const tokens = statusOut.split("\0").filter(Boolean);
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      if (token.length < 3) continue;
+      const status = token.slice(0, 2);
+      let filePath = token.slice(3);
+      if (status.startsWith("R")) {
+        i++;
+        if (i < tokens.length) {
+          filePath = tokens[i];
+        }
       }
-    }
-  } else {
-    const allowedFiles = [
-      ...(parsedSpec.frontmatter.write ?? []),
-      ...(parsedSpec.frontmatter.create ?? []),
-    ];
-    for (const f of allowedFiles) {
-      const full = path.join(worktreeInfo.worktreePath, f);
-      if (!fs.existsSync(full)) {
-        fs.mkdirSync(path.dirname(full), { recursive: true });
-        fs.writeFileSync(full, `export const val_${taskId}_g${generation} = 1;\n`, "utf8");
-      } else {
-        fs.appendFileSync(full, `\n// task ${taskId} edit\nexport const v_${taskId} = 1;\n`, "utf8");
+      if (filePath.includes(" -> ")) {
+        filePath = filePath.split(" -> ")[1].trim();
+      }
+      filePath = filePath.replace(/\\/g, "/");
+      if (!filePath.startsWith(".substrate")) {
+        changedFiles.push(filePath);
       }
     }
   }
@@ -322,44 +326,6 @@ export async function runTaskAction(
       attempt,
       failure_class: "scope_violation",
     });
-    return;
-  }
-
-  const isL2Scenario =
-    Boolean(ctx.prompt?.includes("L2 contract amendment")) &&
-    !(state as any).l2_done;
-
-  const isForcedVerifyFail =
-    res.final_text === "First attempt done" ||
-    res.final_text === "Attempt 1" ||
-    res.final_text === "Attempt 2" ||
-    isL2Scenario;
-
-  if (isForcedVerifyFail) {
-    emit("task.verify.started", { task_id: taskId, generation, attempt });
-    emit("task.verify.finished", {
-      task_id: taskId,
-      generation,
-      attempt,
-      passed: false,
-      failure_class: "verify_failed",
-    });
-
-    if (attempt === 1) {
-      emit("task.healing", {
-        task_id: taskId,
-        generation,
-        attempt: 2,
-        session_id: actualSessionId,
-      });
-    } else {
-      emit("task.failed", {
-        task_id: taskId,
-        generation,
-        attempt: 2,
-        failure_class: "verify_failed",
-      });
-    }
     return;
   }
 

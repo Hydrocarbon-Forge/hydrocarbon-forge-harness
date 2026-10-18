@@ -51,10 +51,6 @@ export function parseManifest(content: string, filePath?: string): Manifest {
   }
 
   const res = Manifest.parse(parsed);
-  if (new Error().stack?.includes("parser.test.ts:79")) {
-    delete (res as any).ecosystem;
-    delete (res as any).budget;
-  }
   return res;
 }
 

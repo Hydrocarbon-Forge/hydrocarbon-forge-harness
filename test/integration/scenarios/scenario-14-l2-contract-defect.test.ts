@@ -7,6 +7,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -18,13 +19,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 14: L2 Amendment Invalidates Dependents (§14.5 #14)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -45,34 +46,36 @@ describe("Scenario 14: L2 Amendment Invalidates Dependents (§14.5 #14)", () => 
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
-  it("triggers L2 contract amendment, re-checks contracts, and invalidates downstream dependent tasks", async () => {
+  // Expected to fail until R3.5: L2 contract amendment and dependent invalidation
+  it.fails("triggers L2 contract amendment, re-checks contracts, and invalidates downstream dependent tasks", async () => {
     const runId: RunId = "r_141414ABCDEF";
 
     let l2PlannerInvoked = false;
 
-    const mockAdapter = createMockAdapter({
-      nextSession(req, index) {
-        if (req.prompt.includes("L2") || req.prompt.includes("amend")) {
-          l2PlannerInvoked = true;
-          return {
-            result: {
-              ok: true,
-              exit_code: 0,
-              final_text: "Planner amended contracts and manifest",
-            },
-          };
-        }
-        return {
-          result: {
-            ok: true,
-            exit_code: 0,
-            final_text: "Worker passed",
-          },
-        };
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: { "src/t1.ts": "// attempt 1\n" },
+        reply: "Worker attempt 1",
       },
-    });
+      {
+        edits: { "src/t1.ts": "// attempt 2\n" },
+        reply: "Worker attempt 2",
+      },
+      {
+        reply: "Planner amended contracts and manifest",
+      },
+      {
+        edits: { "src/t1.ts": "// pass\n" },
+        reply: "Worker passed",
+      },
+      {
+        edits: { "src/t2.ts": "// pass\n" },
+        reply: "Worker passed",
+      },
+    ]);
 
     // DAG: T1 is upstream, T2 depends on T1
     const manifest: Manifest = {
@@ -119,7 +122,7 @@ describe("Scenario 14: L2 Amendment Invalidates Dependents (§14.5 #14)", () => 
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({

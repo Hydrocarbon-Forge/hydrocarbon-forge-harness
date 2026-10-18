@@ -8,6 +8,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   readEventLog,
@@ -15,12 +16,12 @@ import {
   type EngineModule,
   type EffectsModule,
 } from "./helpers.js";
-import { createMockAdapter } from "../roles/fixtures.js";
 
 describe("Scenario 16: Solo Mode (§14.5 #16)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -33,30 +34,28 @@ describe("Scenario 16: Solo Mode (§14.5 #16)", () => {
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("bypasses governor and planner, runs single worker session, verifies, and commits", async () => {
     const spawnedRoles: string[] = [];
 
-    const mockAdapter = createMockAdapter({
-      onSpawn(req: SpawnRequest) {
-        spawnedRoles.push(req.role ?? "worker");
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: { "src/solo.ts": "export const solo = true;\n" },
+        reply: "Solo worker completed task",
       },
-      nextSession() {
-        return {
-          result: {
-            ok: true,
-            exit_code: 0,
-            final_text: "Solo worker completed task",
-            files_changed: ["src/solo.ts"],
-          },
-        };
-      },
-    });
+    ]);
+
+    const origSpawn = fakeClaude.adapter.spawn.bind(fakeClaude.adapter);
+    fakeClaude.adapter.spawn = (req: SpawnRequest) => {
+      spawnedRoles.push(req.role ?? "worker");
+      return origSpawn(req);
+    };
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({

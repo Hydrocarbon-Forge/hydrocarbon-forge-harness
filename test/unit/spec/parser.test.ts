@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import YAML from "yaml";
 
 import {
   parseManifest,
@@ -75,7 +76,7 @@ goal: "broken"
     const manifestObj = sampleManifest();
     delete (manifestObj as any).ecosystem;
     delete (manifestObj as any).budget;
-    const yaml = sampleManifestYaml(manifestObj);
+    const yaml = YAML.stringify(manifestObj);
     const parsed = parseManifest(yaml);
     expect(parsed.ecosystem).toBeUndefined();
     expect(parsed.budget).toBeUndefined();

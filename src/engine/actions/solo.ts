@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import type { SpawnRequest } from "../../contracts/index.js";
@@ -37,17 +35,12 @@ export async function runSoloTask(
     }
   }
   const res = await handle.result();
-  const resAny = res as any;
-
-  if (resAny.files_changed && Array.isArray(resAny.files_changed)) {
-    for (const f of resAny.files_changed) {
-      const full = path.join(ctx.repoRoot, f);
-      if (!fs.existsSync(full)) {
-        fs.mkdirSync(path.dirname(full), { recursive: true });
-        fs.writeFileSync(full, "// solo edit\n", "utf8");
-      }
-    }
-    execFileSync("git", ["add", "-A"], { cwd: ctx.repoRoot });
+  execFileSync("git", ["add", "-A"], { cwd: ctx.repoRoot });
+  const status = execFileSync("git", ["status", "--porcelain"], {
+    cwd: ctx.repoRoot,
+    encoding: "utf8",
+  });
+  if (status.trim().length > 0) {
     execFileSync("git", ["commit", "-m", "feat(solo): implement task"], {
       cwd: ctx.repoRoot,
       env: {

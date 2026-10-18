@@ -7,6 +7,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -18,13 +19,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -37,44 +38,23 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("backs off, halves concurrency (floor 1), avoids replanning, and resumes when limit clears", async () => {
     const runId: RunId = "r_121212ABCDEF";
     let attemptsCount = 0;
 
-    const mockAdapter = createMockAdapter({
-      nextSession() {
-        attemptsCount++;
-        if (attemptsCount === 1) {
-          // Attempt 1: emits rate limit error
-          return {
-            events: [
-              { type: "session.started", session_id: "sess-rate-1" },
-              {
-                type: "error",
-                kind: "rate_limit",
-                message: "Rate limit exceeded. Resets in 1s.",
-              },
-            ],
-            result: {
-              ok: false,
-              exit_code: 1,
-              final_text: "Rate limit error",
-            },
-          };
-        } else {
-          // Attempt 2 after backoff: succeeds
-          return {
-            result: {
-              ok: true,
-              exit_code: 0,
-              final_text: "Succeeded after rate limit backoff",
-            },
-          };
-        }
+    fakeClaude = fakeClaudeAdapter([
+      {
+        failure: "rate_limit",
+        reply: "Rate limit error",
       },
-    });
+      {
+        edits: { "src/feature.ts": "// success\n" },
+        reply: "Succeeded after rate limit backoff",
+      },
+    ]);
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -98,7 +78,7 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
         ...env.settings,
         concurrency: { workers: 4 },
       },
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({
@@ -124,51 +104,42 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
   it("pauses run with rate_limited when limit persists at concurrency floor 1", async () => {
     const runId: RunId = "r_121212PERSIST";
 
-    const mockAdapter = createMockAdapter({
-      nextSession() {
-        return {
-          events: [
-            { type: "session.started", session_id: "sess-rate-persist" },
-            {
-              type: "error",
-              kind: "rate_limit",
-              message: "Persistent rate limit",
-            },
-          ],
-          result: {
-            ok: false,
-            exit_code: 1,
-            final_text: "Rate limit",
-          },
-        };
+    const fakeClaude2 = fakeClaudeAdapter([
+      {
+        failure: "rate_limit",
+        reply: "Rate limit",
       },
-    });
+    ]);
 
-    const manifest: Manifest = {
-      ...sampleValidManifest(runId),
-      tasks: [{ id: "T1", spec: "tasks/T1.md" }],
-    };
+    try {
+      const manifest: Manifest = {
+        ...sampleValidManifest(runId),
+        tasks: [{ id: "T1", spec: "tasks/T1.md" }],
+      };
 
-    const t1Spec = sampleValidTaskSpecMarkdown();
-    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+      const t1Spec = sampleValidTaskSpecMarkdown();
+      writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
 
-    const engine = engineMod.createEngine({
-      settings: {
-        ...env.settings,
-        concurrency: { workers: 1 }, // Already at floor 1
-      },
-      adapter: mockAdapter,
-    });
+      const engine = engineMod.createEngine({
+        settings: {
+          ...env.settings,
+          concurrency: { workers: 1 }, // Already at floor 1
+        },
+        adapter: fakeClaude2.adapter,
+      });
 
-    const summary: RunSummary = await engine.run({
-      prompt: "Execute persistent rate limited task",
-      cwd: env.repoRoot,
-      mode: "plan",
-      permission_mode: "bypassPermissions",
-    });
+      const summary: RunSummary = await engine.run({
+        prompt: "Execute persistent rate limited task",
+        cwd: env.repoRoot,
+        mode: "plan",
+        permission_mode: "bypassPermissions",
+      });
 
-    expect(summary.status).toBe("paused");
-    expect(summary.pause_reason).toBe("rate_limited");
-    expect(summary.exit_code).toBe(3);
+      expect(summary.status).toBe("paused");
+      expect(summary.pause_reason).toBe("rate_limited");
+      expect(summary.exit_code).toBe(3);
+    } finally {
+      fakeClaude2.cleanup();
+    }
   });
 });

@@ -12,6 +12,7 @@ import type { EngineState } from "../../../src/engine/reducer.js";
 import { reduce } from "../../../src/engine/reducer.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -30,6 +31,7 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -37,11 +39,28 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
   });
 
   beforeEach(async () => {
-    env = await setupScenarioEnv("01-all-pass");
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: {
+          "src/t1.ts": "export const t1 = 1;\n",
+          "test/t1.test.ts": "export const testT1 = true;\n",
+        },
+        reply: "Done T1",
+      },
+      {
+        edits: {
+          "src/t2.ts": "export const t2 = 2;\n",
+          "test/t2.test.ts": "export const testT2 = true;\n",
+        },
+        reply: "Done T2",
+      },
+    ]);
+    env = await setupScenarioEnv("01-all-pass", { adapter: fakeClaude.adapter });
   });
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("executes independent tasks to clean merge and integration verification pass", async () => {

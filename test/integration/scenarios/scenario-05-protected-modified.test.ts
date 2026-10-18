@@ -9,6 +9,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -20,13 +21,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 05: Protected File Modified (§14.5 #5)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -39,6 +40,7 @@ describe("Scenario 05: Protected File Modified (§14.5 #5)", () => {
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("fails task as protected_modified when worker tampers with protected file", async () => {
@@ -51,18 +53,15 @@ describe("Scenario 05: Protected File Modified (§14.5 #5)", () => {
       "initial protected test"
     );
 
-    const mockAdapter = createMockAdapter({
-      nextSession() {
-        return {
-          result: {
-            ok: true,
-            exit_code: 0,
-            final_text: "Worker tampered with protected test",
-            files_changed: ["test/protected.test.ts", "src/feature.ts"],
-          },
-        };
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: {
+          "src/feature.ts": "// feature edit\n",
+          "test/protected.test.ts": "// tampered\n",
+        },
+        reply: "Worker tampered with protected test",
       },
-    });
+    ]);
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -91,7 +90,7 @@ describe("Scenario 05: Protected File Modified (§14.5 #5)", () => {
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({

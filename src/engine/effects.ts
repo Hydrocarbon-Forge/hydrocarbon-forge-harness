@@ -11,6 +11,7 @@ import type {
   TaskId,
 } from "../contracts/index.js";
 import { type EngineState, reduce } from "./reducer.js";
+import { log } from "../util/log.js";
 import { makeEmitter } from "./actions/shared.js";
 import { runRouteAction } from "./actions/route.js";
 import { runPlanAction } from "./actions/plan.js";
@@ -289,7 +290,7 @@ export async function runEffectsLoop(
         evt.seq = seq;
         appendRunEvent(ctx.runDir, evt);
         ctx.onEvent?.(evt);
-        console.log("[DEBUG] evt:", evt.type, evt.data);
+        log.debug("[DEBUG] evt:", evt.type, evt.data);
         state = reduce(state, evt);
         if (evt.type === "run.finished") {
           state = {
@@ -311,6 +312,6 @@ export async function runEffectsLoop(
     }
   }
 
-  console.log("[DEBUG] runEffectsLoop loop finished, final state:", state.state);
+  log.debug("[DEBUG] runEffectsLoop loop finished, final state:", state.state);
   return state;
 }

@@ -7,6 +7,7 @@ import type {
 } from "../../../src/contracts/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   loadEngine,
   loadEffects,
   writePlanFiles,
@@ -18,13 +19,13 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
-  createMockAdapter,
 } from "../roles/fixtures.js";
 
 describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
 
   beforeAll(async () => {
     engineMod = await loadEngine();
@@ -37,6 +38,7 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude?.cleanup();
   });
 
   it("detects conflict via git merge-tree preflight and triggers L1 replan", async () => {
@@ -51,27 +53,23 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
 
     let t2ReplanOccurred = false;
 
-    const mockAdapter = createMockAdapter({
-      nextSession(req, index) {
-        if (req.prompt.includes("replan") || req.prompt.includes("L1")) {
-          t2ReplanOccurred = true;
-          return {
-            result: {
-              ok: true,
-              exit_code: 0,
-              final_text: "Planner produced revised spec resolving conflict",
-            },
-          };
-        }
-        return {
-          result: {
-            ok: true,
-            exit_code: 0,
-            final_text: "Worker passed verification",
-          },
-        };
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: { "src/shared.ts": "export const sharedValue = 1;\n" },
+        reply: "T1 edited shared",
       },
-    });
+      {
+        edits: { "src/shared.ts": "export const sharedValue = 2;\n" },
+        reply: "T2 edited shared",
+      },
+      {
+        reply: "Planner produced revised spec resolving conflict",
+      },
+      {
+        edits: { "src/shared.ts": "export const sharedValue = 3;\n" },
+        reply: "T2 g2 worker done",
+      },
+    ]);
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
@@ -109,7 +107,7 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: mockAdapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary: RunSummary = await engine.run({

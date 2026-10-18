@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import type { EffectContext, EngineAction } from "../effects.js";
@@ -17,22 +15,28 @@ export async function runMergeAction(
   const runBranch = getRunBranch(ctx.runId);
   const merger = new TaskMergerImpl();
 
-  try {
-    const statusOut = execFileSync("git", ["status", "--porcelain"], {
-      cwd: ctx.repoRoot,
-      encoding: "utf8",
-    });
+  const statusOut = execFileSync("git", ["-C", ctx.repoRoot, "status", "--porcelain", "--untracked-files=no"], {
+    encoding: "utf8",
+  }).trim();
+  if (statusOut.length > 0) {
+    const files: string[] = [];
     for (const line of statusOut.split("\n")) {
-      if (line.startsWith("?? ")) {
-        const rel = line.slice(3).trim();
-        if (!rel.startsWith(".substrate")) {
-          try {
-            fs.rmSync(path.resolve(ctx.repoRoot, rel), { recursive: true, force: true });
-          } catch {}
-        }
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let filePath = line.slice(3).trim();
+      if (filePath.includes(" -> ")) {
+        filePath = filePath.split(" -> ")[1].trim();
       }
+      files.push(filePath);
     }
-  } catch {}
+    emit("run.finished", {
+      exit_code: 2,
+      status: "failed",
+      reason: "dirty_checkout",
+      files,
+    });
+    return;
+  }
 
   if (!ctx.preBatchCheckpoint) {
     try {
