@@ -1,11 +1,6 @@
 {
   "purity": [
     {
-      "rule": "P8",
-      "path": "src/backends/adapters/agy.ts",
-      "until": "R2.5"
-    },
-    {
       "rule": "P6",
       "path": "src/roles/governor.ts",
       "until": "DEFERRED"

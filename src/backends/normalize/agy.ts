@@ -92,7 +92,7 @@ export class AgyNormalizer {
   private readonly options: AgyNormalizerOptions;
   private conversationId?: SessionId;
   private responseText = "";
-  private lastUsage?: UsageRecord;
+  private readonly stepRecords: UsageRecord[] = [];
   private readonly denials: RecordedDenial[] = [];
   private resultEmitted = false;
   private model: string;
@@ -107,10 +107,9 @@ export class AgyNormalizer {
     const events: BackendEvent[] = [];
 
     if (raw.event === "init") {
+      // WP R2.5 Behavior 8: the model in the record is the requested model. agy
+      // echoes the model in init, but the record uses the requested model.
       this.conversationId = raw.conversation_id;
-      if (raw.init?.model) {
-        this.model = raw.init.model;
-      }
       events.push({
         type: "session.started",
         session_id: raw.conversation_id,
@@ -139,26 +138,6 @@ export class AgyNormalizer {
             text: su.text_delta,
           });
         }
-        if (su.state === "DONE" && su.usage) {
-          try {
-            const rec = this.toUsageRecord(su.usage);
-            this.lastUsage = rec;
-            events.push({
-              type: "usage",
-              record: rec,
-              cumulative: false,
-            });
-          } catch (err: any) {
-            const stepName = `step ${su.step_index ?? "unknown"}`;
-            const msg = `Invalid tokens in ${stepName}: ${err.message}`;
-            log.warn(msg);
-            events.push({
-              type: "error",
-              kind: "protocol",
-              message: msg,
-            });
-          }
-        }
       } else if (su.step_type === "tool" && (su.tool_name || su.tool_info)) {
         if (su.state === "ACTIVE") {
           const name = su.tool_name ?? su.tool_info?.name ?? "unknown";
@@ -181,6 +160,30 @@ export class AgyNormalizer {
           });
         }
       }
+
+      // One usage event per step that reports usage. S3: the usage object on a
+      // step_update is the marginal for that step, so these records are what the
+      // session total is built from.
+      if (su.state === "DONE" && su.usage) {
+        try {
+          const rec = this.toUsageRecord(su.usage);
+          this.stepRecords.push(rec);
+          events.push({
+            type: "usage",
+            record: rec,
+            cumulative: false,
+          });
+        } catch (err: any) {
+          const stepName = `step ${su.step_index ?? "unknown"}`;
+          const msg = `Invalid tokens in ${stepName}: ${err.message}`;
+          log.warn(msg);
+          events.push({
+            type: "error",
+            kind: "protocol",
+            message: msg,
+          });
+        }
+      }
       return events;
     }
 
@@ -192,19 +195,9 @@ export class AgyNormalizer {
       if (res.response !== undefined) {
         this.responseText = res.response;
       }
-      if (res.usage) {
-        try {
-          this.lastUsage = this.toUsageRecord(res.usage);
-        } catch (err: any) {
-          const msg = `Invalid tokens in result: ${err.message}`;
-          log.warn(msg);
-          events.push({
-            type: "error",
-            kind: "protocol",
-            message: msg,
-          });
-        }
-      }
+      // res.usage is the conversation-cumulative count (S3), not this session's
+      // total, so it is not turned into a record; the total is the sum of the
+      // step records above.
       if (res.denied_actions && Array.isArray(res.denied_actions)) {
         for (const denial of res.denied_actions) {
           const denialEvt = this.recordDenial({
@@ -255,7 +248,7 @@ export class AgyNormalizer {
         ok,
         stop_reason: res.status === "SUCCESS" ? "completed" : "error",
         final_text: this.responseText,
-        usage: this.lastUsage,
+        usage: this.sessionTotal(),
         exit_code: exitCode,
       });
 
@@ -297,7 +290,7 @@ export class AgyNormalizer {
         ok,
         stop_reason: exitCode === 0 ? "completed" : "exit",
         final_text: this.responseText,
-        usage: this.lastUsage,
+        usage: this.sessionTotal(),
         exit_code: exitCode,
       },
     ];
@@ -310,8 +303,44 @@ export class AgyNormalizer {
     }));
   }
 
-  getUsage(): UsageRecord | undefined {
-    return this.lastUsage;
+  getUsage(): UsageRecord {
+    return this.sessionTotal();
+  }
+
+  /**
+   * Session total = sum of the per-step records of this session. The `result`
+   * event's usage is cumulative over the whole conversation (S3), so on resume it
+   * would count turns from earlier sessions; summing this session's steps once is
+   * what keeps the invariant "usage events of a run == session total".
+   */
+  private sessionTotal(): UsageRecord {
+    const allPriced = this.options.pricing.models[this.model] !== undefined;
+    const total: UsageRecord = {
+      backend: "agy",
+      model: this.model,
+      input_tokens: 0,
+      output_tokens: 0,
+      cost_usd: 0,
+      cost_source: allPriced ? "computed" : "unknown",
+      at: nowIsoTimestamp(),
+    };
+
+    for (const record of this.stepRecords) {
+      total.input_tokens += record.input_tokens;
+      total.output_tokens += record.output_tokens;
+      total.cost_usd += record.cost_usd;
+      if (record.cost_source !== "computed") {
+        total.cost_source = "unknown";
+      }
+      if (record.cache_read_tokens !== undefined) {
+        total.cache_read_tokens = (total.cache_read_tokens ?? 0) + record.cache_read_tokens;
+      }
+      if (record.reasoning_tokens !== undefined) {
+        total.reasoning_tokens = (total.reasoning_tokens ?? 0) + record.reasoning_tokens;
+      }
+    }
+
+    return UsageRecordSchema.parse(total);
   }
 
   getConversationId(): SessionId | undefined {

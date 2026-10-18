@@ -264,9 +264,30 @@ describe("AgyNormalizer - Golden Tests from S3 Spike Fixtures", () => {
     if (result2?.type === "session.result") {
       expect(result2.ok).toBe(true);
       expect(result2.final_text).toContain("BRAVO-42");
-      // Resumed cumulative tokens: 23884 input tokens
-      expect(result2.usage?.input_tokens).toBe(23884);
+      // R2.5: the session total is the sum of this session's step records, not the
+      // result event's conversation-cumulative usage (23884 would double-count turn 1).
+      expect(result2.usage?.input_tokens).toBe(12049);
+      expect(result2.usage?.output_tokens).toBe(5);
       expect(result2.usage?.cost_source).toBe("computed");
+      // 12049 * 0.75 / 1e6 + 5 * 3.75 / 1e6
+      expect(result2.usage?.cost_usd).toBeCloseTo(0.0090555, 10);
+    }
+
+    // Invariant: the usage events of the run equal the session total.
+    const usageEvents2 = emitted2.filter((e) => e.type === "usage");
+    expect(usageEvents2.length).toBe(1);
+    const summedInput = usageEvents2.reduce(
+      (sum, e) => (e.type === "usage" ? sum + e.record.input_tokens : sum),
+      0
+    );
+    const summedCost = usageEvents2.reduce(
+      (sum, e) => (e.type === "usage" ? sum + e.record.cost_usd : sum),
+      0
+    );
+    const resultEvent2 = emitted2.find((e) => e.type === "session.result");
+    if (resultEvent2?.type === "session.result") {
+      expect(resultEvent2.usage?.input_tokens).toBe(summedInput);
+      expect(resultEvent2.usage?.cost_usd).toBeCloseTo(summedCost, 10);
     }
   });
 
@@ -383,6 +404,97 @@ describe("AgyNormalizer - Invariants and Edge Cases", () => {
       expect(resultEvt.ok).toBe(true);
       expect(resultEvt.usage?.cost_source).toBe("unknown");
       expect(resultEvt.usage?.cost_usd).toBe(0);
+    }
+  });
+
+  it("emits error with kind protocol and the step number when a step record cannot be built, and the stream continues", () => {
+    const normalizer = new AgyNormalizer({
+      model: "gemini-3.8-flash-low",
+      pricing: samplePricing,
+    });
+
+    const events: BackendEvent[] = [];
+    events.push(
+      ...normalizer.normalizeEvent({
+        event: "step_update",
+        step_update: {
+          step_index: 3,
+          step_type: "agent_response",
+          state: "DONE",
+          usage: { input_tokens: Number.NaN, output_tokens: 10 },
+        },
+      })
+    );
+
+    const err = events.find((e) => e.type === "error");
+    expect(err).toBeDefined();
+    if (err?.type === "error") {
+      expect(err.kind).toBe("protocol");
+      expect(err.message).toContain("step 3");
+    }
+
+    // The swallow is gone: the stream is not cut short by the bad record.
+    events.push(
+      ...normalizer.normalizeEvent({
+        event: "result",
+        result: {
+          conversation_id: "c1",
+          status: "SUCCESS",
+          response: "ok",
+          usage: { input_tokens: 100, output_tokens: 10 },
+        },
+      })
+    );
+
+    const resultEvt = events.find((e) => e.type === "session.result");
+    expect(resultEvt).toBeDefined();
+    if (resultEvt?.type === "session.result") {
+      expect(resultEvt.ok).toBe(true);
+      // The failed step contributes nothing to the total.
+      expect(resultEvt.usage?.input_tokens).toBe(0);
+    }
+  });
+
+  it("does not emit the result event's usage as a usage event, so the total is the sum of step records", () => {
+    const normalizer = new AgyNormalizer({
+      model: "gemini-3.8-flash-low",
+      pricing: samplePricing,
+    });
+
+    const events: BackendEvent[] = [];
+    events.push(
+      ...normalizer.normalizeEvent({
+        event: "step_update",
+        step_update: {
+          step_index: 1,
+          step_type: "agent_response",
+          state: "DONE",
+          usage: { input_tokens: 200, output_tokens: 20 },
+        },
+      })
+    );
+    events.push(
+      ...normalizer.normalizeEvent({
+        event: "result",
+        result: {
+          conversation_id: "c1",
+          status: "SUCCESS",
+          response: "ok",
+          // Conversation-cumulative usage; must not become a usage event or the total.
+          usage: { input_tokens: 9000, output_tokens: 90 },
+        },
+      })
+    );
+
+    const usageEvents = events.filter((e) => e.type === "usage");
+    expect(usageEvents.length).toBe(1);
+    if (usageEvents[0]?.type === "usage") {
+      expect(usageEvents[0].record.input_tokens).toBe(200);
+    }
+
+    const resultEvt = events.find((e) => e.type === "session.result");
+    if (resultEvt?.type === "session.result") {
+      expect(resultEvt.usage?.input_tokens).toBe(200);
     }
   });
 

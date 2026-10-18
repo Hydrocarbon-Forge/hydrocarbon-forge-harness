@@ -10,18 +10,85 @@ import type {
   SessionHandle,
   SessionResult,
   SpawnRequest,
-  UsageRecord,
 } from "../../contracts/index.js";
 import { SessionResult as SessionResultSchema } from "../../contracts/index.js";
 import { readNdjsonStream } from "../ndjson.js";
 import { spawnSupervisedProcess } from "../process.js";
 import { AgyNormalizer, type AgyRawEvent } from "../normalize/agy.js";
-import { nowIsoTimestamp } from "../../util/index.js";
+import { log } from "../../util/log.js";
 
 export interface AgyAdapterOptions {
   bin?: string;
   pricing: PricingTable;
   maxConcurrency?: number;
+}
+
+/** Effort slugs agy 1.4.0 accepts (S3: no shipped slug accepts xhigh or max). */
+const AGY_EFFORTS = new Set(["low", "medium", "high"]);
+
+/**
+ * The env names passed to the agy process. Harness scenario variables are not part
+ * of this list: the test dialect reads its scenario from the child environment, so
+ * a test must pass it through the env option of SpawnRequest instead of relying on
+ * inheritance from the test process.
+ */
+const ALLOWED_ENV_VARS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "SHELL",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "TERM",
+  "NODE_ENV",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+];
+
+/**
+ * Combines the system rules with the task prompt. agy has no verified
+ * system-prompt flag (S3), so both parts travel in the `-p` argument.
+ */
+function buildPrompt(req: SpawnRequest): string {
+  if (!req.system_append) {
+    return req.prompt;
+  }
+  return `SYSTEM RULES\n${req.system_append}\n\nTASK\n${req.prompt}`;
+}
+
+export function buildAgyArgv(req: SpawnRequest): string[] {
+  const argv: string[] = [
+    "-p",
+    buildPrompt(req),
+    "--output-format",
+    "stream-json",
+    "--model",
+    req.model,
+  ];
+
+  if (req.effort) {
+    if (AGY_EFFORTS.has(req.effort)) {
+      argv.push("--effort", req.effort);
+    } else {
+      log.warn(`agy: effort ${req.effort} is not supported by agy 1.4.0; omitted`);
+    }
+  }
+
+  argv.push("--mode", "accept-edits");
+
+  // Verified on the installed binary with `agy --help` on 2026-10-18 that the
+  // flag exists; WP Notes keep it and it is passed explicitly as 0s so a headless
+  // run never waits on an interactive prompt (documented default is 5m per S3).
+  argv.push("--print-timeout", "0s");
+
+  // S3: `--conversation <id>` resumes the same conversation and step numbering.
+  if (req.session?.resume) {
+    argv.push("--conversation", req.session.resume);
+  }
+
+  return argv;
 }
 
 function findExecutable(bin: string): string | null {
@@ -55,8 +122,16 @@ export class AgyAdapter implements HarnessAdapter {
       budget_flag: false,
       cost_reported: false,
       resume: true,
+      // S3 (verified locally 2026-10-16): a headless agy run cannot prompt for a
+      // permission, so an auto-denied tool is reported two ways that the
+      // normalizer parses - the stderr line
+      // `jetski: no output produced ... permission ... auto-denied` and
+      // `result.denied_actions`. Exit code is still 0, so the signal is stderr.
       permission_denial_signal: "stderr",
-      sandbox_flag: true,
+      // S3: the sandbox flag is OS isolation (Linux namespaces), not a permission
+      // grant, and it is off by default. It grants nothing to the adapter, so the
+      // capability is false and the flag is never passed.
+      sandbox_flag: false,
       native_subagents_headless: false,
       ...(options.maxConcurrency !== undefined
         ? { max_concurrency: options.maxConcurrency }
@@ -112,61 +187,8 @@ export class AgyAdapter implements HarnessAdapter {
   }
 
   spawn(req: SpawnRequest): SessionHandle {
-    const args: string[] = [
-      "-p",
-      req.prompt,
-      "--output-format",
-      "stream-json",
-      "--model",
-      req.model,
-    ];
+    const args = buildAgyArgv(req);
 
-    if (req.effort) {
-      let effort = req.effort;
-      if (effort === "xhigh" || effort === "max") {
-        if (req.model.includes("flash") || req.model.includes("low")) {
-          effort = "high";
-        }
-      }
-      args.push("--effort", effort);
-    }
-
-    args.push("--mode", "accept-edits");
-
-    if (this.capabilities.sandbox_flag) {
-      args.push("--sandbox");
-    }
-
-    args.push("--print-timeout", "0s");
-
-    if (req.session?.resume) {
-      args.push("--conversation", req.session.resume);
-    }
-
-    if (
-      this.bin !== "agy" &&
-      req.permission?.deny &&
-      req.permission.deny.length > 0
-    ) {
-      args.push("--denial-tool", req.permission.deny[0]);
-    }
-
-    const ALLOWED_ENV_VARS = [
-      "PATH",
-      "HOME",
-      "USER",
-      "SHELL",
-      "TMPDIR",
-      "TEMP",
-      "TMP",
-      "TERM",
-      "NODE_ENV",
-      "LANG",
-      "LC_ALL",
-      "LC_CTYPE",
-      "FAKE_SCENARIO",
-      "AGY_LIVE",
-    ];
     const env: Record<string, string> = {};
     for (const key of ALLOWED_ENV_VARS) {
       if (process.env[key] !== undefined) {
@@ -202,8 +224,8 @@ export class AgyAdapter implements HarnessAdapter {
           appendFileSync(rawFile, chunk);
         }
         rawChunks.length = 0;
-      } catch {
-        // Ignore fs error
+      } catch (err: any) {
+        log.warn(`agy: could not write raw stream for ${sid}: ${err.message}`);
       }
     };
 
@@ -214,20 +236,21 @@ export class AgyAdapter implements HarnessAdapter {
             mkdirSync(rawDir, { recursive: true });
           }
           appendFileSync(join(rawDir, `${savedSessionId}.ndjson`), chunk);
-        } catch {
-          // Ignore fs error
+        } catch (err: any) {
+          log.warn(
+            `agy: could not append raw stream for ${savedSessionId}: ${err.message}`
+          );
         }
       } else {
         rawChunks.push(chunk);
       }
     };
 
-    const normalizerModel = this.options.pricing.models[req.model]
-      ? req.model
-      : (Object.keys(this.options.pricing.models)[0] ?? req.model);
-
     const normalizer = new AgyNormalizer({
-      model: normalizerModel,
+      // The record's model is the requested model (R2.5). The pricing lookup does
+      // not substitute another model: an unpriced model keeps cost_source unknown
+      // and the stream continues.
+      model: req.model,
       pricing: this.options.pricing,
     });
 
@@ -253,40 +276,28 @@ export class AgyAdapter implements HarnessAdapter {
     };
 
     const stdoutPromise = (async () => {
-      try {
-        for await (const raw of readNdjsonStream<AgyRawEvent>(proc.stdout, {
-          rawSink,
-          onParseError: () => {
-            // Drop torn line fragments
-          },
-        })) {
-          const convId = normalizer.getConversationId();
-          if (convId && !savedSessionId) {
-            savedSessionId = convId;
-            flushRaw(convId);
-          }
-          const events = normalizer.normalizeEvent(raw);
-          for (const e of events) {
-            pushEvent(e);
-          }
+      for await (const raw of readNdjsonStream<AgyRawEvent>(proc.stdout, {
+        rawSink,
+      })) {
+        const convId = normalizer.getConversationId();
+        if (convId && !savedSessionId) {
+          savedSessionId = convId;
+          flushRaw(convId);
         }
-      } catch {
-        // Stream closed or error
+        const events = normalizer.normalizeEvent(raw);
+        for (const e of events) {
+          pushEvent(e);
+        }
       }
     })();
 
     const stderrPromise = (async () => {
-      try {
-        for await (const chunk of proc.stderr) {
-          const text =
-            typeof chunk === "string" ? chunk : chunk.toString("utf8");
-          const events = normalizer.scanStderr(text);
-          for (const e of events) {
-            pushEvent(e);
-          }
+      for await (const chunk of proc.stderr) {
+        const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        const events = normalizer.scanStderr(text);
+        for (const e of events) {
+          pushEvent(e);
         }
-      } catch {
-        // Stderr closed or error
       }
     })();
 
@@ -345,17 +356,7 @@ export class AgyAdapter implements HarnessAdapter {
         denials.length === 0 &&
         (observedResultEvent ? observedResultEvent.ok : true);
 
-      const defaultUsage: UsageRecord = {
-        backend: "agy",
-        model: normalizerModel,
-        input_tokens: 0,
-        output_tokens: 0,
-        cost_usd: 0,
-        cost_source: "computed",
-        at: nowIsoTimestamp(),
-      };
-
-      const finalUsage = normalizer.getUsage() ?? defaultUsage;
+      const finalUsage = normalizer.getUsage();
 
       const res: SessionResult = {
         ok,
