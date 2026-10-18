@@ -98,3 +98,38 @@ Everything else passes: 1177 passed | 1 failed | 2 skipped.
 3. Make `ModelInfo` type-only in contracts (no zod const export) — contradicts the R2.6 Interface snippet, so not recommended.
 
 Nothing was worked around while this was open; the owner resolved it with option 1, as recorded at the top.
+
+## R2.7 — `substrate models --provider/--refresh` cannot reach the command through the bundle
+
+**Status: RESOLVED by owner on 2026-10-18.** The owner directed option 1: `provider` (string) and `refresh` (boolean) were added to `CLI_OPTIONS` in `src/cli/dispatcher.ts` with two optional `ParsedCliFlags` fields and the `flags` mapping, exactly as `from`/`run` are done; `models.ts` reads `ctx.flags`. `models --provider claude` and `--refresh` are now provable E2E through the bundle (`test/e2e/models.test.ts` drives both flags through `dist/substrate.mjs`), the full suite is green, and R2.7 was committed. Original analysis below.
+
+### The conflict
+
+`docs/plan/wp/R2.7.md` Interface: `substrate models [--provider claude|opencode|agy] [--refresh] [--output-format json|text]`, and the guardrail requires the command to be proven "through the bundle with fake harnesses". But in `src/cli/dispatcher.ts`:
+
+- `CLI_OPTIONS` (lines 72–95) contains no `provider` or `refresh`; `parseCliArgs` copies parsed values into `flags` only for known options, and its `ParsedCliFlags` has no `provider`/`refresh` fields.
+- `runCli` (lines 260–264) exits 2 with `Error: Unknown option '--provider'` for any command except `bench`.
+- `CommandContext.rawArgs` is `positional`, and `parseArgs` puts option values in `values`, never in positionals — so `--provider`/`--refresh` can never appear in `rawArgs` from the bundle either.
+
+The established pattern for command-local flags is membership in `CLI_OPTIONS` plus a `flags` mapping (`from` for `agents import`, `run` for `verify`; `agents.ts` reads `ctx.flags.from`). R2.7 would need the same two entries in `src/cli/dispatcher.ts`, a file it does not list.
+
+### Evidence (bundle, 2026-10-18)
+
+```
+$ node dist/substrate.mjs models --provider claude
+Error: Unknown option '--provider'
+exit=2
+$ node dist/substrate.mjs models --refresh
+Error: Unknown option '--refresh'
+exit=2
+```
+
+The edge-case message the spec wants (`Error: unknown provider foo`, exit 2) is emitted by the command, so `--provider` must reach the command with its value; the dispatcher currently prevents that.
+
+### Options for the owner
+
+1. Add `provider` (string) and `refresh` (boolean) to `CLI_OPTIONS` in `src/cli/dispatcher.ts` and map them into `flags` with two optional `ParsedCliFlags` fields, exactly as `from`/`run` are done; `models.ts` reads `ctx.flags`. About 4 lines in one file outside R2.7's lists. This makes `models --provider claude --output-format json` and `--refresh` provable E2E through the bundle. Recommended.
+2. Have `models.ts` scan `ctx.rawArgs` for the flags: passes integration tests that construct `rawArgs` directly, but through the bundle the options are still rejected by the dispatcher before the command runs, so the Interface line can never be proven E2E. Not recommended as a standalone fix.
+3. Relax the strict gate to pass unknown options through to `rawArgs`: changes behaviour asserted by earlier WPs' tests for every command. Not recommended.
+
+Nothing was worked around while this was open; no file outside R2.7's lists was touched until the owner resolved it. The owner resolved it with option 1, as recorded at the top.

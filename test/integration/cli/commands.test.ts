@@ -1,8 +1,11 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, appendFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { Writable } from "node:stream";
+
+import { ModelCatalog } from "../../../src/cli/model-catalog.js";
 
 import type * as Contracts from "../../../src/contracts/index.js";
 import { reduce } from "../../../src/engine/reducer.js";
@@ -537,26 +540,249 @@ describe("cli: inspection and lifecycle commands", () => {
   });
 
   describe("models command", () => {
-    it("displays routing table: TaskClass -> Backend, Model, Effort, and escalation chain", async () => {
-      const modelsCommand = await loadCommand("../../../src/cli/commands/models.js", "modelsCommand");
+    const binDir = resolve(fileURLToPath(import.meta.url), "..", "..", "..", "fixtures", "fake-harness", "bin");
 
-      const stdout = createMockStream();
-      const stderr = createMockStream();
+    type ModelsFlags = CommandContext["flags"] & { provider?: string; refresh?: boolean };
 
-      const ctx: CommandContext = {
-        cwd: tmpDir,
-        flags: {},
-        rawArgs: [],
-        stdout,
-        stderr,
+    interface ModelsResult {
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+    }
+
+    // Runs modelsCommand with a project settings file in tmpDir, isolating the
+    // user settings layer so results are deterministic on any machine.
+    async function runModels(settings: Record<string, unknown>, flags: ModelsFlags = {}): Promise<ModelsResult> {
+      writeFileSync(join(tmpDir, ".substrate", "settings.json"), JSON.stringify(settings), "utf8");
+
+      const configDir = mkdtempSync(join(tmpdir(), "substrate-models-config-"));
+      const saved = {
+        config: process.env.SUBSTRATE_CONFIG_DIR,
+        settings: process.env.SUBSTRATE_SETTINGS,
+        project: process.env.SUBSTRATE_PROJECT_DIR,
       };
+      process.env.SUBSTRATE_CONFIG_DIR = configDir;
+      delete process.env.SUBSTRATE_SETTINGS;
+      delete process.env.SUBSTRATE_PROJECT_DIR;
 
-      const exitCode = await modelsCommand.execute(ctx);
-      expect(exitCode).toBe(0);
+      try {
+        const modelsCommand = await loadCommand("../../../src/cli/commands/models.js", "modelsCommand");
+        const stdout = createMockStream();
+        const stderr = createMockStream();
 
-      const output = stdout.getOutput();
-      expect(output).toMatch(/claude/i);
-      expect(output).toMatch(/feature/i);
+        const ctx: CommandContext = {
+          cwd: tmpDir,
+          flags,
+          rawArgs: [],
+          stdout,
+          stderr,
+        };
+
+        const exitCode = await modelsCommand.execute(ctx);
+        return { exitCode, stdout: stdout.getOutput(), stderr: stderr.getOutput() };
+      } finally {
+        if (saved.config === undefined) delete process.env.SUBSTRATE_CONFIG_DIR;
+        else process.env.SUBSTRATE_CONFIG_DIR = saved.config;
+        if (saved.settings === undefined) delete process.env.SUBSTRATE_SETTINGS;
+        else process.env.SUBSTRATE_SETTINGS = saved.settings;
+        if (saved.project === undefined) delete process.env.SUBSTRATE_PROJECT_DIR;
+        else process.env.SUBSTRATE_PROJECT_DIR = saved.project;
+        rmSync(configDir, { recursive: true, force: true });
+      }
+    }
+
+    // Pins are set explicitly for determinism; the fake harnesses answer --version
+    // with exactly these pins, so every provider reports pin matches.
+    function standardSettings(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        backends: {
+          claude: { bin: join(binDir, "claude"), version_pin: "2.1.301" },
+          opencode: { bin: join(binDir, "opencode"), version_pin: "2.0.21" },
+          agy: { bin: join(binDir, "agy"), version_pin: "1.4.0" },
+        },
+        ...overrides,
+      };
+    }
+
+    // haiku is priced, sonnet is routed but unpriced, gemini-3.8-flash-low is the
+    // worker model; the DEFAULT_SETTINGS routing.escalation array must not count as a slot.
+    const slotSettings = standardSettings({
+      roles: {
+        planner: { backend: "claude", model: "haiku" },
+        worker: { backend: "agy", model: "gemini-3.8-flash-low" },
+      },
+      routing: { feature: { backend: "claude", model: "sonnet" } },
+      pricing: { models: { haiku: { input_per_mtok: 1, output_per_mtok: 5 } } },
+    });
+
+    it("prints one table per provider and the all-models section in text mode", async () => {
+      const result = await runModels(slotSettings);
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+
+      const expected = [
+        "== claude (installed, version 2.1.301, pin 2.1.301 matches) ==",
+        "haiku\tlow,medium,high,xhigh,max\t1/5 per Mtok\troles.planner",
+        "sonnet\tlow,medium,high,xhigh,max\tunpriced\trouting.feature",
+        "opus\tlow,medium,high,xhigh,max\tunpriced\t-",
+        "fable\tlow,medium,high,xhigh,max\tunpriced\t-",
+        "gemini-3.8-flash-low\tlow,medium,high,xhigh,max\tunpriced\troles.worker",
+        "== opencode (installed, version 2.0.21, pin 2.0.21 matches) ==",
+        "opencode/deepseek-v4.1-flash-free\t-\tunpriced\t-",
+        "== agy (installed, version 1.4.0, pin 1.4.0 matches) ==",
+        "gemini-3.8-flash-high\thigh\tunpriced\t-",
+        "gemini-3.8-flash-medium\tmedium\tunpriced\t-",
+        "gemini-3.8-flash-low\tlow\tunpriced\troles.worker",
+        "claude-sonnet-4-6\t-\tunpriced\t-",
+        "claude-opus-4-6-thinking\t-\tunpriced\t-",
+        "gpt-oss-120b-medium\tmedium\tunpriced\t-",
+        "",
+        "== all models ==",
+        "claude\tfable\tlow,medium,high,xhigh,max\tunpriced\t-",
+        "claude\tgemini-3.8-flash-low\tlow,medium,high,xhigh,max\tunpriced\troles.worker",
+        "claude\thaiku\tlow,medium,high,xhigh,max\t1/5 per Mtok\troles.planner",
+        "claude\topus\tlow,medium,high,xhigh,max\tunpriced\t-",
+        "claude\tsonnet\tlow,medium,high,xhigh,max\tunpriced\trouting.feature",
+        "opencode\topencode/deepseek-v4.1-flash-free\t-\tunpriced\t-",
+        "agy\tclaude-opus-4-6-thinking\t-\tunpriced\t-",
+        "agy\tclaude-sonnet-4-6\t-\tunpriced\t-",
+        "agy\tgemini-3.8-flash-high\thigh\tunpriced\t-",
+        "agy\tgemini-3.8-flash-low\tlow\tunpriced\troles.worker",
+        "agy\tgemini-3.8-flash-medium\tmedium\tunpriced\t-",
+        "agy\tgpt-oss-120b-medium\tmedium\tunpriced\t-",
+      ];
+      expect(result.stdout.split("\n")).toEqual([...expected, ""]);
+    });
+
+    it("prints exactly one ModelCatalog object on stdout in JSON mode and writes the cache file", async () => {
+      const result = await runModels(slotSettings, { outputFormat: "json" });
+      expect(result.exitCode).toBe(0);
+
+      const catalog = JSON.parse(result.stdout) as ModelCatalog;
+      expect(ModelCatalog.parse(catalog)).toEqual(catalog);
+      expect(result.stdout).toBe(`${JSON.stringify(catalog)}\n`);
+      expect(catalog.v).toBe(1);
+      expect(catalog.cache).toBe("fresh");
+      expect(catalog.providers.map((p) => p.provider)).toEqual(["claude", "opencode", "agy"]);
+
+      const haiku = catalog.providers[0].models.find((m) => m.id === "haiku");
+      expect(haiku?.price_per_mtok).toEqual({ input: 1, output: 5 });
+      expect(haiku?.slots).toEqual(["roles.planner"]);
+      expect(catalog.all_models[0]).toMatchObject({ provider: "claude", id: "fable", price_per_mtok: null });
+
+      const cachePath = join(tmpDir, ".substrate", "state", "models.json");
+      expect(existsSync(cachePath)).toBe(true);
+      const cacheData = JSON.parse(readFileSync(cachePath, "utf8"));
+      expect(cacheData.v).toBe(1);
+      expect(cacheData.providers.map((p: { provider: string }) => p.provider)).toEqual([
+        "claude",
+        "opencode",
+        "agy",
+      ]);
+    });
+
+    it("serves a second run from the cache within 24 hours without calling the harnesses", async () => {
+      const first = await runModels(slotSettings, { outputFormat: "json" });
+      const firstCatalog = JSON.parse(first.stdout) as ModelCatalog;
+
+      const cachePath = join(tmpDir, ".substrate", "state", "models.json");
+      const cacheData = JSON.parse(readFileSync(cachePath, "utf8"));
+      // A distinctive marker proves the second run reads the file instead of rebuilding.
+      cacheData.providers.forEach((p: { problems: string[] }) => {
+        p.problems = ["served-from-cache-sentinel"];
+      });
+      writeFileSync(cachePath, JSON.stringify(cacheData), "utf8");
+
+      const second = await runModels(slotSettings, { outputFormat: "json" });
+      const secondCatalog = JSON.parse(second.stdout) as ModelCatalog;
+
+      expect(secondCatalog.cache).toBe("cached");
+      expect(secondCatalog.generated_at).toBe(firstCatalog.generated_at);
+      expect(secondCatalog.providers.map((p) => p.problems)).toEqual([
+        ["served-from-cache-sentinel"],
+        ["served-from-cache-sentinel"],
+        ["served-from-cache-sentinel"],
+      ]);
+    });
+
+    it("ignores a cache older than 24 hours and rebuilds", async () => {
+      const first = await runModels(slotSettings, { outputFormat: "json" });
+
+      const cachePath = join(tmpDir, ".substrate", "state", "models.json");
+      const cacheData = JSON.parse(readFileSync(cachePath, "utf8"));
+      cacheData.generated_at = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+      cacheData.providers.forEach((p: { problems: string[] }) => {
+        p.problems = ["stale-cache-sentinel"];
+      });
+      writeFileSync(cachePath, JSON.stringify(cacheData), "utf8");
+
+      const rebuilt = await runModels(slotSettings, { outputFormat: "json" });
+      const rebuiltCatalog = JSON.parse(rebuilt.stdout) as ModelCatalog;
+
+      expect(rebuiltCatalog.cache).toBe("fresh");
+      expect(rebuiltCatalog.generated_at).not.toBe(cacheData.generated_at);
+      expect(rebuiltCatalog.providers[0].problems).toEqual([]);
+    });
+
+    it("--refresh ignores a fresh cache and rebuilds", async () => {
+      await runModels(slotSettings, { outputFormat: "json" });
+
+      const cachePath = join(tmpDir, ".substrate", "state", "models.json");
+      const cacheData = JSON.parse(readFileSync(cachePath, "utf8"));
+      cacheData.providers.forEach((p: { problems: string[] }) => {
+        p.problems = ["refresh-should-not-appear"];
+      });
+      writeFileSync(cachePath, JSON.stringify(cacheData), "utf8");
+
+      const refreshed = await runModels(slotSettings, { outputFormat: "json", refresh: true });
+      const refreshedCatalog = JSON.parse(refreshed.stdout) as ModelCatalog;
+
+      expect(refreshedCatalog.cache).toBe("fresh");
+      expect(refreshedCatalog.providers[0].problems).toEqual([]);
+    });
+
+    it("--provider filters to a single provider", async () => {
+      const result = await runModels(slotSettings, { outputFormat: "json", provider: "claude" });
+      const catalog = JSON.parse(result.stdout) as ModelCatalog;
+
+      expect(result.exitCode).toBe(0);
+      expect(catalog.providers.map((p) => p.provider)).toEqual(["claude"]);
+    });
+
+    it("reports an uninstalled provider as not installed, never as an error", async () => {
+      const result = await runModels(
+        standardSettings({
+          backends: { claude: { bin: join(binDir, "no-such-binary"), version_pin: "2.1.301" } },
+        }),
+        { outputFormat: "json" },
+      );
+      expect(result.exitCode).toBe(0);
+
+      const catalog = JSON.parse(result.stdout) as ModelCatalog;
+      const claude = catalog.providers.find((p) => p.provider === "claude");
+      expect(claude?.installed).toBe(false);
+      expect(claude?.pin_matches).toBe(false);
+      expect(claude?.problems.length).toBeGreaterThan(0);
+
+      const text = await runModels(
+        standardSettings({
+          backends: { claude: { bin: join(binDir, "no-such-binary"), version_pin: "2.1.301" } },
+        }),
+      );
+      expect(text.exitCode).toBe(0);
+      expect(text.stdout).toContain("== claude (not installed,");
+    });
+
+    it("unknown provider prints the error on stderr and exits 2 in both modes", async () => {
+      const text = await runModels(slotSettings, { provider: "foo" });
+      expect(text.exitCode).toBe(2);
+      expect(text.stderr).toBe("Error: unknown provider foo\n");
+      expect(text.stdout).toBe("");
+
+      const json = await runModels(slotSettings, { outputFormat: "json", provider: "foo" });
+      expect(json.exitCode).toBe(2);
+      expect(json.stderr).toBe("Error: unknown provider foo\n");
+      expect(json.stdout).toBe(`${JSON.stringify({ error: "unknown provider foo" })}\n`);
     });
   });
 

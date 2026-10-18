@@ -20,6 +20,8 @@ export interface CliGlobalFlags {
   mode?: "auto" | "solo" | "plan";
   noGovernor?: boolean;
   local?: boolean;
+  provider?: string;
+  refresh?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -93,6 +95,8 @@ const CLI_OPTIONS = {
   "allowed-tools": { type: "string", multiple: true },
   "disallowed-tools": { type: "string", multiple: true },
   verify: { type: "string", multiple: true },
+  provider: { type: "string" },
+  refresh: { type: "boolean" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -146,6 +150,10 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
     flags.permissionMode = parsedValues["permission-mode"] as any;
   }
   if (parsedValues.settings) flags.settings = parsedValues.settings as string;
+  if (parsedValues.provider !== undefined) {
+    flags.provider = parsedValues.provider as string;
+  }
+  if (parsedValues.refresh) flags.refresh = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);
   }

@@ -308,6 +308,10 @@ export async function loadSettings(options: LoadSettingsOptions = {}): Promise<C
   return Contracts.Settings.parse(merged);
 }
 
+export function modelCacheFile(projectRoot: string): string {
+  return path.join(projectRoot, ".substrate", "state", "models.json");
+}
+
 // ===== permissions =====
 export function parsePermissionRule(rule: string): { tool: string; pattern: string | null } {
   if (typeof rule !== "string") throw new Error("Rule must be a string");
