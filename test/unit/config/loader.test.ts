@@ -109,7 +109,7 @@ describe("config loading: precedence and defaults", () => {
   it("missing files resolve to defaults that validate against Settings", async () => {
     const projectDir = tmp();
     const userDir = tmp();
-    const settings = await loadSettings({ projectDir, userConfigDir: userDir });
+    const settings = await loadSettings({ projectDir, userConfigDir: userDir, env: {} });
     expect(settingsValidates(settings)).toBe(true);
   });
 
@@ -117,7 +117,7 @@ describe("config loading: precedence and defaults", () => {
     const projectDir = tmp();
     const userDir = tmp();
     writeSettingsFile(projectDir, ".substrate/settings.json", `{}`);
-    const settings = await loadSettings({ projectDir, userConfigDir: userDir });
+    const settings = await loadSettings({ projectDir, userConfigDir: userDir, env: {} });
     expect(settingsValidates(settings)).toBe(true);
   });
 
@@ -125,9 +125,9 @@ describe("config loading: precedence and defaults", () => {
     const projectDir = tmp();
     const userDir = tmp();
     const file = writeSettingsFile(projectDir, ".substrate/settings.json", `{"a": }`);
-    await expect(loadSettings({ projectDir, userConfigDir: userDir })).rejects.toThrow();
+    await expect(loadSettings({ projectDir, userConfigDir: userDir, env: {} })).rejects.toThrow();
     try {
-      await loadSettings({ projectDir, userConfigDir: userDir });
+      await loadSettings({ projectDir, userConfigDir: userDir, env: {} });
     } catch (err) {
       expect((err as Error).message).toContain(file.split("/").slice(-1)[0]);
     }
@@ -141,7 +141,7 @@ describe("config loading: precedence and defaults", () => {
       ".substrate/settings.json",
       JSON.stringify({ ...MINIMAL_FILE_SETTINGS, typoKey: 1 }),
     );
-    await expect(loadSettings({ projectDir, userConfigDir: userDir })).rejects.toThrow(/typoKey/);
+    await expect(loadSettings({ projectDir, userConfigDir: userDir, env: {} })).rejects.toThrow(/typoKey/);
   });
 
   it("precedence: project < local < --settings < flags, higher wins", async () => {
@@ -159,7 +159,7 @@ describe("config loading: precedence and defaults", () => {
     );
     const cliFile = writeSettingsFile(tmp(), "cli.json", JSON.stringify({ concurrency: { workers: 4 } }));
 
-    const fromLocal = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+    const fromLocal = (await loadSettings({ projectDir, userConfigDir: userDir, env: {} })) as {
       concurrency: { workers: number };
     };
     expect(fromLocal.concurrency.workers).toBe(2);
@@ -168,6 +168,7 @@ describe("config loading: precedence and defaults", () => {
       projectDir,
       userConfigDir: userDir,
       settingsFile: cliFile,
+      env: {},
     })) as { concurrency: { workers: number } };
     expect(fromCli.concurrency.workers).toBe(4);
 
@@ -176,6 +177,7 @@ describe("config loading: precedence and defaults", () => {
       userConfigDir: userDir,
       settingsFile: cliFile,
       flags: { concurrency: { workers: 7 } },
+      env: {},
     })) as { concurrency: { workers: number } };
     expect(fromFlags.concurrency.workers).toBe(7);
   });
@@ -189,11 +191,20 @@ describe("config loading: precedence and defaults", () => {
       ".substrate/settings.json",
       JSON.stringify({ ...MINIMAL_FILE_SETTINGS, concurrency: { workers: 1 } }),
     );
-    const settings = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+    const settings = (await loadSettings({ projectDir, userConfigDir: userDir, env: {} })) as {
       concurrency: { workers: number };
     };
     expect(settings.concurrency.workers).toBe(1);
     rmSync(userDir, { recursive: true, force: true });
+  });
+
+  it("missing explicit settings file rejects naming the path", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    const missing = join(tmp(), "no-such-settings.json");
+    await expect(
+      loadSettings({ projectDir, userConfigDir: userDir, settingsFile: missing, env: {} }),
+    ).rejects.toThrow(/^Settings file not found: /);
   });
 });
 
@@ -210,6 +221,7 @@ describe("config overlay: env and flag values validate against Settings", () => 
       projectDir,
       userConfigDir: userDir,
       flags: { concurrency: { workers: 7 } },
+      env: {},
     })) as { concurrency: { workers: number } };
     expect(settings.concurrency.workers).toBe(7);
     expect(settingsValidates(settings)).toBe(true);
@@ -242,7 +254,7 @@ describe("config edge cases from the spec", () => {
         },
       }),
     );
-    const settings = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+    const settings = (await loadSettings({ projectDir, userConfigDir: userDir, env: {} })) as {
       routing: Record<string, unknown>;
     };
     expect(settings.routing["escalation"]).toEqual(["haiku", "sonnet", "opus"]);
@@ -260,7 +272,7 @@ describe("config edge cases from the spec", () => {
         pricing: { asOf: "2026-10-16", sources: ["https://example.com"], models: {} },
       }),
     );
-    const settings = await loadSettings({ projectDir, userConfigDir: userDir });
+    const settings = await loadSettings({ projectDir, userConfigDir: userDir, env: {} });
     expect(settingsValidates(settings)).toBe(true);
 
     expect(() =>
@@ -276,6 +288,7 @@ describe("R1.5: settings schema and sandbox", () => {
     const settings = (await loadSettings({
       projectDir,
       userConfigDir: userDir,
+      env: {},
       flags: {
         roles: {
           planner: { backend: "claude", model: "planner-model" },
@@ -291,7 +304,7 @@ describe("R1.5: settings schema and sandbox", () => {
   it("sandbox.enabled defaults to false", async () => {
     const projectDir = tmp();
     const userDir = tmp();
-    const settings = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+    const settings = (await loadSettings({ projectDir, userConfigDir: userDir, env: {} })) as {
       sandbox: { enabled: boolean };
     };
     expect(settings.sandbox.enabled).toBe(false);

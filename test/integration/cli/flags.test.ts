@@ -215,16 +215,13 @@ describe("cli: flags and dispatcher", () => {
       expect(out).toMatch(/doctor/);
     });
 
-    it("prints error and suggests valid commands with exit 2 on unknown command", async () => {
-      const { runCli } = await loadDispatcher();
+    it("treats an unknown first word as a run prompt instead of an error", async () => {
+      const { parseCliArgs } = await loadDispatcher();
 
-      const stdout = createMockWritable();
-      const stderr = createMockWritable();
+      const parsed = parseCliArgs(["unknown-command-xyz", "--some-flag"]);
 
-      const exitCode = await runCli(["unknown-command-xyz", "--some-flag"], { stdout, stderr });
-
-      expect(exitCode).toBe(2);
-      expect(stderr.getOutput()).toMatch(/unknown/i);
+      expect(parsed.commandName).toBe("run");
+      expect(parsed.positional).toEqual(["unknown-command-xyz"]);
     });
 
     it("enforces mutual exclusivity between --continue and --resume, exiting with code 2", async () => {

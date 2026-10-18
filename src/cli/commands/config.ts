@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import * as Contracts from "../../contracts/index.js";
 import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
+import { foldLayers, loadSettings, parseJsonc, settingsLayers } from "../../config/index.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -16,6 +18,7 @@ export interface CliGlobalFlags {
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
   noGovernor?: boolean;
+  local?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -92,35 +95,60 @@ export const configCommand: CliCommand = {
   description: "Inspect or update project configuration settings",
   async execute(ctx: CommandContext): Promise<number> {
     const sub = ctx.rawArgs[0];
-    const settingsPath = path.join(ctx.cwd, ".substrate", "settings.json");
-
-    let current: Record<string, any> = {};
-    if (fs.existsSync(settingsPath)) {
-      try {
-        current = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-      } catch {
-        current = {};
-      }
-    }
 
     if (sub === "set") {
       const key = ctx.rawArgs[1];
       const rawVal = ctx.rawArgs[2];
       if (!key || rawVal === undefined) {
-        ctx.stderr.write("Usage: substrate config set <key> <val>\n");
+        ctx.stderr.write("Usage: substrate config set <key> <val> [--local]\n");
         return 2;
       }
       const val = parseVal(rawVal);
-      setNested(current, key, val);
+      const targetPath = path.join(ctx.cwd, ".substrate", ctx.flags.local ? "settings.local.json" : "settings.json");
+
+      // Read only the target file's own content (missing file starts from empty).
+      let target: Record<string, any> = {};
+      if (fs.existsSync(targetPath)) {
+        target = parseJsonc(fs.readFileSync(targetPath, "utf8"), targetPath) as Record<string, any>;
+      }
+      setNested(target, key, val);
+
+      // Validate the merged result before writing anything.
+      let layers;
+      try {
+        layers = await settingsLayers({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings });
+      } catch (err) {
+        ctx.stderr.write(`Error: ${(err as Error).message}\n`);
+        return 2;
+      }
+      if (ctx.flags.local) {
+        layers.local = { path: targetPath, value: target };
+      } else {
+        layers.project = { path: targetPath, value: target };
+      }
+      const result = Contracts.Settings.safeParse(foldLayers(layers));
+      if (!result.success) {
+        ctx.stderr.write(`Invalid setting ${key}: ${result.error.issues[0]?.message ?? "invalid"}\n`);
+        return 2;
+      }
 
       const substrateDir = path.join(ctx.cwd, ".substrate");
       if (!fs.existsSync(substrateDir)) {
         fs.mkdirSync(substrateDir, { recursive: true });
       }
-      fs.writeFileSync(settingsPath, JSON.stringify(current, null, 2), "utf8");
+      fs.writeFileSync(targetPath, JSON.stringify(target, null, 2), "utf8");
       ctx.stdout.write(`Set ${key} = ${JSON.stringify(val)}\n`);
       return 0;
     }
+
+    const loadMerged = async (): Promise<Contracts.Settings | null> => {
+      try {
+        return await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings });
+      } catch (err) {
+        ctx.stderr.write(`Error: ${(err as Error).message}\n`);
+        return null;
+      }
+    };
 
     if (sub === "get") {
       const key = ctx.rawArgs[1];
@@ -128,7 +156,9 @@ export const configCommand: CliCommand = {
         ctx.stderr.write("Usage: substrate config get <key>\n");
         return 2;
       }
-      const val = getNested(current, key);
+      const settings = await loadMerged();
+      if (settings === null) return 2;
+      const val = getNested(settings, key);
       if (val === undefined) {
         ctx.stdout.write(`undefined\n`);
       } else {
@@ -138,7 +168,9 @@ export const configCommand: CliCommand = {
     }
 
     if (sub === "list" || !sub) {
-      ctx.stdout.write(JSON.stringify(current, null, 2) + "\n");
+      const settings = await loadMerged();
+      if (settings === null) return 2;
+      ctx.stdout.write(JSON.stringify(settings, null, 2) + "\n");
       return 0;
     }
 

@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 
 import type { Effort, Engine, PermissionMode } from "../contracts/index.js";
 import type { SessionStore } from "../store/sessions.js";
+import { readEnvLayer } from "../config/index.js";
 
 export interface CliGlobalFlags {
   help?: boolean;
@@ -16,6 +17,7 @@ export interface CliGlobalFlags {
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
   noGovernor?: boolean;
+  local?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -73,6 +75,7 @@ const CLI_OPTIONS = {
   "no-governor": { type: "boolean" },
   worktree: { type: "boolean", short: "w" },
   sandbox: { type: "boolean" },
+  local: { type: "boolean" },
   "output-format": { type: "string" },
   model: { type: "string" },
   "worker-model": { type: "string" },
@@ -119,6 +122,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues["no-governor"]) flags.noGovernor = true;
   if (parsedValues.worktree) flags.worktree = true;
   if (parsedValues.sandbox) flags.sandbox = true;
+  if (parsedValues.local) flags.local = true;
   if (parsedValues["output-format"]) {
     flags.outputFormat = parsedValues["output-format"] as any;
   }
@@ -165,8 +169,9 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
       commandName = "run";
       positional = rawPositionals;
     } else {
-      commandName = first;
-      positional = rawPositionals.slice(1);
+      // An unregistered first word is a run prompt, never an error (R1.6).
+      commandName = "run";
+      positional = rawPositionals;
     }
   } else if (flags.print) {
     commandName = "run";
@@ -246,29 +251,28 @@ export async function runCli(
     return 2;
   }
 
-  if (!commandName && positional.length === 0 && !flags.print) {
-    if (stdin.isTTY) {
-      printHelp(stdout);
-      return 0;
-    }
-    const stdinContent = await readStdinIfAvailable(stdin);
-    if (!stdinContent) {
-      stderr.write("Error: prompt required on command line or stdin\n");
+  // No arguments at all: always help, even when stdin is not a TTY (R1.6).
+  if (!commandName) {
+    printHelp(stdout);
+    return 0;
+  }
+
+  const cmd = registry.get(commandName);
+  if (!cmd) {
+    stderr.write(`Error: unknown command '${commandName}'\n`);
+    return 2;
+  }
+
+  if (cmd.name === "run" || cmd.name === "plan") {
+    try {
+      // SUBSTRATE_* run defaults apply only when the matching flag is not given.
+      const envDefaults = readEnvLayer(process.env).runDefaults;
+      if (flags.permissionMode === undefined) flags.permissionMode = envDefaults.permissionMode;
+      if (flags.outputFormat === undefined) flags.outputFormat = envDefaults.outputFormat;
+    } catch (err) {
+      stderr.write(`Error: ${(err as Error).message}\n`);
       return 2;
     }
-    positional.push(stdinContent);
-  }
-
-  const effectiveCommandName = commandName ?? (positional.length > 0 ? "run" : undefined);
-  if (!effectiveCommandName) {
-    stderr.write("Error: unknown command\n");
-    return 2;
-  }
-
-  const cmd = registry.get(effectiveCommandName);
-  if (!cmd) {
-    stderr.write(`Error: unknown command '${effectiveCommandName}'\n`);
-    return 2;
   }
 
   if (cmd.name === "run" || cmd.name === "plan") {

@@ -179,27 +179,27 @@
     },
     {
       "key": "budgets.run.max_tokens",
-      "until": "R1.6"
+      "until": "DEFERRED"
     },
     {
       "key": "budgets.task.max_turns",
-      "until": "R1.6"
+      "until": "DEFERRED"
     },
     {
       "key": "execution.strategy",
-      "until": "R1.6"
+      "until": "DEFERRED"
     },
     {
       "key": "git.auto_merge",
-      "until": "R1.6"
+      "until": "DEFERRED"
     },
     {
       "key": "git.branch_prefix",
-      "until": "R1.6"
+      "until": "DEFERRED"
     },
     {
       "key": "instructions.workers",
-      "until": "R1.6"
+      "until": "DEFERRED"
     },
     {
       "key": "permissions.ask",
@@ -275,7 +275,7 @@
     },
     {
       "key": "sandbox.network",
-      "until": "R1.6"
+      "until": "DEFERRED"
     }
   ],
   "dead": [
@@ -496,6 +496,11 @@
     },
     {
       "symbol": "matchPermissionRule",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "mergeSettings",
       "path": "src/config/index.ts",
       "until": "R5.3"
     },

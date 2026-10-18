@@ -6,6 +6,7 @@ import YAML from "yaml";
 
 import * as Contracts from "../contracts/index.js";
 import { matchGlob } from "../util/index.js";
+import { deepMerge } from "../util/merge.js";
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -112,6 +113,7 @@ export interface LoadSettingsOptions {
   userConfigDir?: string;
   settingsFile?: string;
   flags?: Partial<Contracts.Settings>;
+  env?: NodeJS.ProcessEnv;
 }
 
 export const DEFAULT_SETTINGS: Contracts.Settings = {
@@ -166,52 +168,145 @@ export function sandboxProblem(
   return "sandbox.enabled is true but bwrap is not installed; install bubblewrap or set sandbox.enabled to false";
 }
 
-export async function loadSettings(options: LoadSettingsOptions = {}): Promise<Contracts.Settings> {
-  let merged: unknown = DEFAULT_SETTINGS;
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const v = env[name];
+  return typeof v === "string" && v !== "" ? v : undefined;
+}
 
-  // 1. User config: userConfigDir/settings.json or ~/.config/substrate/settings.json
-  const userDir = options.userConfigDir || path.join(os.homedir(), ".config", "substrate");
+export function readEnvLayer(env: NodeJS.ProcessEnv): {
+  settings: Partial<Contracts.Settings>;
+  runDefaults: { permissionMode?: Contracts.PermissionMode; outputFormat?: "text" | "json" | "stream-json" };
+} {
+  // SUBSTRATE_LIVE is consumed by the test batteries only and is never read here or anywhere in src/.
+  // Built as a partial object: only the keys set by env are present, so lower layers keep their values.
+  const settings: Record<string, unknown> = {};
+  const runDefaults: {
+    permissionMode?: Contracts.PermissionMode;
+    outputFormat?: "text" | "json" | "stream-json";
+  } = {};
+
+  const maxBudget = envValue(env, "SUBSTRATE_MAX_BUDGET_USD");
+  if (maxBudget !== undefined) {
+    const n = Number(maxBudget);
+    if (!Number.isFinite(n)) {
+      throw new Error("SUBSTRATE_MAX_BUDGET_USD must be a number");
+    }
+    settings.budgets = { run: { max_usd: n } };
+  }
+
+  const model = envValue(env, "SUBSTRATE_MODEL");
+  const workerModel = envValue(env, "SUBSTRATE_WORKER_MODEL");
+  if (model !== undefined || workerModel !== undefined) {
+    // SUBSTRATE_MODEL maps to the planner route only.
+    const roles: Record<string, unknown> = {};
+    if (model !== undefined) roles.planner = { model };
+    if (workerModel !== undefined) roles.worker = { model: workerModel };
+    settings.roles = roles;
+  }
+
+  const permissionMode = envValue(env, "SUBSTRATE_PERMISSION_MODE");
+  if (permissionMode !== undefined) {
+    const valid: string[] = ["default", "plan", "acceptEdits", "dontAsk", "bypassPermissions"];
+    if (!valid.includes(permissionMode)) {
+      throw new Error(
+        `Invalid SUBSTRATE_PERMISSION_MODE: ${permissionMode}; must be one of default, plan, acceptEdits, dontAsk, bypassPermissions`,
+      );
+    }
+    runDefaults.permissionMode = permissionMode as Contracts.PermissionMode;
+  }
+
+  const outputFormat = envValue(env, "SUBSTRATE_OUTPUT_FORMAT");
+  if (outputFormat === "text" || outputFormat === "json" || outputFormat === "stream-json") {
+    runDefaults.outputFormat = outputFormat;
+  }
+
+  return { settings: settings as Partial<Contracts.Settings>, runDefaults };
+}
+
+export interface SettingsLayers {
+  user?: { path: string; value: Record<string, unknown> };
+  project?: { path: string; value: Record<string, unknown> };
+  local?: { path: string; value: Record<string, unknown> };
+  explicit?: { path: string; value: Record<string, unknown> };
+  env: Record<string, unknown>;
+  flags?: Record<string, unknown>;
+}
+
+function readLayerFile(file: string): Record<string, unknown> {
+  const parsed = parseJsonc(fs.readFileSync(file, "utf8"), file);
+  if (!isPlainObject(parsed)) {
+    throw new Error(`Invalid settings in ${file}: expected a JSON object`);
+  }
+  return parsed;
+}
+
+export async function settingsLayers(options: LoadSettingsOptions = {}): Promise<SettingsLayers> {
+  const env = options.env ?? process.env;
+  const layers: SettingsLayers = { env: readEnvLayer(env).settings };
+
+  // 1. User file: <SUBSTRATE_CONFIG_DIR | options.userConfigDir | ~/.config/substrate>/settings.json
+  const userDir =
+    envValue(env, "SUBSTRATE_CONFIG_DIR") ||
+    options.userConfigDir ||
+    path.join(os.homedir(), ".config", "substrate");
   const userFile = path.join(userDir, "settings.json");
   if (fs.existsSync(userFile)) {
-    const content = fs.readFileSync(userFile, "utf8");
-    const parsed = parseJsonc(content, userFile);
-    merged = mergeSettings(merged, parsed);
+    layers.user = { path: userFile, value: readLayerFile(userFile) };
   }
 
-  // 2. Project config: projectDir/.substrate/settings.json
-  const projectDir = options.projectDir || process.cwd();
+  // 2/3. Project files: <SUBSTRATE_PROJECT_DIR | options.projectDir | cwd>/.substrate/{settings,settings.local}.json
+  const projectDir = envValue(env, "SUBSTRATE_PROJECT_DIR") || options.projectDir || process.cwd();
   const projectFile = path.join(projectDir, ".substrate", "settings.json");
   if (fs.existsSync(projectFile)) {
-    const content = fs.readFileSync(projectFile, "utf8");
-    const parsed = parseJsonc(content, projectFile);
-    merged = mergeSettings(merged, parsed);
+    layers.project = { path: projectFile, value: readLayerFile(projectFile) };
   }
-
-  // 3. Local project config: projectDir/.substrate/settings.local.json
   const localFile = path.join(projectDir, ".substrate", "settings.local.json");
   if (fs.existsSync(localFile)) {
-    const content = fs.readFileSync(localFile, "utf8");
-    const parsed = parseJsonc(content, localFile);
-    merged = mergeSettings(merged, parsed);
+    layers.local = { path: localFile, value: readLayerFile(localFile) };
   }
 
-  // 4. CLI settings file: options.settingsFile
-  if (options.settingsFile) {
-    if (fs.existsSync(options.settingsFile)) {
-      const content = fs.readFileSync(options.settingsFile, "utf8");
-      const parsed = parseJsonc(content, options.settingsFile);
-      merged = mergeSettings(merged, parsed);
-    } else {
-      throw new Error(`Settings file not found: ${options.settingsFile}`);
+  // 4. Explicit file: --settings flag wins over SUBSTRATE_SETTINGS.
+  const explicit = options.settingsFile || envValue(env, "SUBSTRATE_SETTINGS");
+  if (explicit) {
+    if (!fs.existsSync(explicit)) {
+      throw new Error(`Settings file not found: ${explicit}`);
     }
+    layers.explicit = { path: explicit, value: readLayerFile(explicit) };
   }
 
   // 5. Flags: options.flags
   if (options.flags) {
-    merged = mergeSettings(merged, options.flags);
+    layers.flags = options.flags as Record<string, unknown>;
   }
 
-  // Validate final
+  return layers;
+}
+
+function mergeOverlay(base: Record<string, unknown>, overlay: Record<string, unknown>): Record<string, unknown> {
+  const merged = deepMerge(base, overlay);
+  return overlay.pricing !== undefined ? { ...merged, pricing: overlay.pricing } : merged;
+}
+
+export function foldLayers(layers: SettingsLayers): Record<string, unknown> {
+  let merged: Record<string, unknown> = DEFAULT_SETTINGS as Record<string, unknown>;
+  const slots: Array<Record<string, unknown> | undefined> = [
+    layers.user?.value,
+    layers.project?.value,
+    layers.local?.value,
+    layers.explicit?.value,
+    layers.env,
+    layers.flags,
+  ];
+  for (const slot of slots) {
+    if (slot !== undefined) {
+      merged = mergeOverlay(merged, slot);
+    }
+  }
+  return merged;
+}
+
+export async function loadSettings(options: LoadSettingsOptions = {}): Promise<Contracts.Settings> {
+  const merged = foldLayers(await settingsLayers(options));
   return Contracts.Settings.parse(merged);
 }
 
