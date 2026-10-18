@@ -15,6 +15,8 @@ export interface CliGlobalFlags {
   effort?: Contracts.Effort;
   sessionId?: string;
   resume?: string;
+  from?: string;
+  run?: string;
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
@@ -25,7 +27,6 @@ export interface CliGovernanceFlags {
   permissionMode?: Contracts.PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  worktree?: boolean;
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
@@ -88,7 +89,7 @@ function createMockWritable(): NodeJS.WriteStream & { getOutput: () => string; g
 
 describe("cli: flags and dispatcher", () => {
   describe("parseCliArgs() - Strict Flag Parsing", () => {
-    it("parses boolean flags: -p, --print, -c, --continue, --fork-session, --no-governor, -w, --worktree, --sandbox", async () => {
+    it("parses boolean flags: -p, --print, -c, --continue, --fork-session, --no-governor, --sandbox", async () => {
       const { parseCliArgs } = await loadDispatcher();
 
       const res1 = parseCliArgs([
@@ -96,7 +97,6 @@ describe("cli: flags and dispatcher", () => {
         "-c",
         "--fork-session",
         "--no-governor",
-        "-w",
         "--sandbox",
       ]);
 
@@ -104,17 +104,42 @@ describe("cli: flags and dispatcher", () => {
       expect(res1.flags.continue).toBe(true);
       expect(res1.flags.forkSession).toBe(true);
       expect(res1.flags.noGovernor).toBe(true);
-      expect(res1.flags.worktree).toBe(true);
       expect(res1.flags.sandbox).toBe(true);
 
       const res2 = parseCliArgs([
         "--print",
         "--continue",
-        "--worktree",
       ]);
       expect(res2.flags.print).toBe(true);
       expect(res2.flags.continue).toBe(true);
-      expect(res2.flags.worktree).toBe(true);
+    });
+
+    it("parses --from and --run string flags", async () => {
+      const { parseCliArgs } = await loadDispatcher();
+
+      const res = parseCliArgs([
+        "--from", "claude",
+        "--run", "r_ABCDEF123456",
+      ]);
+
+      expect(res.flags.from).toBe("claude");
+      expect(res.flags.run).toBe("r_ABCDEF123456");
+    });
+
+    it("rejects the removed -w and --worktree options with exit code 2", async () => {
+      const { runCli } = await loadDispatcher();
+
+      const stdout = createMockWritable();
+      const stderr = createMockWritable();
+
+      const code1 = await runCli(["run", "-w", "some prompt"], { stdout, stderr });
+      expect(code1).toBe(2);
+      expect(stderr.getOutput()).toMatch(/Unknown option '-w'/);
+
+      const stderr2 = createMockWritable();
+      const code2 = await runCli(["run", "--worktree", "some prompt"], { stdout, stderr: stderr2 });
+      expect(code2).toBe(2);
+      expect(stderr2.getOutput()).toMatch(/Unknown option '--worktree'/);
     });
 
     it("parses string flags: output-format, model, worker-model, effort, session-id, resume, mode, permission-mode, settings", async () => {
@@ -159,6 +184,36 @@ describe("cli: flags and dispatcher", () => {
 
       expect(res.flags.allowedTools).toEqual(["Bash", "FileRead(*)"]);
       expect(res.flags.disallowedTools).toEqual(["Bash(git push*)", "WebFetch"]);
+    });
+
+    it("splits --allowed-tools and --disallowed-tools on commas outside parentheses, trims entries, and drops empty entries", async () => {
+      const { buildSettingsOverrides } = (await import(
+        "../../../src/cli/commands/run.js"
+      )) as any;
+
+      const overrides = buildSettingsOverrides({
+        allowedTools: ["Bash(git status),Read"],
+        disallowedTools: ["WebFetch", "Bash(rm *,curl *)", " ,"],
+      });
+
+      expect(overrides.permissions.allow).toEqual(["Bash(git status)", "Read"]);
+      expect(overrides.permissions.deny).toEqual(["WebFetch", "Bash(rm *,curl *)"]);
+    });
+
+    it("concatenates repeated --allowed-tools flags into one permissions.allow list", async () => {
+      const { buildSettingsOverrides } = (await import(
+        "../../../src/cli/commands/run.js"
+      )) as any;
+
+      const { parseCliArgs: parse } = await loadDispatcher();
+      const parsed = parse([
+        "--allowed-tools", "Bash(git status),Read",
+        "--allowed-tools", "WebFetch",
+      ]);
+
+      const overrides = buildSettingsOverrides(parsed.flags);
+      expect(overrides.permissions.allow).toEqual(["Bash(git status)", "Read", "WebFetch"]);
+      expect(overrides.permissions.deny).toBeUndefined();
     });
   });
 

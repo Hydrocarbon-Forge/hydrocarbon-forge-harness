@@ -26,7 +26,6 @@ These flags can be applied to `substrate run`, `substrate plan`, and other execu
 | `--mode <mode>` | String | Execution mode: `auto` (default DAG decomposition), `solo` (single-agent execution), or `plan` (planning only). |
 | `--no-governor` | Boolean | Bypass local governor front-door triage and proceed directly to planning. |
 | `--permission-mode <mode>` | String | Permission mode: `default`, `plan`, `acceptEdits`, `dontAsk`, or `bypassPermissions`. |
-| `-w`, `--worktree` | Boolean | Enforce isolated Git worktrees for task worker executions. |
 | `--max-budget-usd <amount>` | Number | Maximum cumulative spend limit in USD for the run before pausing. |
 | `--timeout <seconds>` | Number | Overall wall-clock timeout limit in seconds. |
 | `--sandbox` | Boolean | Enforce Bubblewrap OS-level sandbox isolation on worker commands. |
@@ -173,7 +172,7 @@ substrate verify <task-id> [options]
 ```
 
 - **Arguments**: `task-id` corresponding to a task spec.
-- **Options**: `--worktree <path>`, `--timeout <seconds>`.
+- **Options**: `--run <id>`, `--timeout <seconds>`.
 - **Behavior**: Executes all verify commands specified in the task frontmatter within the worktree environment, returning detailed exit codes and truncated tails.
 
 ```bash

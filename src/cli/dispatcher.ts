@@ -13,6 +13,8 @@ export interface CliGlobalFlags {
   effort?: Effort;
   sessionId?: string;
   resume?: string;
+  from?: string;
+  run?: string;
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
@@ -24,7 +26,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  worktree?: boolean;
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
@@ -66,6 +67,7 @@ await import(`./commands/sessions.js`);
 await import(`./commands/config.js`);
 await import(`./commands/doctor.js`);
 await import(`./commands/init.js`);
+await import(`./bench.js`);
 
 const CLI_OPTIONS = {
   help: { type: "boolean", short: "h" },
@@ -73,7 +75,6 @@ const CLI_OPTIONS = {
   continue: { type: "boolean", short: "c" },
   "fork-session": { type: "boolean" },
   "no-governor": { type: "boolean" },
-  worktree: { type: "boolean", short: "w" },
   sandbox: { type: "boolean" },
   local: { type: "boolean" },
   "output-format": { type: "string" },
@@ -82,6 +83,8 @@ const CLI_OPTIONS = {
   effort: { type: "string" },
   "session-id": { type: "string" },
   resume: { type: "string" },
+  from: { type: "string" },
+  run: { type: "string" },
   mode: { type: "string" },
   "permission-mode": { type: "string" },
   settings: { type: "string" },
@@ -89,12 +92,14 @@ const CLI_OPTIONS = {
   timeout: { type: "string" },
   "allowed-tools": { type: "string", multiple: true },
   "disallowed-tools": { type: "string", multiple: true },
+  verify: { type: "string", multiple: true },
 } as const;
 
 export interface ParseCliArgsResult {
   commandName?: string;
   flags: ParsedCliFlags;
   positional: string[];
+  unknownOptions: string[];
 }
 
 export function parseCliArgs(argv: string[]): ParseCliArgsResult {
@@ -120,7 +125,6 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.continue) flags.continue = true;
   if (parsedValues["fork-session"]) flags.forkSession = true;
   if (parsedValues["no-governor"]) flags.noGovernor = true;
-  if (parsedValues.worktree) flags.worktree = true;
   if (parsedValues.sandbox) flags.sandbox = true;
   if (parsedValues.local) flags.local = true;
   if (parsedValues["output-format"]) {
@@ -135,6 +139,8 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
     flags.sessionId = parsedValues["session-id"] as string;
   }
   if (parsedValues.resume) flags.resume = parsedValues.resume as string;
+  if (parsedValues.from !== undefined) flags.from = parsedValues.from as string;
+  if (parsedValues.run !== undefined) flags.run = parsedValues.run as string;
   if (parsedValues.mode) flags.mode = parsedValues.mode as any;
   if (parsedValues["permission-mode"]) {
     flags.permissionMode = parsedValues["permission-mode"] as any;
@@ -177,7 +183,15 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
     commandName = "run";
   }
 
-  return { commandName, flags, positional };
+  const known = new Set(Object.keys(CLI_OPTIONS));
+  const unknownOptions: string[] = [];
+  for (const key of Object.keys(parsedValues)) {
+    if (!known.has(key)) {
+      unknownOptions.push(key.length === 1 ? `-${key}` : `--${key}`);
+    }
+  }
+
+  return { commandName, flags, positional, unknownOptions };
 }
 
 export async function readStdinIfAvailable(
@@ -222,7 +236,8 @@ function printHelp(out: NodeJS.WriteStream): void {
   out.write(`  --resume <target>         Resume prior session or run\n`);
   out.write(`  --fork-session            Branch existing session\n`);
   out.write(`  --output-format <fmt>     Output format: text | json | stream-json\n`);
-  out.write(`  -w, --worktree            Run in isolated worktree\n`);
+  out.write(`  --from <value>          Source for agents import (claude or opencode)\n`);
+  out.write(`  --run <value>           Run id for verify\n`);
   out.write(`  --sandbox                 Enable bubblewrap sandbox\n`);
 }
 
@@ -239,7 +254,13 @@ export async function runCli(
   const stdout = streams?.stdout ?? (process.stdout as NodeJS.WriteStream);
   const stderr = streams?.stderr ?? (process.stderr as NodeJS.WriteStream);
 
-  const { commandName, flags, positional } = parseCliArgs(argv);
+  const { commandName, flags, positional, unknownOptions } = parseCliArgs(argv);
+
+  // bench validates its own command-local flags; everything else is strict.
+  if (unknownOptions.length > 0 && commandName !== "bench") {
+    stderr.write(`Error: Unknown option '${unknownOptions[0]}'\n`);
+    return 2;
+  }
 
   if (flags.help) {
     printHelp(stdout);

@@ -21,7 +21,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  worktree?: boolean;
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
@@ -60,18 +59,30 @@ export const sessionsCommand: CliCommand = {
 
     const sessions = await sessionStore.list();
 
+    const rows = sessions.map((s) => ({
+      id: s.sessionId,
+      mode: s.mode,
+      created_at: s.createdAt,
+      updated_at: s.updatedAt,
+      runs: s.runs ? s.runs.length : 0,
+      latest_prompt:
+        s.prompts && s.prompts.length > 0
+          ? s.prompts[s.prompts.length - 1].prompt
+          : "-",
+    }));
+
+    if (ctx.flags.outputFormat === "json") {
+      ctx.stdout.write(JSON.stringify({ sessions: rows }) + "\n");
+      return 0;
+    }
+
     ctx.stdout.write(`=== Sessions History ===\n\n`);
     ctx.stdout.write(`Session ID\t\t\tCreated\t\t\tMode\tRuns\tLatest Prompt\n`);
     ctx.stdout.write(`----------------------------------------------------------------------------------------\n`);
 
-    for (const s of sessions) {
-      const latestPrompt =
-        s.prompts && s.prompts.length > 0
-          ? s.prompts[s.prompts.length - 1].prompt
-          : "-";
-      const runsCount = s.runs ? s.runs.length : 0;
+    for (const row of rows) {
       ctx.stdout.write(
-        `${s.sessionId}\t${s.createdAt}\t${s.mode}\t${runsCount}\t${latestPrompt}\n`,
+        `${row.id}\t${row.created_at}\t${row.mode}\t${row.runs}\t${row.latest_prompt}\n`,
       );
     }
 

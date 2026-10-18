@@ -24,11 +24,11 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  worktree?: boolean;
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
   settings?: string;
+  run?: string;
 }
 
 export type ParsedCliFlags = CliGlobalFlags & CliGovernanceFlags;
@@ -73,35 +73,58 @@ export const verifyCommand: CliCommand = {
   name: "verify",
   description: "Run verification commands for a task in its worktree",
   async execute(ctx: CommandContext): Promise<number> {
-    const runId = ctx.rawArgs[0];
-    const taskId = ctx.rawArgs[1];
+    const taskId = ctx.rawArgs[0];
 
-    if (!runId) {
-      ctx.stderr.write("Error: Run ID required\n");
+    if (!taskId) {
+      ctx.stderr.write("Error: task id required\n");
       return 2;
     }
 
-    const worktreesBase = path.join(ctx.cwd, ".substrate", "worktrees", runId);
-    let worktreeDir = taskId ? path.join(worktreesBase, taskId) : "";
+    const runId = ctx.flags.run;
+    const worktreesBase = path.join(ctx.cwd, ".substrate", "worktrees");
+    let worktreeDir: string;
 
-    if (!worktreeDir || !fs.existsSync(worktreeDir)) {
+    if (runId) {
+      worktreeDir = path.join(worktreesBase, runId, taskId);
+      if (!fs.existsSync(worktreeDir)) {
+        ctx.stderr.write(`Error: no worktree for task ${taskId} in run ${runId}\n`);
+        return 2;
+      }
+    } else {
+      let found: string | undefined;
       if (fs.existsSync(worktreesBase)) {
-        const dirs = fs.readdirSync(worktreesBase);
-        if (dirs.length > 0) {
-          worktreeDir = path.join(worktreesBase, dirs[0]);
+        const runDirs = fs
+          .readdirSync(worktreesBase, { withFileTypes: true })
+          .filter((e) => e.isDirectory())
+          .map((e) => e.name)
+          .sort();
+        for (const run of runDirs) {
+          const candidate = path.join(worktreesBase, run, taskId);
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+            found = candidate;
+          }
         }
       }
-    }
-
-    if (!worktreeDir || !fs.existsSync(worktreeDir)) {
-      ctx.stderr.write(
-        `Error: Worktree for run ${runId} ${taskId ? taskId : ""} not found\n`,
-      );
-      return 1;
+      if (!found) {
+        ctx.stderr.write(`Error: no worktree for task ${taskId} in run unknown\n`);
+        return 2;
+      }
+      worktreeDir = found;
     }
 
     const specPath = path.join(worktreeDir, ".substrate-task", "TASK.md");
-    const commands = parseSpecVerifyCommands(specPath);
+    let commands = parseSpecVerifyCommands(specPath);
+
+    if (typeof ctx.flags.timeout === "number" && ctx.flags.timeout > 0) {
+      for (const c of commands) {
+        c.timeout_s = ctx.flags.timeout;
+      }
+    }
+
+    if (commands.length === 0) {
+      ctx.stdout.write("[verify] no commands to verify\n");
+      return 0;
+    }
 
     const runner = new VerifyRunner();
     const results = await runner.runVerify({

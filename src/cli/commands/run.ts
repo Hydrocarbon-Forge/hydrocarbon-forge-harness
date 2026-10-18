@@ -23,7 +23,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  worktree?: boolean;
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
@@ -54,6 +53,34 @@ export interface CliCommand {
 const { createFormatter } = await import(`../output.js`);
 const { registry } = await import(`../registry.js`);
 
+function splitToolList(values: string | string[] | undefined): string[] {
+  const list = Array.isArray(values)
+    ? values
+    : values !== undefined && values !== null
+      ? [values]
+      : [];
+  const out: string[] = [];
+  for (const value of list) {
+    let depth = 0;
+    let current = "";
+    for (const ch of value) {
+      if (ch === "(") {
+        depth++;
+      } else if (ch === ")") {
+        depth = Math.max(0, depth - 1);
+      }
+      if (ch === "," && depth === 0) {
+        out.push(current.trim());
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    out.push(current.trim());
+  }
+  return out.filter((entry) => entry.length > 0);
+}
+
 export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: string): Partial<Settings> {
   const overrides: any = {};
 
@@ -79,13 +106,15 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
     overrides.roles.planner.effort = flags.effort;
   }
 
-  if (flags.allowedTools || flags.disallowedTools) {
+  const allowed = splitToolList(flags.allowedTools);
+  const disallowed = splitToolList(flags.disallowedTools);
+  if (allowed.length > 0 || disallowed.length > 0) {
     overrides.permissions = overrides.permissions || {};
-    if (flags.allowedTools) {
-      overrides.permissions.allow = flags.allowedTools;
+    if (allowed.length > 0) {
+      overrides.permissions.allow = allowed;
     }
-    if (flags.disallowedTools) {
-      overrides.permissions.deny = flags.disallowedTools;
+    if (disallowed.length > 0) {
+      overrides.permissions.deny = disallowed;
     }
   }
 
@@ -148,6 +177,25 @@ export const runCommand: CliCommand = {
     }
     prompt = prompt.trim();
 
+    if (ctx.flags.resume) {
+      const { resumeCommand } = await import(`./resume.js`);
+      return resumeCommand.execute({ ...ctx, rawArgs: [ctx.flags.resume] });
+    } else if (ctx.flags.continue) {
+      const store =
+        ctx.sessionStore ??
+        createSessionStore(path.join(ctx.cwd, ".substrate"));
+      const latest = await store.getLatest();
+      if (!latest) {
+        ctx.stderr.write("Error: no session to continue\n");
+        return 2;
+      }
+      const { resumeCommand } = await import(`./resume.js`);
+      return resumeCommand.execute({ ...ctx, rawArgs: [latest.sessionId] });
+    } else if (ctx.flags.forkSession) {
+      ctx.stderr.write("Error: --fork-session requires --resume or --continue\n");
+      return 2;
+    }
+
     const mode = ctx.flags.mode ?? "auto";
     const permission_mode = ctx.flags.permissionMode ?? "dontAsk";
     const overrides = buildSettingsOverrides(ctx.flags, mode);
@@ -168,13 +216,6 @@ export const runCommand: CliCommand = {
         ctx.stderr.write("No prior session found in this directory\n");
         return 2;
       }
-    } else if (ctx.flags.forkSession) {
-      const latest = await sessionStore.getLatest();
-      if (!latest) {
-        ctx.stderr.write("No session available to fork\n");
-        return 2;
-      }
-      session = await sessionStore.fork(latest.sessionId);
     } else {
       session = await sessionStore.create({ mode, prompt });
     }

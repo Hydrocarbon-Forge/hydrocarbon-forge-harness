@@ -144,7 +144,6 @@ bin/substrate.mjs plan "Refactor payment processing module"
 - `--model <model>`: Specify primary model for planning or solo mode.
 - `--worker-model <model>`: Override model used by worker tasks.
 - `--effort <level>`: Reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`).
-- `-w`, `--worktree`: Enforce isolated git worktrees for tasks.
 - `--sandbox`: Enforce bubblewrap sandbox isolation.
 - `--max-budget-usd <amount>`: Set maximum USD spend limit for the run.
 - `--permission-mode <mode>`: Configure tool permission policy (`default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`).

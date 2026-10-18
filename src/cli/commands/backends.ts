@@ -24,7 +24,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  worktree?: boolean;
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
@@ -64,9 +63,13 @@ export const backendsCommand: CliCommand = {
       { name: "fake", adapter: new FakeAdapter() },
     ];
 
-    ctx.stdout.write(`=== Backend Adapters ===\n\n`);
-    ctx.stdout.write(`Backend\t\tPin\t\tInstalled\tStatus\n`);
-    ctx.stdout.write(`----------------------------------------------------------------\n`);
+    const rows: Array<{
+      name: string;
+      pin: string;
+      installed: string;
+      status: string;
+    }> = [];
+    const capabilities: Record<string, string[]> = {};
 
     for (const { name, adapter } of adapters) {
       let report: EnvReport;
@@ -76,15 +79,13 @@ export const backendsCommand: CliCommand = {
         report = { ok: false, pin_matches: false, problems: [err.message] };
       }
 
-      const pin = adapter.capabilities.version_pin ?? "-";
-      const installed = report.version ?? "not installed";
-      const status = report.ok ? "OK" : report.pin_matches === false ? "Mismatch" : "Missing";
+      rows.push({
+        name,
+        pin: adapter.capabilities.version_pin ?? "-",
+        installed: report.version ?? "not installed",
+        status: report.ok ? "OK" : report.pin_matches === false ? "Mismatch" : "Missing",
+      });
 
-      ctx.stdout.write(`${name}\t\t${pin}\t\t${installed}\t${status}\n`);
-    }
-
-    ctx.stdout.write(`\n=== Capabilities ===\n`);
-    for (const { name, adapter } of adapters) {
       const caps = adapter.capabilities;
       const features: string[] = [];
       if (caps.effort) features.push("effort");
@@ -92,6 +93,24 @@ export const backendsCommand: CliCommand = {
       if (caps.budget_flag) features.push("budget_flag");
       if (caps.resume) features.push("resume");
       if (caps.sandbox_flag) features.push("sandbox");
+      capabilities[name] = features;
+    }
+
+    if (ctx.flags.outputFormat === "json") {
+      ctx.stdout.write(JSON.stringify({ backends: rows, capabilities }) + "\n");
+      return 0;
+    }
+
+    ctx.stdout.write(`=== Backend Adapters ===\n\n`);
+    ctx.stdout.write(`Backend\t\tPin\t\tInstalled\tStatus\n`);
+    ctx.stdout.write(`----------------------------------------------------------------\n`);
+
+    for (const row of rows) {
+      ctx.stdout.write(`${row.name}\t\t${row.pin}\t\t${row.installed}\t${row.status}\n`);
+    }
+
+    ctx.stdout.write(`\n=== Capabilities ===\n`);
+    for (const [name, features] of Object.entries(capabilities)) {
       ctx.stdout.write(`  ${name}: ${features.join(", ") || "none"}\n`);
     }
 

@@ -48,14 +48,6 @@
   ],
   "wired": [
     {
-      "path": "src/cli/agents-import.ts",
-      "until": "R1.8"
-    },
-    {
-      "path": "src/cli/bench.ts",
-      "until": "R1.8"
-    },
-    {
       "path": "src/cli/flags.ts",
       "until": "R5.3"
     },
@@ -287,21 +279,6 @@
     {
       "symbol": "terminateProcessGroup",
       "path": "src/backends/process.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "agentsImportCommand",
-      "path": "src/cli/agents-import.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "runAgentsImport",
-      "path": "src/cli/agents-import.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "benchCommand",
-      "path": "src/cli/bench.ts",
       "until": "R5.3"
     },
     {
@@ -752,6 +729,11 @@
     {
       "symbol": "EventStoreImpl",
       "path": "src/store/event-store.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "resolveResumeTarget",
+      "path": "src/store/sessions.ts",
       "until": "R5.3"
     },
     {

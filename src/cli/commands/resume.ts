@@ -6,7 +6,7 @@ import { EngineImpl } from "../../engine/engine.js";
 import { loadSettings, sandboxProblem } from "../../config/index.js";
 import {
   createSessionStore,
-  resolveResumeTarget,
+  type SessionRecord,
   type SessionStore,
 } from "../../store/sessions.js";
 
@@ -28,7 +28,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  worktree?: boolean;
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
@@ -106,18 +105,48 @@ export const resumeCommand: CliCommand = {
   name: "resume",
   description: "Resume a paused or interrupted Substrate run",
   async execute(ctx: CommandContext): Promise<number> {
-    const targetArg = ctx.rawArgs[0] ?? ctx.flags.resume ?? "";
+    const targetArg =
+      ctx.rawArgs.length > 0
+        ? ctx.rawArgs[0]
+        : (ctx.flags.sessionId ?? ctx.flags.resume ?? "");
+    const target = (targetArg ?? "").trim();
     const runsDir = path.join(ctx.cwd, ".substrate", "runs");
     const sessionStore =
       ctx.sessionStore ??
       createSessionStore(path.join(ctx.cwd, ".substrate"));
 
     let resolved: { runId: RunId; sessionId?: string };
-    try {
-      resolved = await resolveResumeTarget(targetArg, sessionStore, runsDir);
-    } catch (err: any) {
-      ctx.stderr.write(`Error: ${err.message}\n`);
-      return 2;
+    let forked: SessionRecord | undefined;
+
+    if (target && fs.existsSync(path.join(ctx.cwd, ".substrate", "runs", target))) {
+      resolved = { runId: target as RunId, sessionId: undefined };
+    } else {
+      const session = await sessionStore.get(target);
+      if (session) {
+        if (session.runs.length > 0) {
+          resolved = {
+            runId: session.runs[session.runs.length - 1],
+            sessionId: session.sessionId,
+          };
+        } else {
+          ctx.stderr.write(`Error: session ${target} has no runs to resume\n`);
+          return 2;
+        }
+      } else {
+        ctx.stderr.write(`Error: no run or session matches '${target}'\n`);
+        return 2;
+      }
+    }
+
+    if (ctx.flags.forkSession) {
+      if (resolved.sessionId === undefined) {
+        ctx.stderr.write("Error: --fork-session requires a session\n");
+        return 2;
+      }
+      forked = await sessionStore.fork(resolved.sessionId);
+      if (ctx.flags.outputFormat !== "json") {
+        ctx.stderr.write(`Forked session ${forked.sessionId}\n`);
+      }
     }
 
     const runDir = path.join(runsDir, resolved.runId);
@@ -167,7 +196,12 @@ export const resumeCommand: CliCommand = {
 
     try {
       const summary = await engine.resume(resolved.runId, resumeOpts);
-      formatter.onSummary(summary, resolved.sessionId ?? "");
+      if (forked) {
+        await sessionStore.addRun(forked.sessionId, summary.run_id);
+        formatter.onSummary(summary, forked.sessionId);
+      } else {
+        formatter.onSummary(summary, resolved.sessionId ?? "");
+      }
       await formatter.flush();
 
       return mapSummaryExitCode(summary);
