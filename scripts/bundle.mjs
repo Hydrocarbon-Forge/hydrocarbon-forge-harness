@@ -18,7 +18,7 @@ export async function bundlePackage(opts = {}) {
   const rootDir = defaultRoot;
   const entryPoint = opts.entryPoint
     ? path.resolve(opts.entryPoint)
-    : path.join(rootDir, "bin", "substrate.mjs");
+    : path.join(rootDir, "src", "cli", "main.ts");
   const outfile = opts.outfile
     ? path.resolve(opts.outfile)
     : path.join(rootDir, "dist", "substrate.mjs");
@@ -74,6 +74,12 @@ export async function bundlePackage(opts = {}) {
     if (syntaxCheck.status !== 0) {
       if (fs.existsSync(outfile)) fs.unlinkSync(outfile);
       throw new Error(`Bundle output failed syntax check:\n${syntaxCheck.stderr || syntaxCheck.stdout}`);
+    }
+
+    const assetsSrc = path.join(rootDir, "assets");
+    const assetsDst = path.join(rootDir, "dist", "assets");
+    if (fs.existsSync(assetsSrc)) {
+      fs.cpSync(assetsSrc, assetsDst, { recursive: true });
     }
 
     const durationMs = Date.now() - startTime;

@@ -13,7 +13,7 @@ Current WP: **R1.1**. Take the first TODO row whose dependencies are all DONE.
 | R0.4 | Split effects.ts | M | R0.1 | DONE | SUBSTRATE_GOLDEN compare 18 passed; effects.ts 316 lines, max action 417 lines; 15 golden hashes matched; npm test, check, typecheck pass |
 | R0.5 | Remove fabrications and test hacks | M | R0.2 R0.4 | DONE | 15 scenario tests reworked to fakeClaudeAdapter; 4 it.fails markers (07: R3.4 budget, 08: R3.4 timeout, 10: R3.6 bisect, 14: R3.5 l2 amendment); golden files removed; typecheck, check, test exit 0 |
 | R0.6 | Dead-export analysis | M | R0.1 R0.7 | DONE | 103 dead symbols recorded (DEFERRED: 2, R2.8: 1, R2.9: 1, R3.1: 2, R3.2: 1, R3.3: 1, R3.5: 1, R3.8: 1, R5.3: 93); check:dead, check, typecheck, test/unit/scripts (31 passed) exit 0 |
-| R1.1 | Entry point, build and signals | M | R0.3 | TODO | |
+| R1.1 | Entry point, build and signals | M | R0.3 | DONE | node bin/substrate.mjs --help exit 0; entry test (b): SIGINT exit 130, fake pid ESRCH, run.paused user_cancel, lock released; npm test 866 passed, typecheck, bundle, check exit 0. Deviations: events now stream at emit time (actions/shared.ts + effects.ts loop); once the event observer throws the run stops persisting (chaos boundary contract); smoke solo it.fails marker removed (main.ts bundle entry fixed dynamic imports, run is real); check-wired entries include src/cli/main.ts; signal plumbed into run/plan/resume.ts + bindAbort at spawn sites (per spec note); entry test (c) kept it.fails for R3.2 C-H4 |
 | R1.2 | Event catalog and typed emit | M | R0.4 R0.5 R0.6 | TODO | |
 | R1.3 | Status, tasks, report, summary and clean output | M | R1.2 | TODO | |
 | R1.4 | Usage ledger and budget totals | M | R1.2 | TODO | |

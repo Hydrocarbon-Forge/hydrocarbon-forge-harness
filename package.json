@@ -1,9 +1,14 @@
 {
   "name": "substrate",
-  "version": "0.0.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Substrate — deterministic orchestration engine (scaffold)",
+  "description": "Substrate: a deterministic orchestration engine that runs coding-agent harnesses",
+  "files": [
+    "bin",
+    "dist",
+    "assets"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -11,6 +16,7 @@
     "substrate": "bin/substrate.mjs"
   },
   "scripts": {
+    "prepare": "npm run bundle",
     "typecheck": "node scripts/typecheck.mjs",
     "test": "vitest run",
     "check:boundaries": "node scripts/check-boundaries.mjs",

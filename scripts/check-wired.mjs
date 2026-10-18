@@ -11,7 +11,7 @@ import { analyzeDead } from "./check-dead-exports.mjs";
  * @param {string[]} entryFiles - repo-relative entry file paths
  * @returns {Array<{ rule: string, path: string, line: number, message: string }>}
  */
-export function scanWired(root, entryFiles = ["src/cli/dispatcher.ts", "src/index.ts"]) {
+export function scanWired(root, entryFiles = ["src/cli/main.ts", "src/cli/dispatcher.ts", "src/index.ts"]) {
   const allFiles = listFiles(root, "src", [".ts"]);
   const allFilesSet = new Set(allFiles);
 
@@ -94,7 +94,7 @@ function parseArgs(args) {
   let allowlist = null;
   let progress = null;
   let initAllowlist = false;
-  let entries = ["src/cli/dispatcher.ts", "src/index.ts"];
+  let entries = ["src/cli/main.ts", "src/cli/dispatcher.ts", "src/index.ts"];
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--root" && i + 1 < args.length) {

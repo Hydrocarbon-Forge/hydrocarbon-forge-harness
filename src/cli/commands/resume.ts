@@ -46,6 +46,7 @@ export interface CommandContext {
   stderr: NodeJS.WriteStream;
   engine?: Engine;
   sessionStore?: SessionStore;
+  signal?: AbortSignal;
 }
 
 export interface CliCommand {
@@ -192,6 +193,7 @@ export const resumeCommand: CliCommand = {
     const resumeOpts: Partial<RunOptions> = {
       cwd: ctx.cwd,
       overrides,
+      signal: ctx.signal,
       onEvent: (event) => formatter.onEvent(event),
     };
 

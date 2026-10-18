@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import crypto from "node:crypto";
 import { takeCall, applyCall } from "../scenario.mjs";
 
@@ -35,7 +36,25 @@ export async function runDialect(argv, env) {
     sessionId = crypto.randomUUID();
   }
 
-  const { call } = takeCall(env.FAKE_SCENARIO_FILE);
+  let scenarioFile = env.FAKE_SCENARIO_FILE;
+  if (!scenarioFile && process.platform === "linux") {
+    try {
+      let p = process.ppid;
+      while (p > 1 && !scenarioFile) {
+        const ppidEnviron = fs.readFileSync(`/proc/${p}/environ`, "utf8");
+        const entry = ppidEnviron.split("\0").find((e) => e.startsWith("FAKE_SCENARIO_FILE="));
+        if (entry) {
+          scenarioFile = entry.slice("FAKE_SCENARIO_FILE=".length);
+          break;
+        }
+        const stat = fs.readFileSync(`/proc/${p}/stat`, "utf8");
+        const parts = stat.split(" ");
+        p = parseInt(parts[3], 10);
+      }
+    } catch {}
+  }
+
+  const { call } = takeCall(scenarioFile);
   applyCall(call, process.cwd());
 
   if (call.delay_ms && call.delay_ms > 0) {
@@ -48,6 +67,9 @@ export async function runDialect(argv, env) {
   }
 
   if (call.failure === "hang") {
+    if (scenarioFile) {
+      fs.writeFileSync(`${scenarioFile}.pid`, String(process.pid), "utf8");
+    }
     setInterval(() => {}, 1 << 30);
     await new Promise(() => {});
     return 0;

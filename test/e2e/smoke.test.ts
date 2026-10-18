@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { runSubstrate } from "./helpers/run-substrate.js";
 
 describe("E2E Smoke Tests", () => {
-  it.fails("full solo run edits a file, verifies it and finishes with exit 0", () => {
+  it("full solo run edits a file, verifies it and finishes with exit 0", () => {
     const res = runSubstrate({
       files: {
         "src/a.txt": "one\n",
@@ -38,7 +38,7 @@ describe("E2E Smoke Tests", () => {
     }
   });
 
-  it.fails("node dist/substrate.mjs --help exits 0 and prints usage", () => {
+  it("node dist/substrate.mjs --help exits 0 and prints usage", () => {
     const res = runSubstrate({
       args: ["--help"],
     });

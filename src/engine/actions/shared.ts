@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 
-import type { EngineEvent, Manifest, TaskId } from "../../contracts/index.js";
+import type { EngineEvent, Manifest, SessionHandle, TaskId } from "../../contracts/index.js";
 import type { EngineState } from "../reducer.js";
-import type { EffectContext } from "../effects.js";
+import { appendRunEvent, type EffectContext } from "../effects.js";
 import {
   parseManifest,
   parseTaskSpec,
@@ -32,6 +32,23 @@ export function makeEmitter(
       data,
     };
     events.push(evt);
+    // Each event is persisted and delivered as it is emitted, so callers
+    // observing the run directory (and stream consumers) see events while
+    // long actions are still running. If the observer throws, the run has
+    // crashed from its perspective: like a dead process, nothing further is
+    // written; execution continues unobserved.
+    if ((ctx as any)._observabilityCrashed) {
+      return evt;
+    }
+    appendRunEvent(ctx.runDir, evt);
+    if (ctx.onEvent) {
+      try {
+        ctx.onEvent(evt);
+      } catch (err) {
+        (ctx as any)._observabilityCrashed = true;
+        throw err;
+      }
+    }
     return evt;
   }
 
@@ -141,3 +158,21 @@ export async function safeLoadPlan(
     cleanup,
   };
 }
+
+export function bindAbort(ctx: EffectContext, handle: SessionHandle): () => void {
+  if (!ctx.signal) {
+    return () => {};
+  }
+  if (ctx.signal.aborted) {
+    handle.kill("cancel");
+    return () => {};
+  }
+  const onAbort = () => {
+    handle.kill("cancel");
+  };
+  ctx.signal.addEventListener("abort", onAbort, { once: true });
+  return () => {
+    ctx.signal?.removeEventListener("abort", onAbort);
+  };
+}
+

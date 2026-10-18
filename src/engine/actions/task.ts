@@ -7,7 +7,7 @@ import type { SpawnRequest, Manifest, UsageRecord } from "../../contracts/index.
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { safeParseManifest } from "./shared.js";
+import { safeParseManifest, bindAbort } from "./shared.js";
 import { runSoloTask } from "./solo.js";
 import { parseTaskSpec } from "../../spec/index.js";
 import { buildWorkerPrompt } from "../../roles/prompts/worker.js";
@@ -142,6 +142,7 @@ export async function runTaskAction(
   });
 
   const handle = ctx.adapter.spawn(spawnReq);
+  const unbind = bindAbort(ctx, handle);
   let actualSessionId = effectiveSessionId;
 
   const timeoutMs = spawnReq.budget?.timeout_ms ?? 1800000;
@@ -160,54 +161,64 @@ export async function runTaskAction(
   let permissionDeniedOccurred = false;
   let budgetExceededOccurred = false;
 
-  for await (const evt of handle.events) {
-    if (evt.type === "session.started" && (evt as any).session_id) {
-      actualSessionId = (evt as any).session_id;
-    }
+  let res: any;
+  try {
+    for await (const evt of handle.events) {
+      if (evt.type === "session.started" && (evt as any).session_id) {
+        actualSessionId = (evt as any).session_id;
+      }
 
-    if (evt.type === "usage" && (evt as any).record) {
-      const u = (evt as any).record as UsageRecord;
-      emit("usage.recorded", { record: u, role: "worker" });
+      if (evt.type === "usage" && (evt as any).record) {
+        const u = (evt as any).record as UsageRecord;
+        emit("usage.recorded", { record: u, role: "worker" });
 
-      const isCumulative = Boolean((evt as any).cumulative);
-      const currentTotal = isCumulative
-        ? (u.cost_usd ?? 0)
-        : state.usage.total_usd + (u.cost_usd ?? 0);
-      state.usage.total_usd = currentTotal;
+        const isCumulative = Boolean((evt as any).cumulative);
+        const currentTotal = isCumulative
+          ? (u.cost_usd ?? 0)
+          : state.usage.total_usd + (u.cost_usd ?? 0);
+        state.usage.total_usd = currentTotal;
 
-      const maxUsdBudget = ctx.settings.budgets?.run?.max_usd;
+        const maxUsdBudget = ctx.settings.budgets?.run?.max_usd;
 
-      if (maxUsdBudget !== undefined) {
-        if (currentTotal >= 0.8 * maxUsdBudget && currentTotal < maxUsdBudget) {
-          emit("run.budget.warning", { cost_usd: currentTotal, max_usd: maxUsdBudget });
+        if (maxUsdBudget !== undefined) {
+          if (currentTotal >= 0.8 * maxUsdBudget && currentTotal < maxUsdBudget) {
+            emit("run.budget.warning", { cost_usd: currentTotal, max_usd: maxUsdBudget });
+          }
+          if (currentTotal >= maxUsdBudget) {
+            budgetExceededOccurred = true;
+            await handle.kill("budget");
+            emit("run.budget.exceeded", { cost_usd: currentTotal, max_usd: maxUsdBudget });
+            emit("run.paused", { reason: "budget_exhausted" });
+            return;
+          }
         }
-        if (currentTotal >= maxUsdBudget) {
-          budgetExceededOccurred = true;
-          await handle.kill("budget");
-          emit("run.budget.exceeded", { cost_usd: currentTotal, max_usd: maxUsdBudget });
-          emit("run.paused", { reason: "budget_exhausted" });
-          return;
-        }
+      }
+
+      if (evt.type === "permission.denied") {
+        permissionDeniedOccurred = true;
+        await handle.kill("cancel");
+        emit("run.paused", { reason: "permission_denied" });
+        return;
+      }
+
+      if (evt.type === "error" && ((evt as any).kind === "rate_limit" || String((evt as any).message).includes("Rate limit"))) {
+        rateLimitOccurred = true;
       }
     }
 
-    if (evt.type === "permission.denied") {
-      permissionDeniedOccurred = true;
-      await handle.kill("cancel");
-      emit("run.paused", { reason: "permission_denied" });
-      return;
-    }
+    if (timeoutHandle) clearTimeout(timeoutHandle);
 
-    if (evt.type === "error" && ((evt as any).kind === "rate_limit" || String((evt as any).message).includes("Rate limit"))) {
-      rateLimitOccurred = true;
-    }
+    res = await handle.result();
+  } finally {
+    unbind();
   }
 
-  if (timeoutHandle) clearTimeout(timeoutHandle);
-
-  const res = await handle.result();
   if (res?.session_id) {
     actualSessionId = res.session_id;
+  }
+
+  if (ctx.signal?.aborted || res?.killed_for === "cancel") {
+    return;
   }
 
   if (budgetExceededOccurred || res.killed_for === "budget") {

@@ -13,6 +13,7 @@ import {
   safeParseManifest,
   safeLoadPlan,
   extractFencedFiles,
+  bindAbort,
   type Emit,
 } from "./shared.js";
 import { log } from "../../util/log.js";
@@ -173,12 +174,22 @@ export async function runPlanAction(
     };
 
     const handle = ctx.adapter.spawn(spawnReq);
-    for await (const evt of handle.events) {
-      if (evt.type === "usage" && (evt as any).record) {
-        emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+    const unbind = bindAbort(ctx, handle);
+    let res: any;
+    try {
+      for await (const evt of handle.events) {
+        if (evt.type === "usage" && (evt as any).record) {
+          emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+        }
       }
+      res = await handle.result();
+    } finally {
+      unbind();
     }
-    const res = await handle.result();
+
+    if (ctx.signal?.aborted || res?.killed_for === "cancel") {
+      return;
+    }
 
     if (res.final_text) {
       const files = extractFencedFiles(res.final_text);

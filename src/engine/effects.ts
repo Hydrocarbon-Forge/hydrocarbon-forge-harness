@@ -286,10 +286,9 @@ export async function runEffectsLoop(
       const actionEvents = await executeAction(action, ctx, state);
 
       for (const evt of actionEvents) {
-        seq++;
-        evt.seq = seq;
-        appendRunEvent(ctx.runDir, evt);
-        ctx.onEvent?.(evt);
+        if (typeof evt.seq === "number") {
+          seq = evt.seq;
+        }
         log.debug("[DEBUG] evt:", evt.type, evt.data);
         state = reduce(state, evt);
         if (evt.type === "run.finished") {

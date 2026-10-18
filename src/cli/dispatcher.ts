@@ -4,6 +4,7 @@ import type { Effort, Engine, PermissionMode } from "../contracts/index.js";
 import type { SessionStore } from "../store/sessions.js";
 
 export interface CliGlobalFlags {
+  help?: boolean;
   print?: boolean;
   outputFormat?: "text" | "json" | "stream-json";
   model?: string;
@@ -39,6 +40,7 @@ export interface CommandContext {
   stderr: NodeJS.WriteStream;
   engine?: Engine;
   sessionStore?: SessionStore;
+  signal?: AbortSignal;
 }
 
 const { registry } = await import(`./registry.js`);
@@ -64,6 +66,7 @@ await import(`./commands/doctor.js`);
 await import(`./commands/init.js`);
 
 const CLI_OPTIONS = {
+  help: { type: "boolean", short: "h" },
   print: { type: "boolean", short: "p" },
   continue: { type: "boolean", short: "c" },
   "fork-session": { type: "boolean" },
@@ -109,6 +112,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   }
 
   const flags: ParsedCliFlags = {};
+  if (parsedValues.help) flags.help = true;
   if (parsedValues.print) flags.print = true;
   if (parsedValues.continue) flags.continue = true;
   if (parsedValues["fork-session"]) flags.forkSession = true;
@@ -223,6 +227,7 @@ export async function runCli(
     stdin?: NodeJS.ReadStream;
     stdout?: NodeJS.WriteStream;
     stderr?: NodeJS.WriteStream;
+    signal?: AbortSignal;
   },
 ): Promise<number> {
   const stdin = streams?.stdin ?? process.stdin;
@@ -230,6 +235,11 @@ export async function runCli(
   const stderr = streams?.stderr ?? (process.stderr as NodeJS.WriteStream);
 
   const { commandName, flags, positional } = parseCliArgs(argv);
+
+  if (flags.help) {
+    printHelp(stdout);
+    return 0;
+  }
 
   if (flags.continue && flags.resume) {
     stderr.write("Error: --continue and --resume are mutually exclusive\n");
@@ -282,6 +292,7 @@ export async function runCli(
     rawArgs: positional,
     stdout,
     stderr,
+    signal: streams?.signal,
   };
 
   return cmd.execute(ctx);

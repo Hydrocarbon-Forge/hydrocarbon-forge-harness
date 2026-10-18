@@ -1,9 +1,11 @@
+import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 import type { SpawnRequest } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
+import { bindAbort } from "./shared.js";
 
 export async function runSoloTask(
   action: EngineAction,
@@ -13,11 +15,19 @@ export async function runSoloTask(
 ): Promise<void> {
   const workerModel =
     (ctx.settings.roles as any)?.worker?.model ?? "claude-haiku-5-5";
+  const sessionId = crypto.randomUUID();
+  emit("task.session.started", {
+    task_id: "solo",
+    attempt: 1,
+    session_id: sessionId,
+  });
+
   const spawnReq: SpawnRequest = {
     role: "worker",
     cwd: ctx.repoRoot,
     prompt: ctx.prompt ?? "Execute solo task",
     model: workerModel,
+    session: { id: sessionId },
     permission: {
       allow: [ctx.repoRoot],
       deny: ["git commit", "git push", "git checkout", "git reset", "subagents"],
@@ -29,12 +39,22 @@ export async function runSoloTask(
   };
 
   const handle = ctx.adapter.spawn(spawnReq);
-  for await (const evt of handle.events) {
-    if (evt.type === "usage" && (evt as any).record) {
-      emit("usage.recorded", { record: (evt as any).record, role: "worker" });
+  const unbind = bindAbort(ctx, handle);
+  let res: any;
+  try {
+    for await (const evt of handle.events) {
+      if (evt.type === "usage" && (evt as any).record) {
+        emit("usage.recorded", { record: (evt as any).record, role: "worker" });
+      }
     }
+    res = await handle.result();
+  } finally {
+    unbind();
   }
-  const res = await handle.result();
+
+  if (ctx.signal?.aborted || res?.killed_for === "cancel") {
+    return;
+  }
   execFileSync("git", ["add", "-A"], { cwd: ctx.repoRoot });
   const status = execFileSync("git", ["status", "--porcelain"], {
     cwd: ctx.repoRoot,

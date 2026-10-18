@@ -11,7 +11,7 @@ import type {
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { safeParseManifest } from "./shared.js";
+import { safeParseManifest, bindAbort } from "./shared.js";
 import { evaluateEscalation } from "../ladder.js";
 import { buildFailurePacket } from "../packet.js";
 import { getRunBranch, workspaceLifecycle } from "../../git/index.js";
@@ -121,12 +121,25 @@ export async function runReplanAction(
     };
 
     const handle = ctx.adapter.spawn(spawnReq);
-    for await (const evt of handle.events) {
-      if (evt.type === "usage" && (evt as any).record) {
-        emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+    const unbind = bindAbort(ctx, handle);
+    let res: any;
+    try {
+      for await (const evt of handle.events) {
+        if (evt.type === "usage" && (evt as any).record) {
+          emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+        }
       }
+      res = await handle.result();
+    } finally {
+      unbind();
     }
-    await handle.result();
+
+    if (ctx.signal?.aborted || res?.killed_for === "cancel") {
+      try {
+        await workspaceLifecycle.removeWorktree(ctx.repoRoot, worktreePath);
+      } catch {}
+      return;
+    }
 
     try {
       await workspaceLifecycle.removeWorktree(ctx.repoRoot, worktreePath);
@@ -167,12 +180,22 @@ export async function runReplanAction(
     };
 
     const handle = ctx.adapter.spawn(spawnReq);
-    for await (const evt of handle.events) {
-      if (evt.type === "usage" && (evt as any).record) {
-        emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+    const unbind = bindAbort(ctx, handle);
+    let res: any;
+    try {
+      for await (const evt of handle.events) {
+        if (evt.type === "usage" && (evt as any).record) {
+          emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+        }
       }
+      res = await handle.result();
+    } finally {
+      unbind();
     }
-    await handle.result();
+
+    if (ctx.signal?.aborted || res?.killed_for === "cancel") {
+      return;
+    }
 
     const manifestPath = path.join(ctx.runDir, "manifest.yaml");
     if (fs.existsSync(manifestPath)) {

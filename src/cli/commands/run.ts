@@ -41,6 +41,7 @@ export interface CommandContext {
   stderr: NodeJS.WriteStream;
   engine?: Engine;
   sessionStore?: SessionStore;
+  signal?: AbortSignal;
 }
 
 export interface CliCommand {
@@ -201,6 +202,7 @@ export const runCommand: CliCommand = {
       permission_mode,
       prompt,
       overrides,
+      signal: ctx.signal,
       onEvent: (event) => formatter.onEvent(event),
     };
 
