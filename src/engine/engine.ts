@@ -27,6 +27,7 @@ import {
 } from "./effects.js";
 import { RunLockImpl } from "../store/run-lock.js";
 import { getRunBranch } from "../git/index.js";
+import { deepMerge } from "../util/merge.js";
 import { log } from "../util/log.js";
 
 export interface EngineOptions {
@@ -84,11 +85,10 @@ export class EngineImpl implements Engine {
     }
 
     const repoRoot = opts.cwd;
-    const settings: Settings = {
-      ...DEFAULT_SETTINGS,
-      ...(this.options.settings ?? {}),
-      ...(opts.overrides ?? {}),
-    };
+    const settings: Settings = deepMerge(
+      deepMerge(DEFAULT_SETTINGS, this.options.settings ?? {}),
+      opts.overrides ?? {},
+    );
 
     const claudeBin = (settings.backends as any)?.claude?.bin;
     const adapter: HarnessAdapter =
@@ -225,11 +225,10 @@ export class EngineImpl implements Engine {
 
   async resume(runId: RunId, opts?: Partial<RunOptions>): Promise<RunSummary> {
     const repoRoot = opts?.cwd ?? process.cwd();
-    const settings: Settings = {
-      ...DEFAULT_SETTINGS,
-      ...(this.options.settings ?? {}),
-      ...(opts?.overrides ?? {}),
-    };
+    const settings: Settings = deepMerge(
+      deepMerge(DEFAULT_SETTINGS, this.options.settings ?? {}),
+      opts?.overrides ?? {},
+    );
 
     const claudeBin = (settings.backends as any)?.claude?.bin;
     const adapter: HarnessAdapter =

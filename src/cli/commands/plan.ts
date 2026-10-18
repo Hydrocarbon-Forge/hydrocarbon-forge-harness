@@ -1,8 +1,8 @@
 import path from "node:path";
 
-import type { Effort, Engine, PermissionMode, RunOptions, Settings } from "../../contracts/index.js";
+import type { Effort, Engine, PermissionMode, RunOptions } from "../../contracts/index.js";
 import { EngineImpl } from "../../engine/engine.js";
-import { loadSettings } from "../../config/index.js";
+import { loadSettings, sandboxProblem } from "../../config/index.js";
 import { createSessionStore, type SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -53,46 +53,7 @@ export interface CliCommand {
 
 const { createFormatter } = await import(`../output.js`);
 const { registry } = await import(`../registry.js`);
-
-function buildSettingsOverrides(flags: CommandContext["flags"], mode?: string): Partial<Settings> {
-  const overrides: any = {};
-  if (flags.model) {
-    overrides.roles = overrides.roles || {};
-    overrides.roles.planner = { model: flags.model };
-    if (mode !== "plan") {
-      overrides.roles.worker = { model: flags.model };
-    }
-  }
-  if (flags.workerModel) {
-    overrides.roles = overrides.roles || {};
-    overrides.roles.worker = { model: flags.workerModel };
-  }
-  if (flags.effort) {
-    overrides.roles = overrides.roles || {};
-    overrides.roles.planner = overrides.roles.planner || {};
-    overrides.roles.planner.effort = flags.effort;
-  }
-  if (flags.allowedTools || flags.disallowedTools) {
-    overrides.permissions = overrides.permissions || {};
-    if (flags.allowedTools) overrides.permissions.allow = flags.allowedTools;
-    if (flags.disallowedTools) overrides.permissions.deny = flags.disallowedTools;
-  }
-  if (flags.maxBudgetUsd !== undefined) {
-    overrides.budgets = overrides.budgets || {};
-    overrides.budgets.run = overrides.budgets.run || {};
-    overrides.budgets.run.max_usd = flags.maxBudgetUsd;
-  }
-  if (flags.timeout !== undefined) {
-    overrides.budgets = overrides.budgets || {};
-    overrides.budgets.run = overrides.budgets.run || {};
-    overrides.budgets.run.max_wall_min = flags.timeout;
-  }
-  if (flags.sandbox !== undefined) {
-    overrides.sandbox = overrides.sandbox || {};
-    overrides.sandbox.enabled = flags.sandbox;
-  }
-  return overrides;
-}
+const { buildSettingsOverrides } = await import(`./run.js`);
 
 function mapSummaryExitCode(summary: any): number {
   if (summary.status === "finished") {
@@ -160,6 +121,11 @@ export const planCommand: CliCommand = {
           settingsFile: ctx.flags.settings,
           flags: overrides,
         });
+        const problem = sandboxProblem(settings);
+        if (problem) {
+          ctx.stderr.write(`Error: ${problem}\n`);
+          return 2;
+        }
         engine = new EngineImpl({ settings });
       } catch (err: any) {
         ctx.stderr.write(`Error loading settings: ${err.message}\n`);

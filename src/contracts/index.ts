@@ -355,6 +355,7 @@ export const Settings = z.object({
   }).strict()),
   roles: z.object({
     planner: Route,
+    worker: Route.optional(),
     reviewer: Route.extend({ enabled: z.boolean() }).strict().optional(),
     governor: z.object({
       enabled: z.boolean(),

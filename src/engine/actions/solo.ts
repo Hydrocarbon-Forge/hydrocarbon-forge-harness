@@ -16,8 +16,8 @@ export async function runSoloTask(
   state: EngineState,
   emit: Emit
 ): Promise<void> {
-  const workerModel =
-    (ctx.settings.roles as any)?.worker?.model ?? "claude-haiku-5-5";
+  const worker = ctx.settings.roles.worker!;
+  const workerModel = worker.model;
   const sessionId = crypto.randomUUID();
   emit("task.session.started", {
     task_id: "solo",

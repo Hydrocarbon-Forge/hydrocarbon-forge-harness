@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Readable, Writable } from "node:stream";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type * as Contracts from "../../../src/contracts/index.js";
 
@@ -237,6 +241,33 @@ describe("cli: flags and dispatcher", () => {
       expect(exitCode).toBe(2);
       expect(stderr.getOutput()).toMatch(/mutually exclusive|conflict/i);
     });
+
+    it("run --model --worker-model in a temp repo exits with a code other than 2 (C-H18)", async () => {
+      const { runCli } = await loadDispatcher();
+      const dir = mkdtempSync(join(tmpdir(), "substrate-flags-"));
+      try {
+        execFileSync("git", ["init"], { cwd: dir, stdio: "ignore" });
+        const prevCwd = process.cwd();
+        process.chdir(dir);
+        try {
+          const stdin = createMockReadable("", true);
+          const stdout = createMockWritable();
+          const stderr = createMockWritable();
+
+          const exitCode = await runCli(["run", "--model", "x", "--worker-model", "y", "goal"], {
+            stdin,
+            stdout,
+            stderr,
+          });
+
+          expect(exitCode).not.toBe(2);
+        } finally {
+          process.chdir(prevCwd);
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }, 30000);
   });
 
   describe("readStdinIfAvailable() & Stdin Prompt Intake", () => {

@@ -2,7 +2,7 @@ import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, RunId, RunOptions, RunSummary, Settings } from "../../contracts/index.js";
 import { EngineImpl } from "../../engine/engine.js";
-import { loadSettings } from "../../config/index.js";
+import { loadSettings, sandboxProblem } from "../../config/index.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -59,9 +59,12 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
 
   if (flags.model) {
     overrides.roles = overrides.roles || {};
-    overrides.roles.planner = { model: flags.model };
-    if (mode !== "plan") {
+    if (mode === "solo") {
+      // --model targets the worker in solo mode (the only role that runs).
       overrides.roles.worker = { model: flags.model };
+    } else {
+      // plan and auto modes: --model targets the planner only.
+      overrides.roles.planner = { model: flags.model };
     }
   }
 
@@ -95,12 +98,12 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
   if (flags.timeout !== undefined) {
     overrides.budgets = overrides.budgets || {};
     overrides.budgets.run = overrides.budgets.run || {};
-    overrides.budgets.run.max_wall_min = flags.timeout;
+    // --timeout takes seconds; budgets.run.max_wall_min is in minutes.
+    overrides.budgets.run.max_wall_min = flags.timeout / 60;
   }
 
-  if (flags.sandbox !== undefined) {
-    overrides.sandbox = overrides.sandbox || {};
-    overrides.sandbox.enabled = flags.sandbox;
+  if (flags.sandbox) {
+    overrides.sandbox = { enabled: true };
   }
 
   return overrides;
@@ -190,6 +193,11 @@ export const runCommand: CliCommand = {
           settingsFile: ctx.flags.settings,
           flags: overrides,
         });
+        const problem = sandboxProblem(settings);
+        if (problem) {
+          ctx.stderr.write(`Error: ${problem}\n`);
+          return 2;
+        }
         engine = new EngineImpl({ settings });
       } catch (err: any) {
         ctx.stderr.write(`Error loading settings: ${err.message}\n`);

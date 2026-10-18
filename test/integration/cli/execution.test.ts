@@ -253,7 +253,8 @@ describe("cli: execution commands (run, plan, resume)", () => {
       expect(overrides).toBeDefined();
       expect(overrides?.roles?.planner?.model).toBe("claude-sonnet-5-5");
       expect(overrides?.budgets?.run?.max_usd).toBe(12.0);
-      expect(overrides?.budgets?.run?.max_wall_min).toBe(40);
+      // --timeout is in seconds; max_wall_min is in minutes (R1.5).
+      expect(overrides?.budgets?.run?.max_wall_min).toBe(40 / 60);
       expect(overrides?.sandbox?.enabled).toBe(true);
       expect(overrides?.permissions?.allow).toContain("Bash");
       expect(overrides?.permissions?.deny).toContain("Bash(git push*)");

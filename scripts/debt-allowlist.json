@@ -250,6 +250,14 @@
       "until": "R5.3"
     },
     {
+      "key": "roles.worker.backend",
+      "until": "R2.2"
+    },
+    {
+      "key": "roles.worker.effort",
+      "until": "R5.3"
+    },
+    {
       "key": "routing.*.backend",
       "until": "R5.3"
     },

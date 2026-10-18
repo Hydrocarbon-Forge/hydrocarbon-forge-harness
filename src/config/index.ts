@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import YAML from "yaml";
 
 import * as Contracts from "../contracts/index.js";
@@ -117,6 +118,7 @@ export const DEFAULT_SETTINGS: Contracts.Settings = {
   backends: {},
   roles: {
     planner: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
+    worker: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
   },
   routing: {
     feature: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
@@ -137,12 +139,32 @@ export const DEFAULT_SETTINGS: Contracts.Settings = {
   },
   concurrency: { workers: 3 },
   permissions: { allow: [], deny: [] },
-  sandbox: { enabled: true, network: "deny" },
+  sandbox: { enabled: false, network: "deny" },
   git: { on_scope_violation: "revert", branch_prefix: "substrate/", auto_merge: false },
   instructions: { workers: "none" },
   usage: { global: true },
   execution: { strategy: "direct" },
 };
+
+export function sandboxProblem(
+  settings: Contracts.Settings,
+  which?: (bin: string) => boolean,
+): string | null {
+  if (!settings.sandbox?.enabled) return null;
+  let hasBwrap: boolean;
+  if (which) {
+    hasBwrap = which("bwrap");
+  } else {
+    try {
+      execFileSync("bwrap", ["--version"], { stdio: "ignore" });
+      hasBwrap = true;
+    } catch {
+      hasBwrap = false;
+    }
+  }
+  if (hasBwrap) return null;
+  return "sandbox.enabled is true but bwrap is not installed; install bubblewrap or set sandbox.enabled to false";
+}
 
 export async function loadSettings(options: LoadSettingsOptions = {}): Promise<Contracts.Settings> {
   let merged: unknown = DEFAULT_SETTINGS;

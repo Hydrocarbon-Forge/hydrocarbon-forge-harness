@@ -6,9 +6,11 @@ import { tmpdir } from "node:os";
 import * as Contracts from "../../../src/contracts/index.js";
 import {
   applyOverlay,
+  DEFAULT_SETTINGS,
   loadSettings,
   mergeSettings,
   parseJsonc,
+  sandboxProblem,
 } from "../../../src/config/index.js";
 
 function tmp(): string {
@@ -264,5 +266,44 @@ describe("config edge cases from the spec", () => {
     expect(() =>
       applyOverlay(MINIMAL_FILE_SETTINGS as never, { pricing: { sources: ["u"], models: {} } } as never),
     ).toThrow();
+  });
+});
+
+describe("R1.5: settings schema and sandbox", () => {
+  it("--model and --worker-model settings validate (no exit 2, C-H18)", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    const settings = (await loadSettings({
+      projectDir,
+      userConfigDir: userDir,
+      flags: {
+        roles: {
+          planner: { backend: "claude", model: "planner-model" },
+          worker: { backend: "claude", model: "worker-model" },
+        },
+      },
+    })) as { roles: { planner: { model: string }; worker?: { model: string } } };
+    expect(settings.roles.planner.model).toBe("planner-model");
+    expect(settings.roles.worker?.model).toBe("worker-model");
+    expect(settingsValidates(settings)).toBe(true);
+  });
+
+  it("sandbox.enabled defaults to false", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    const settings = (await loadSettings({ projectDir, userConfigDir: userDir })) as {
+      sandbox: { enabled: boolean };
+    };
+    expect(settings.sandbox.enabled).toBe(false);
+  });
+
+  it("sandboxProblem returns the bwrap message when enabled and which says false", () => {
+    const enabled = { ...DEFAULT_SETTINGS, sandbox: { enabled: true, network: "deny" } } as unknown as Contracts.Settings;
+    expect(sandboxProblem(enabled, () => false)).toBe(
+      "sandbox.enabled is true but bwrap is not installed; install bubblewrap or set sandbox.enabled to false",
+    );
+    expect(sandboxProblem(enabled, () => true)).toBeNull();
+    expect(sandboxProblem(DEFAULT_SETTINGS, () => false)).toBeNull();
+    expect(sandboxProblem({} as unknown as Contracts.Settings, () => false)).toBeNull();
   });
 });
