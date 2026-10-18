@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+import { runDialect } from "../dialects/agy.mjs";
+
+const code = await runDialect(process.argv.slice(2), process.env);
+process.exit(code);

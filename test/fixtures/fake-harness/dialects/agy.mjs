@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
+import { takeCall, applyCall } from "../scenario.mjs";
 
 /**
  * Emit raw NDJSON lines for the agy dialect.
@@ -504,10 +507,190 @@ export async function runAgyDialectScenario(scenario, args, options = {}) {
   return 0;
 }
 
+/**
+ * Run agy dialect based on FAKE_SCENARIO_FILE.
+ *
+ * @param {string[]} argv
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<number>}
+ */
+export async function runDialect(argv, env) {
+  if (argv.includes("--version")) {
+    process.stdout.write("1.4.0\n");
+    return 0;
+  }
+
+  let conversationId;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--conversation" && i + 1 < argv.length) {
+      conversationId = argv[++i];
+    }
+  }
+
+  if (!conversationId) {
+    conversationId = crypto.randomUUID();
+  }
+
+  const { call } = takeCall(env.FAKE_SCENARIO_FILE);
+  applyCall(call, process.cwd());
+
+  if (call.delay_ms && call.delay_ms > 0) {
+    await new Promise((resolve) => setTimeout(resolve, call.delay_ms));
+  }
+
+  if (call.failure === "crash") {
+    process.stderr.write("fake-harness: simulated crash\n");
+    return 1;
+  }
+
+  if (call.failure === "hang") {
+    setInterval(() => {}, 1 << 30);
+    await new Promise(() => {});
+    return 0;
+  }
+
+  if (call.failure === "rate_limit") {
+    process.stdout.write(
+      JSON.stringify({
+        event: "result",
+        result: {
+          conversation_id: conversationId,
+          status: "ERROR",
+          response: "",
+          error: "rate limit exceeded: quota exceeded for model",
+          duration_seconds: 0,
+          num_turns: 0,
+          usage: {
+            input_tokens: 0,
+            output_tokens: 0,
+            thinking_tokens: 0,
+            cache_read_tokens: 0,
+            total_tokens: 0,
+          },
+        },
+      }) + "\n"
+    );
+    return 1;
+  }
+
+  if (call.failure === "permission_denial") {
+    process.stderr.write(
+      `jetski: no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.\n`
+    );
+  }
+
+  const reply = call.reply ?? "DONE";
+  const rawUsage = call.usage;
+  const inTokens = rawUsage?.input ?? 11827;
+  const outTokens = rawUsage?.output ?? 13;
+  const thinkTokens = rawUsage?.reasoning ?? 12;
+  const cacheReadTokens = rawUsage?.cache_read ?? 0;
+  const totalTokens = inTokens + outTokens;
+
+  // 1. init
+  process.stdout.write(
+    JSON.stringify({
+      event: "init",
+      conversation_id: conversationId,
+      init: {
+        model: "gemini-3.8-flash-low",
+        cwd: process.cwd(),
+        tools: [
+          "run_command",
+          "write_to_file",
+          "replace_file_content",
+          "view_file",
+          "read_url_content",
+        ],
+        permission_mode: "request-review",
+      },
+    }) + "\n"
+  );
+
+  // 2. step_update (user_input)
+  process.stdout.write(
+    JSON.stringify({
+      event: "step_update",
+      step_update: {
+        conversation_id: conversationId,
+        step_index: 0,
+        state: "DONE",
+        step_type: "user_input",
+      },
+    }) + "\n"
+  );
+
+  // 3. step_update (agent_response ACTIVE)
+  process.stdout.write(
+    JSON.stringify({
+      event: "step_update",
+      step_update: {
+        conversation_id: conversationId,
+        step_index: 1,
+        state: "ACTIVE",
+        step_type: "agent_response",
+        text_delta: reply,
+      },
+    }) + "\n"
+  );
+
+  // 4. step_update (agent_response DONE)
+  process.stdout.write(
+    JSON.stringify({
+      event: "step_update",
+      step_update: {
+        conversation_id: conversationId,
+        step_index: 1,
+        state: "DONE",
+        step_type: "agent_response",
+        text_delta: "\n",
+        duration_seconds: 1.0,
+        usage: {
+          input_tokens: inTokens,
+          output_tokens: outTokens,
+          thinking_tokens: thinkTokens,
+          cache_read_tokens: cacheReadTokens,
+          total_tokens: totalTokens,
+        },
+      },
+    }) + "\n"
+  );
+
+  // 5. result
+  const deniedActions =
+    call.failure === "permission_denial"
+      ? [{ action: "command", display_name: "RunCommand" }]
+      : undefined;
+
+  process.stdout.write(
+    JSON.stringify({
+      event: "result",
+      result: {
+        conversation_id: conversationId,
+        status: "SUCCESS",
+        response: reply + "\n",
+        duration_seconds: 1.1,
+        num_turns: 1,
+        usage: {
+          input_tokens: inTokens,
+          output_tokens: outTokens,
+          thinking_tokens: thinkTokens,
+          cache_read_tokens: cacheReadTokens,
+          total_tokens: totalTokens,
+        },
+        ...(deniedActions ? { denied_actions: deniedActions } : {}),
+      },
+    }) + "\n"
+  );
+
+  return call.exit_code ?? 0;
+}
+
 // CLI entrypoint if executed directly
 const isMain =
   process.argv[1] &&
-  (process.argv[1].endsWith("agy.mjs") || process.argv[1].endsWith("agy"));
+  (fileURLToPath(import.meta.url) === process.argv[1] ||
+    (process.argv[1].endsWith("agy.mjs") && !process.argv[1].endsWith("/bin/agy")));
 
 if (isMain) {
   const args = process.argv.slice(2);

@@ -2,6 +2,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { takeCall, applyCall } from "../scenario.mjs";
 
 /**
  * OpenCode fake dialect event emitter.
@@ -175,6 +176,134 @@ export async function* emitOpenCodeDialectEvents(scenario, options = {}) {
       break;
     }
   }
+}
+
+/**
+ * Run OpenCode dialect based on FAKE_SCENARIO_FILE.
+ *
+ * @param {string[]} argv
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<number>}
+ */
+export async function runDialect(argv, env) {
+  if (argv.includes("--version")) {
+    process.stdout.write("opencode 2.0.21\n");
+    return 0;
+  }
+
+  let sessionId;
+  for (let i = 0; i < argv.length; i++) {
+    if ((argv[i] === "-s" || argv[i] === "--session") && i + 1 < argv.length) {
+      sessionId = argv[++i];
+    }
+  }
+
+  if (!sessionId) {
+    sessionId = "ses_" + Math.random().toString(36).slice(2, 14);
+  }
+
+  const { call } = takeCall(env.FAKE_SCENARIO_FILE);
+  applyCall(call, process.cwd());
+
+  if (call.delay_ms && call.delay_ms > 0) {
+    await new Promise((resolve) => setTimeout(resolve, call.delay_ms));
+  }
+
+  if (call.failure === "crash") {
+    process.stderr.write("fake-harness: simulated crash\n");
+    return 1;
+  }
+
+  if (call.failure === "hang") {
+    setInterval(() => {}, 1 << 30);
+    await new Promise(() => {});
+    return 0;
+  }
+
+  const stepStart = () =>
+    JSON.stringify({
+      type: "step_start",
+      timestamp: Date.now(),
+      sessionID: sessionId,
+      part: {
+        id: "prt_step_start_" + Math.random().toString(36).slice(2, 8),
+        sessionID: sessionId,
+        messageID: "msg_" + Math.random().toString(36).slice(2, 8),
+        type: "step-start",
+      },
+    });
+
+  if (call.failure === "rate_limit") {
+    process.stdout.write(stepStart() + "\n");
+    process.stdout.write(
+      JSON.stringify({
+        type: "error",
+        timestamp: Date.now(),
+        sessionID: sessionId,
+        error: {
+          type: "provider.rate-limit",
+          message: "Rate limit exceeded",
+        },
+      }) + "\n"
+    );
+    return 1;
+  }
+
+  // 1. step_start
+  process.stdout.write(stepStart() + "\n");
+
+  // 2. text
+  const reply =
+    call.failure === "permission_denial"
+      ? (call.reply ?? "I can't run shell commands — no shell/bash tool is available in this session.")
+      : (call.reply ?? "DONE");
+
+  process.stdout.write(
+    JSON.stringify({
+      type: "text",
+      timestamp: Date.now(),
+      sessionID: sessionId,
+      part: {
+        id: "prt_text_" + Math.random().toString(36).slice(2, 8),
+        sessionID: sessionId,
+        messageID: "msg_" + Math.random().toString(36).slice(2, 8),
+        type: "text",
+        text: reply,
+        time: { start: Date.now() - 50, end: Date.now() },
+      },
+    }) + "\n"
+  );
+
+  // 3. step_finish (if call.usage !== null)
+  if (call.usage !== null) {
+    const rawUsage = call.usage;
+    process.stdout.write(
+      JSON.stringify({
+        type: "step_finish",
+        timestamp: Date.now(),
+        sessionID: sessionId,
+        part: {
+          id: "prt_finish_" + Math.random().toString(36).slice(2, 8),
+          sessionID: sessionId,
+          messageID: "msg_" + Math.random().toString(36).slice(2, 8),
+          type: "step-finish",
+          reason: "stop",
+          cost: 0,
+          tokens: {
+            input: rawUsage?.input ?? 10,
+            output: rawUsage?.output ?? 5,
+            reasoning: rawUsage?.reasoning ?? 0,
+            cache: {
+              read: rawUsage?.cache_read ?? 0,
+              write: rawUsage?.cache_write ?? 0,
+            },
+          },
+        },
+      }) + "\n"
+    );
+  }
+
+  return call.exit_code ?? 0;
 }
 
 // CLI entry point when executed directly
