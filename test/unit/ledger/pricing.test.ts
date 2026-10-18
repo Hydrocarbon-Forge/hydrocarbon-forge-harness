@@ -42,43 +42,46 @@ describe("pricing: calculateCostUsd token math", () => {
     // 100k input, 50k output, 200k cache_read, 10k cache_write on claude-sonnet-5-5
     // (100000 * 2.0 + 50000 * 10.0 + 200000 * 0.1 + 10000 * 2.5) / 1_000_000
     // = (200000 + 500000 + 20000 + 25000) / 1_000_000 = 745000 / 1_000_000 = 0.745
-    const cost = calculateCostUsd(S4_PRICING, "claude-sonnet-5-5", {
+    const res = calculateCostUsd(S4_PRICING, "claude-sonnet-5-5", {
       input_tokens: 100_000,
       output_tokens: 50_000,
       cache_read_tokens: 200_000,
       cache_write_tokens: 10_000,
     });
-    expect(cost).toBeCloseTo(0.745, 6);
+    expect(res.cost_source).toBe("computed");
+    expect(res.cost_usd).toBeCloseTo(0.745, 6);
   });
 
   it("handles missing cache tokens by defaulting to 0 without crashing", () => {
     // 500k input, 100k output on claude-haiku-5-5
     // (500000 * 0.1 + 100000 * 0.5) / 1_000_000 = (50000 + 50000) / 1_000_000 = 0.10
-    const cost = calculateCostUsd(S4_PRICING, "claude-haiku-5-5", {
+    const res = calculateCostUsd(S4_PRICING, "claude-haiku-5-5", {
       input_tokens: 500_000,
       output_tokens: 100_000,
     });
-    expect(cost).toBeCloseTo(0.10, 6);
+    expect(res.cost_source).toBe("computed");
+    expect(res.cost_usd).toBeCloseTo(0.10, 6);
   });
 
   it("calculates cost accurately for gemini-3.8-flash", () => {
     // 1M input, 100k output, 500k cache_read
     // (1000000 * 0.75 + 100000 * 3.75 + 500000 * 0.075) / 1M = (750000 + 375000 + 37500) / 1M = 1.1625
-    const cost = calculateCostUsd(S4_PRICING, "gemini-3.8-flash", {
+    const res = calculateCostUsd(S4_PRICING, "gemini-3.8-flash", {
       input_tokens: 1_000_000,
       output_tokens: 100_000,
       cache_read_tokens: 500_000,
     });
-    expect(cost).toBeCloseTo(1.1625, 6);
+    expect(res.cost_source).toBe("computed");
+    expect(res.cost_usd).toBeCloseTo(1.1625, 6);
   });
 
-  it("throws an explicit error when model is not listed in PricingTable", () => {
-    expect(() =>
-      calculateCostUsd(S4_PRICING, "unlisted-model-xyz", {
-        input_tokens: 1000,
-        output_tokens: 500,
-      }),
-    ).toThrow(/unlisted|missing|not found/i);
+  it("returns {cost_usd: 0, cost_source: 'unknown'} when model is not listed in PricingTable", () => {
+    const res = calculateCostUsd(S4_PRICING, "unlisted-model-xyz", {
+      input_tokens: 1000,
+      output_tokens: 500,
+    });
+    expect(res.cost_source).toBe("unknown");
+    expect(res.cost_usd).toBe(0);
   });
 
   it("rejects negative or NaN token counts", () => {

@@ -17,18 +17,21 @@ import type {
   SessionHandle,
   SessionId,
   SessionResult,
+  PricingTable,
   SpawnRequest,
   UsageRecord,
 } from "../../contracts/index.js";
 import { readNdjsonStream } from "../ndjson.js";
 import { spawnSupervisedProcess } from "../process.js";
 import { normalizeOpenCodeStream } from "../normalize/opencode.js";
+import { DEFAULT_PRICING } from "../default-pricing.js";
 
 export interface OpenCodeAdapterOptions {
   binPath?: string;
   versionPin?: string;
   customBaseUrl?: string;
   contextWindow?: number;
+  pricing?: PricingTable;
 }
 
 export interface GeneratedOpenCodeConfig {
@@ -349,6 +352,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     let observedOk = true;
     let activeSessionId = sessionId;
     let fatalErrorSeen = false;
+    const pricingTable = this.options.pricing ?? DEFAULT_PRICING;
 
     async function* wrapEvents(): AsyncIterable<BackendEvent> {
       try {
@@ -361,6 +365,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
         const normalized = normalizeOpenCodeStream(ndjsonStream, {
           model: req.model,
           fallbackSessionId: activeSessionId,
+          pricingTable,
         });
 
         for await (const event of normalized) {

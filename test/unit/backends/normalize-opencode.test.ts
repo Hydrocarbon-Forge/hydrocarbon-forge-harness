@@ -530,6 +530,53 @@ describe("OpenCode Normalizer: Invariants and Edge Cases", () => {
     expect(result.type).toBe("session.result");
     if (result.type === "session.result") {
       expect(result.usage?.cost_usd).toBeGreaterThan(0);
+      expect(result.usage?.cost_source).toBe("computed");
+    }
+  });
+
+  it("yields cost_source 'unknown' and cost 0 when step_finish reports cost 0 and model is unlisted in pricingTable", async () => {
+    async function* rawGenerator() {
+      yield {
+        type: "step_start",
+        part: {
+          sessionID: "ses_unlisted",
+        },
+      };
+      yield {
+        type: "step_finish",
+        part: {
+          sessionID: "ses_unlisted",
+          cost: 0,
+          tokens: {
+            input: 1000,
+            output: 200,
+          },
+        },
+      };
+    }
+
+    const options: OpenCodeNormalizeOptions = {
+      model: "unlisted-model-xyz",
+      pricingTable: SAMPLE_PRICING,
+    };
+
+    const events: BackendEvent[] = [];
+    for await (const event of normalizeOpenCodeStream(rawGenerator(), options)) {
+      events.push(event);
+    }
+
+    const usageEvt = events.find((e) => e.type === "usage");
+    expect(usageEvt).toBeDefined();
+    if (usageEvt?.type === "usage") {
+      expect(usageEvt.record.cost_source).toBe("unknown");
+      expect(usageEvt.record.cost_usd).toBe(0);
+    }
+
+    const result = events[events.length - 1];
+    expect(result.type).toBe("session.result");
+    if (result.type === "session.result") {
+      expect(result.usage?.cost_source).toBe("unknown");
+      expect(result.usage?.cost_usd).toBe(0);
     }
   });
 

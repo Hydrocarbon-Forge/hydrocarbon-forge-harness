@@ -370,7 +370,16 @@ export const Settings = z.object({
     Route.extend({ budget: Budget.optional() }).strict(),
     z.array(z.string()),
   ])),
-  pricing: PricingTable,
+  pricing: z.object({
+    asOf: z.string().optional(),
+    sources: z.array(z.string()).optional(),
+    models: z.record(z.string(), z.object({
+      input_per_mtok: z.number(),
+      output_per_mtok: z.number(),
+      cache_read_per_mtok: z.number().optional(),
+      cache_write_per_mtok: z.number().optional(),
+    }).strict()).optional(),
+  }).strict(),
   budgets: z.object({
     run: z.object({
       max_usd: z.number().optional(),

@@ -1,15 +1,18 @@
 import type {
   BackendEvent,
+  PricingTable,
   SessionId,
   SessionResult,
   UsageRecord,
 } from "../../contracts/index.js";
 import { nowIsoTimestamp } from "../../util/index.js";
+import { calculateCostUsd } from "../pricing.js";
 
 export interface ClaudeNormalizerOptions {
   model?: string;
   sessionId?: SessionId;
   seenDenials?: Set<string>;
+  pricing?: PricingTable;
 }
 
 export interface ClaudeRawContentBlock {
@@ -39,7 +42,8 @@ export interface ClaudeRawResultEvent {
 
 export function extractClaudeUsage(
   raw: unknown,
-  model: string
+  model: string,
+  pricing?: PricingTable
 ): UsageRecord {
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
   const u = (obj.usage && typeof obj.usage === "object" ? obj.usage : obj) as Record<string, any>;
@@ -69,15 +73,24 @@ export function extractClaudeUsage(
       : undefined;
 
   let cost_usd = 0;
-  let cost_source: "reported" | "computed" = "computed";
+  let cost_source: "reported" | "computed" | "unknown" = "unknown";
 
   const totalCost = obj.total_cost_usd !== undefined ? obj.total_cost_usd : u.total_cost_usd;
   if (typeof totalCost === "number" && Number.isFinite(totalCost)) {
     cost_usd = totalCost;
     cost_source = "reported";
-  } else if (typeof obj.cost_usd === "number" && Number.isFinite(obj.cost_usd)) {
-    cost_usd = obj.cost_usd;
-    cost_source = obj.cost_source === "reported" ? "reported" : "computed";
+  } else if (pricing) {
+    const computed = calculateCostUsd(pricing, model, {
+      input_tokens,
+      output_tokens,
+      cache_read_tokens,
+      cache_write_tokens,
+    });
+    cost_usd = computed.cost_usd;
+    cost_source = computed.cost_source;
+  } else {
+    cost_usd = 0;
+    cost_source = "unknown";
   }
 
   const record: UsageRecord = {
@@ -289,7 +302,7 @@ export function normalizeClaudeEvent(
       model = "unknown";
     }
 
-    const usage = extractClaudeUsage(eventObj, model);
+    const usage = extractClaudeUsage(eventObj, model, options?.pricing);
     const events: BackendEvent[] = [
       {
         type: "usage",

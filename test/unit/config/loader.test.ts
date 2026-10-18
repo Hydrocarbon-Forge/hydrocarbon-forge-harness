@@ -276,7 +276,7 @@ describe("config edge cases from the spec", () => {
     expect(settingsValidates(settings)).toBe(true);
 
     expect(() =>
-      applyOverlay(MINIMAL_FILE_SETTINGS as never, { pricing: { sources: ["u"], models: {} } } as never),
+      applyOverlay(MINIMAL_FILE_SETTINGS as never, { pricing: { invalid_extra: 123 } } as never),
     ).toThrow();
   });
 });

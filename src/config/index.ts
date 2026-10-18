@@ -116,7 +116,7 @@ export interface LoadSettingsOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-export const DEFAULT_SETTINGS: Contracts.Settings = {
+export const DEFAULT_SETTINGS: Contracts.Settings & { pricing: Contracts.PricingTable } = {
   backends: {},
   roles: {
     planner: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
@@ -127,10 +127,8 @@ export const DEFAULT_SETTINGS: Contracts.Settings = {
     escalation: ["haiku", "sonnet", "opus"],
   },
   pricing: {
-    asOf: "2026-10-16",
-    sources: ["https://example.com"],
     models: {},
-  },
+  } as unknown as Contracts.PricingTable,
   budgets: {
     run: { max_usd: 5 },
     task: { max_usd: 0.5 },

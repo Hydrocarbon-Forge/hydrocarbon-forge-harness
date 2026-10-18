@@ -144,22 +144,21 @@ export function parseOpenCodeEvent(
           cache?.write !== undefined ? Number(cache.write) : undefined;
 
         let costUsd = Number(part.cost ?? 0);
-        let costSource: "reported" | "computed" = "reported";
+        let costSource: "reported" | "computed" | "unknown" = "reported";
 
         if (costUsd === 0 && options.pricingTable) {
-          try {
-            const computed = calculateCostUsd(options.pricingTable, options.model, {
-              input_tokens: inputTokens,
-              output_tokens: outputTokens,
-              cache_read_tokens: cacheReadTokens,
-              cache_write_tokens: cacheWriteTokens,
-            });
-            if (computed > 0) {
-              costUsd = computed;
-              costSource = "computed";
-            }
-          } catch {
-            // Unlisted model in pricing table; retain 0 reported
+          const computed = calculateCostUsd(options.pricingTable, options.model, {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            cache_read_tokens: cacheReadTokens,
+            cache_write_tokens: cacheWriteTokens,
+          });
+          if (computed.cost_source === "computed") {
+            costUsd = computed.cost_usd;
+            costSource = "computed";
+          } else {
+            costUsd = 0;
+            costSource = "unknown";
           }
         }
 
@@ -237,7 +236,7 @@ export async function* normalizeOpenCodeStream(
     cacheWrite: 0,
     hasCacheWrite: false,
     costUsd: 0,
-    costSource: "reported" as "reported" | "computed",
+    costSource: "reported" as "reported" | "computed" | "unknown",
   };
 
   for await (const raw of rawStream) {
@@ -292,6 +291,11 @@ export async function* normalizeOpenCodeStream(
         }
         if (event.record.cost_source === "computed") {
           cumulativeTokens.costSource = "computed";
+        } else if (
+          event.record.cost_source === "unknown" &&
+          cumulativeTokens.costSource !== "computed"
+        ) {
+          cumulativeTokens.costSource = "unknown";
         }
       }
 

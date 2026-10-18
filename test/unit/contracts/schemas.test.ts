@@ -530,15 +530,19 @@ describe("settings", () => {
     expectReject("PricingTable", { asOf: "x", sources: [] });
   });
 
-  it("Settings accepts empty pricing.models but requires asOf/sources/models", () => {
+  it("Settings accepts pricing without asOf/sources but rejects extra properties", () => {
     expectAccept("Settings", validSettings());
-    expectReject("Settings", {
+    expectAccept("Settings", {
       ...validSettings(),
       pricing: { sources: ["u"], models: {} },
     });
+    expectAccept("Settings", {
+      ...validSettings(),
+      pricing: { models: {} },
+    });
     expectReject("Settings", {
       ...validSettings(),
-      pricing: { asOf: "d", sources: ["u"] },
+      pricing: { invalid_key: "bad" },
     });
   });
 

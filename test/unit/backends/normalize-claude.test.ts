@@ -21,6 +21,7 @@ import {
   buildClaudeArgs,
   scrubClaudeEnv,
 } from "../../../src/backends/adapters/claude.js";
+import { DEFAULT_PRICING } from "../../../src/backends/default-pricing.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -318,7 +319,7 @@ describe("Claude Normalizer: Edge Cases and Stream Robustness", () => {
     expect(resultCrash.exit_code).toBe(1);
   });
 
-  it("extractClaudeUsage handles missing total_cost_usd by marking cost_source: computed", () => {
+  it("extractClaudeUsage handles missing total_cost_usd by computing with pricingTable or marking cost_source: unknown", () => {
     const rawResultWithoutCost = {
       type: "result",
       subtype: "success",
@@ -328,12 +329,24 @@ describe("Claude Normalizer: Edge Cases and Stream Robustness", () => {
       },
     };
 
-    const usage = extractClaudeUsage(rawResultWithoutCost, "claude-haiku-5-5");
-    expect(UsageRecord.safeParse(usage).success).toBe(true);
-    expect(usage.input_tokens).toBe(100);
-    expect(usage.output_tokens).toBe(50);
-    expect(usage.cost_usd).toBe(0);
-    expect(usage.cost_source).toBe("computed");
+    // With pricingTable: computed cost
+    const usageWithPricing = extractClaudeUsage(
+      rawResultWithoutCost,
+      "claude-haiku-5-5",
+      DEFAULT_PRICING,
+    );
+    expect(UsageRecord.safeParse(usageWithPricing).success).toBe(true);
+    expect(usageWithPricing.input_tokens).toBe(100);
+    expect(usageWithPricing.output_tokens).toBe(50);
+    // (100 * 0.1 + 50 * 0.5) / 1M = (10 + 25) / 1M = 0.000035
+    expect(usageWithPricing.cost_usd).toBeCloseTo(0.000035, 6);
+    expect(usageWithPricing.cost_source).toBe("computed");
+
+    // Without pricingTable: cost_source unknown, cost 0
+    const usageWithoutPricing = extractClaudeUsage(rawResultWithoutCost, "claude-haiku-5-5");
+    expect(UsageRecord.safeParse(usageWithoutPricing).success).toBe(true);
+    expect(usageWithoutPricing.cost_usd).toBe(0);
+    expect(usageWithoutPricing.cost_source).toBe("unknown");
   });
 });
 

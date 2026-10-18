@@ -178,10 +178,6 @@
       "until": "R5.3"
     },
     {
-      "key": "pricing.asOf",
-      "until": "R5.3"
-    },
-    {
       "key": "pricing.models.*.cache_read_per_mtok",
       "until": "R5.3"
     },
@@ -195,10 +191,6 @@
     },
     {
       "key": "pricing.models.*.output_per_mtok",
-      "until": "R5.3"
-    },
-    {
-      "key": "pricing.sources",
       "until": "R5.3"
     },
     {
@@ -275,6 +267,11 @@
       "symbol": "computeUsageRecord",
       "path": "src/backends/pricing.ts",
       "until": "R5.3"
+    },
+    {
+      "symbol": "pricingTableFor",
+      "path": "src/backends/pricing.ts",
+      "until": "R2.2"
     },
     {
       "symbol": "terminateProcessGroup",
@@ -523,6 +520,11 @@
     },
     {
       "symbol": "HarnessAdapter",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "PricingTable",
       "path": "src/contracts/index.ts",
       "until": "R5.3"
     },

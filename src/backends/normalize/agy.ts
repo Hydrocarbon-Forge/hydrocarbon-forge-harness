@@ -7,6 +7,7 @@ import type {
 import { UsageRecord as UsageRecordSchema } from "../../contracts/index.js";
 import { calculateCostUsd } from "../pricing.js";
 import { nowIsoTimestamp } from "../../util/index.js";
+import { log } from "../../util/log.js";
 
 export interface AgyInitEvent {
   event: "init";
@@ -139,13 +140,24 @@ export class AgyNormalizer {
           });
         }
         if (su.state === "DONE" && su.usage) {
-          const rec = this.toUsageRecord(su.usage);
-          this.lastUsage = rec;
-          events.push({
-            type: "usage",
-            record: rec,
-            cumulative: false,
-          });
+          try {
+            const rec = this.toUsageRecord(su.usage);
+            this.lastUsage = rec;
+            events.push({
+              type: "usage",
+              record: rec,
+              cumulative: false,
+            });
+          } catch (err: any) {
+            const stepName = `step ${su.step_index ?? "unknown"}`;
+            const msg = `Invalid tokens in ${stepName}: ${err.message}`;
+            log.warn(msg);
+            events.push({
+              type: "error",
+              kind: "protocol",
+              message: msg,
+            });
+          }
         }
       } else if (su.step_type === "tool" && (su.tool_name || su.tool_info)) {
         if (su.state === "ACTIVE") {
@@ -181,7 +193,17 @@ export class AgyNormalizer {
         this.responseText = res.response;
       }
       if (res.usage) {
-        this.lastUsage = this.toUsageRecord(res.usage);
+        try {
+          this.lastUsage = this.toUsageRecord(res.usage);
+        } catch (err: any) {
+          const msg = `Invalid tokens in result: ${err.message}`;
+          log.warn(msg);
+          events.push({
+            type: "error",
+            kind: "protocol",
+            message: msg,
+          });
+        }
       }
       if (res.denied_actions && Array.isArray(res.denied_actions)) {
         for (const denial of res.denied_actions) {
@@ -353,7 +375,7 @@ export class AgyNormalizer {
       cache_read_tokens: usage.cache_read_tokens,
     };
 
-    const costUsd = calculateCostUsd(
+    const { cost_usd, cost_source } = calculateCostUsd(
       this.options.pricing,
       this.model,
       tokens
@@ -364,8 +386,8 @@ export class AgyNormalizer {
       model: this.model,
       input_tokens: tokens.input_tokens,
       output_tokens: tokens.output_tokens,
-      cost_usd: costUsd,
-      cost_source: "computed",
+      cost_usd,
+      cost_source,
       at: nowIsoTimestamp(),
     };
 

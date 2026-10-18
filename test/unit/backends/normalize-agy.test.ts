@@ -332,12 +332,32 @@ describe("AgyNormalizer - Invariants and Edge Cases", () => {
     }
   });
 
-  it("throws clear error when model is unlisted in PricingTable", () => {
-    expect(() => {
-      new AgyNormalizer({
-        model: "unlisted-model-xyz",
-        pricing: samplePricing,
-      }).normalizeEvent({
+  it("yields usage event with cost_source 'unknown' and stream continues to session.result when model is unlisted in PricingTable", () => {
+    const normalizer = new AgyNormalizer({
+      model: "unlisted-model-xyz",
+      pricing: samplePricing,
+    });
+    const events: BackendEvent[] = [];
+    events.push(
+      ...normalizer.normalizeEvent({
+        event: "init",
+        conversation_id: "c1",
+        init: { model: "unlisted-model-xyz" },
+      }),
+    );
+    events.push(
+      ...normalizer.normalizeEvent({
+        event: "step_update",
+        step_update: {
+          step_index: 1,
+          step_type: "agent_response",
+          state: "DONE",
+          usage: { input_tokens: 100, output_tokens: 10 },
+        },
+      }),
+    );
+    events.push(
+      ...normalizer.normalizeEvent({
         event: "result",
         result: {
           conversation_id: "c1",
@@ -345,8 +365,25 @@ describe("AgyNormalizer - Invariants and Edge Cases", () => {
           response: "ok",
           usage: { input_tokens: 100, output_tokens: 10 },
         },
-      });
-    }).toThrow(/unlisted/i);
+      }),
+    );
+    events.push(...normalizer.finalize(0));
+
+    const usageEvt = events.find((e) => e.type === "usage");
+    expect(usageEvt).toBeDefined();
+    if (usageEvt?.type === "usage") {
+      expect(usageEvt.record.cost_source).toBe("unknown");
+      expect(usageEvt.record.cost_usd).toBe(0);
+      expect(usageEvt.record.model).toBe("unlisted-model-xyz");
+    }
+
+    const resultEvt = events.find((e) => e.type === "session.result");
+    expect(resultEvt).toBeDefined();
+    if (resultEvt?.type === "session.result") {
+      expect(resultEvt.ok).toBe(true);
+      expect(resultEvt.usage?.cost_source).toBe("unknown");
+      expect(resultEvt.usage?.cost_usd).toBe(0);
+    }
   });
 
   it("maps rate limit error message to error kind 'rate_limit'", () => {
