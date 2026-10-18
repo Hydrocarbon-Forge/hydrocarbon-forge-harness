@@ -3,8 +3,8 @@
 //
 // - `contracts` and `util` import nothing internal except each other.
 // - `backends` imports only `contracts`, `util`.
-// - `engine` may import everything except `cli|tui|hooks`.
-// - Nothing imports `cli|tui`.
+// - `engine` may import everything except `cli|hooks`.
+// - Nothing imports `cli`.
 //
 // Scans `src/**/*.ts`, resolves relative imports to the top-level area
 // (first path segment under `src/`), and reports violations.
@@ -18,8 +18,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 const srcDir = join(root, "src");
 
-const SURFACE_FORBIDDEN = new Set(["cli", "tui"]);
-const ENGINE_FORBIDDEN = new Set(["cli", "tui", "hooks"]);
+const SURFACE_FORBIDDEN = new Set(["cli"]);
+const ENGINE_FORBIDDEN = new Set(["cli", "hooks"]);
 
 /** Collect all .ts files under a directory (recursive). */
 function collectTsFiles(dir) {
@@ -103,7 +103,7 @@ function allowedTargets(importerArea) {
   if (importerArea === "backends") {
     return new Set(["contracts", "util"]);
   }
-  return null; // no allowlist (only the global cli|tui ban + engine ban apply)
+  return null; // no allowlist (only the global cli ban + engine ban apply)
 }
 
 function main() {
@@ -120,14 +120,14 @@ function main() {
       const target = specifierToArea(spec, file);
       if (target === null) continue; // external or src-root target — no boundary applies
 
-      // Global rule: nothing imports cli|tui.
+      // Global rule: nothing imports cli.
       if (SURFACE_FORBIDDEN.has(target)) {
-        violations.push(`${rel} imports internal area "${target}" (nothing may import cli|tui)`);
+        violations.push(`${rel} imports internal area "${target}" (nothing may import cli)`);
         continue;
       }
-      // Engine rule: engine may import everything except cli|tui|hooks.
+      // Engine rule: engine may import everything except cli|hooks.
       if (importerArea === "engine" && ENGINE_FORBIDDEN.has(target)) {
-        violations.push(`${rel} imports internal area "${target}" (engine may not import cli|tui|hooks)`);
+        violations.push(`${rel} imports internal area "${target}" (engine may not import cli|hooks)`);
         continue;
       }
       // Allowlist rules for contracts/util/backends.

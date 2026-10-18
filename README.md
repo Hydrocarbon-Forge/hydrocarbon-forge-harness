@@ -1,4 +1,4 @@
-> **Status (2026-10-17): under remediation.** Parts of this README describe intended behavior that is not implemented yet (the interactive TUI, the `SUBSTRATE_*` environment layer, `bench`/`agents-import`, several flags, and a working `bin/substrate.mjs`). The accurate state and the plan to fix it are in [`docs/plan/PROGRESS.md`](docs/plan/PROGRESS.md); contributors start at [`START-HERE.md`](START-HERE.md). This notice is removed by work package R5.1.
+> **Status (2026-10-17): under remediation.** Parts of this README describe intended behavior that is not implemented yet (the `SUBSTRATE_*` environment layer, `bench`/`agents-import`, several flags, and a working `bin/substrate.mjs`). The accurate state and the plan to fix it are in [`docs/plan/PROGRESS.md`](docs/plan/PROGRESS.md); contributors start at [`START-HERE.md`](START-HERE.md). This notice is removed by work package R5.1.
 
 # Substrate
 
@@ -57,7 +57,6 @@ Substrate treats all AI coding agents as symmetric, interchangeable peers. Subst
 
 5. **Surface**:
    - **Headless CLI**: Scriptable command-line interface with text, JSON, and NDJSON streaming outputs.
-   - **Interactive TUI**: Terminal user interface for live run monitoring, task inspection, and steering.
 
 ---
 

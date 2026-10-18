@@ -1,3 +1,5 @@
+> Archived: research for a TUI that was removed (work package R0.7). Not part of the product.
+
 # S5: Interactive UX Conventions (Claude Code, OpenCode v2, Antigravity) and Substrate TUI Synthesis
 
 ## Planner Digest & Resolution of Unknown U9

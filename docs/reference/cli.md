@@ -14,7 +14,7 @@ These flags can be applied to `substrate run`, `substrate plan`, and other execu
 
 | Flag | Type | Description |
 |---|---|---|
-| `-p`, `--print` | Boolean | Run headlessly without opening the interactive TUI, printing output directly to stdout. |
+| `-p`, `--print` | Boolean | Run headlessly and print the result to stdout. |
 | `--output-format <format>` | String | Selects output format: `text` (human-readable), `json` (single structured payload), or `stream-json` (NDJSON stream). |
 | `--model <model>` | String | Overrides the primary model used for planning, manifest generation, or solo mode. |
 | `--worker-model <model>` | String | Overrides the worker model across all task routing classes. |

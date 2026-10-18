@@ -161,10 +161,6 @@
       "until": "R5.3"
     },
     {
-      "path": "src/tui/**",
-      "until": "R0.7"
-    },
-    {
       "path": "src/verify/index.ts",
       "until": "R5.3"
     }
