@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 import type { SpawnRequest, Manifest } from "../../contracts/index.js";
+import { assembleSystem } from "../../prompts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import { checkRunBudget } from "../effects.js";
 import type { EngineState } from "../reducer.js";
@@ -163,10 +165,14 @@ export async function runPlanAction(
 
   while (plannerAttempts <= maxRetries) {
     plannerAttempts++;
+    const sessionId = crypto.randomUUID();
     const spawnReq: SpawnRequest = {
       role: "planner",
       cwd: ctx.runDir,
       prompt: lastPrompt,
+      system_append: assembleSystem("planner", { projectRoot: ctx.repoRoot }),
+      raw_dir: ctx.runDir,
+      session: { id: sessionId },
       model: ctx.settings.roles?.planner?.model ?? "claude-haiku-5-5",
       permission: {
         allow: [ctx.runDir],

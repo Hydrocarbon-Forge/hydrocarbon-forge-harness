@@ -23,7 +23,7 @@ Current WP: **R2.3**. Take the first TODO row whose dependencies are all DONE.
 | R1.8 | Run-control flags and unregistered commands | M | R1.6 | DONE | node dist/substrate.mjs bench --help (exit 0) and agents import --help (exit 0) print usage; grep worktree in dispatcher and -w/--worktree in README/cli.md print nothing; flags and run-control tests (35 passed), npm test (1100 passed), typecheck and check exit 0 |
 | R2.1 | Price table and unknown-cost policy | M | R1.4 | DONE | test/unit/backends/pricing.test.ts, normalize-agy.test.ts, normalize-claude.test.ts, normalize-opencode.test.ts pass (96 tests in backends+ledger); typecheck, check, npm test (1110 passed, 1 skipped) exit 0 |
 | R2.2 | Adapter registry; FakeAdapter leaves src | M | R0.3 R1.5 | DONE | git grep fake-adapter src and git grep ctx.adapter src print nothing; vitest test/e2e/adapters.test.ts passed; typecheck, bundle, check, npm test (1111 passed) exit 0 |
-| R2.3 | Claude adapter correctness | M | R2.2 R1.7 | TODO | |
+| R2.3 | Claude adapter correctness | M | R2.2 R1.7 | DONE | VERIFY FIRST 1: claude --help confirmed --append-system-prompt. VERIFY FIRST 2: claude with non-UUID session-id exits 1. Step 2 (npm run bundle && npx vitest run test/e2e/adapters.test.ts): 1 passed (124ms) asserting argv --session-id is UUID, --append-system-prompt has system text, --disallowedTools has Bash(git commit*) and Agent. Backends tests (100 passed), typecheck, check, npm test (1124 passed) exit 0. |
 | R2.4 | OpenCode adapter correctness | M | R2.2 R1.7 | TODO | |
 | R2.5 | agy adapter correctness | M | R2.2 R2.1 R1.7 | TODO | |
 | R2.6 | listModels for each adapter | M | R2.3 R2.4 R2.5 | TODO | |

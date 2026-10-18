@@ -71,7 +71,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     // 3. usage event
     expect(events[2].type).toBe("usage");
     if (events[2].type === "usage") {
-      expect(events[2].cumulative).toBe(true);
+      expect(events[2].cumulative).toBe(false);
       expect(events[2].record.cost_usd).toBeCloseTo(0.0001182, 6);
       expect(events[2].record.cost_source).toBe("reported");
       expect(events[2].record.input_tokens).toBe(2);
@@ -221,7 +221,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     expect(resultEvent).toBeDefined();
     if (resultEvent && resultEvent.type === "session.result") {
       expect(resultEvent.ok).toBe(false);
-      expect(resultEvent.stop_reason).toBe("budget_exceeded");
+      expect(resultEvent.stop_reason).toBe("budget");
       expect(resultEvent.exit_code).toBe(1);
     }
 
@@ -357,6 +357,7 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
       cwd: "/tmp/test",
       prompt: "echo minimal",
       model: "claude-haiku-5-5",
+      session: { id: "12345678-1234-1234-1234-123456789abc" },
       permission: { allow: [], deny: [] },
       budget: { timeout_ms: 10000 },
     };
@@ -392,8 +393,9 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     // Allowed tools omitted when empty
     expect(args).not.toContain("--allowedTools");
 
-    // Session id generated
+    // Session id
     expect(args).toContain("--session-id");
+    expect(args[args.indexOf("--session-id") + 1]).toBe("12345678-1234-1234-1234-123456789abc");
 
     // Budget omitted when undefined
     expect(args).not.toContain("--max-budget-usd");
@@ -415,7 +417,7 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
         timeout_ms: 30000,
       },
       session: {
-        resume: "sess-resumed-uuid-123",
+        resume: "12345678-1234-1234-1234-123456789abc",
       },
     };
 
@@ -425,7 +427,7 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     expect(args[args.indexOf("--effort") + 1]).toBe("high");
 
     expect(args).toContain("--resume");
-    expect(args[args.indexOf("--resume") + 1]).toBe("sess-resumed-uuid-123");
+    expect(args[args.indexOf("--resume") + 1]).toBe("12345678-1234-1234-1234-123456789abc");
     expect(args).not.toContain("--session-id");
 
     expect(args).toContain("--allowedTools");

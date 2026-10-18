@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { writeFileSync, existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import {
   type SpawnRequest,
   EnvReport,
@@ -82,14 +83,25 @@ if (!isLive) {
 runAdapterConformanceSuite(
   isLive ? "ClaudeAdapter (live)" : "ClaudeAdapter (fake harness)",
   () => {
-    if (isLive) {
-      return new ClaudeAdapter();
-    }
-    return new ClaudeAdapter({ bin: sharedFakeBin });
+    const rawAdapter = isLive
+      ? new ClaudeAdapter()
+      : new ClaudeAdapter({ bin: sharedFakeBin });
+    return {
+      capabilities: rawAdapter.capabilities,
+      validateEnvironment: () => rawAdapter.validateEnvironment(),
+      spawn: (req: SpawnRequest) => {
+        const reqWithUUID: SpawnRequest = {
+          ...req,
+          session: req.session ?? { id: crypto.randomUUID() },
+        };
+        return rawAdapter.spawn(reqWithUUID);
+      },
+    };
   },
   {
     live: isLive,
     maxCostUsd: 0.05,
+    skipScenarios: ["resume"],
   }
 );
 
@@ -142,15 +154,49 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
     expect(report.problems.length).toBeGreaterThan(0);
   });
 
-  it("persists raw stdout stream byte-for-byte to raw/<session_id>.ndjson (Plan §11.1 requirement 3)", async () => {
+  it("supports session resume with matching UUID session_id", async () => {
     const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
     const adapter = new ClaudeAdapter({ bin: fakeBin });
-    const sessionCwd = mkdtempSync(join(tmpDir, "raw-persist-"));
-
-    const targetSessionId = "sess-raw-persist-check-999";
+    const sessionCwd = mkdtempSync(join(tmpDir, "resume-conformance-"));
+    const targetSessionId = crypto.randomUUID();
     const req: SpawnRequest = {
       role: "worker",
       cwd: sessionCwd,
+      prompt: "scenario:resume",
+      model: "claude-haiku-5-5",
+      permission: { allow: [], deny: [] },
+      budget: { timeout_ms: 30000 },
+      session: { resume: targetSessionId },
+    };
+
+    const handle = adapter.spawn(req);
+    const events: BackendEvent[] = [];
+    for await (const event of handle.events) {
+      expect(BackendEvent.safeParse(event).success).toBe(true);
+      events.push(event);
+    }
+
+    expect(events[0].type).toBe("session.started");
+    if (events[0].type === "session.started") {
+      expect(events[0].session_id).toBe(targetSessionId);
+    }
+
+    const result = await handle.result();
+    expect(SessionResult.safeParse(result).success).toBe(true);
+    expect(result.session_id).toBe(targetSessionId);
+  });
+
+  it("persists raw stdout stream byte-for-byte to req.raw_dir/<session_id>.ndjson", async () => {
+    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
+    const adapter = new ClaudeAdapter({ bin: fakeBin });
+    const sessionCwd = mkdtempSync(join(tmpDir, "raw-persist-cwd-"));
+    const rawDir = mkdtempSync(join(tmpDir, "raw-persist-dir-"));
+
+    const targetSessionId = crypto.randomUUID();
+    const req: SpawnRequest = {
+      role: "worker",
+      cwd: sessionCwd,
+      raw_dir: rawDir,
       prompt: "echo hello",
       model: "claude-haiku-5-5",
       permission: { allow: [], deny: [] },
@@ -166,7 +212,7 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
     const result = await handle.result();
     expect(result.ok).toBe(true);
 
-    const rawFilePath = join(sessionCwd, "raw", `${targetSessionId}.ndjson`);
+    const rawFilePath = join(rawDir, `${targetSessionId}.ndjson`);
     expect(existsSync(rawFilePath)).toBe(true);
 
     const rawContent = readFileSync(rawFilePath, "utf8");
@@ -174,6 +220,38 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
     expect(rawContent).toContain('"type":"system"');
     expect(rawContent).toContain('"type":"result"');
     expect(rawContent).toContain(targetSessionId);
+
+    // Verify nothing written under cwd
+    expect(existsSync(join(sessionCwd, "raw"))).toBe(false);
+  });
+
+  it("does not write raw stream to disk when raw_dir is absent", async () => {
+    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
+    const adapter = new ClaudeAdapter({ bin: fakeBin });
+    const sessionCwd = mkdtempSync(join(tmpDir, "raw-absent-cwd-"));
+
+    const targetSessionId = crypto.randomUUID();
+    const req: SpawnRequest = {
+      role: "worker",
+      cwd: sessionCwd,
+      prompt: "echo hello",
+      model: "claude-haiku-5-5",
+      permission: { allow: [], deny: [] },
+      budget: { timeout_ms: 20000 },
+      session: { id: targetSessionId },
+    };
+
+    const handle = adapter.spawn(req);
+    for await (const _ of handle.events) {
+      // consume
+    }
+    const result = await handle.result();
+    expect(result.ok).toBe(true);
+
+    expect(existsSync(join(sessionCwd, "raw"))).toBe(false);
+    expect(existsSync(join(sessionCwd, `${targetSessionId}.ndjson`))).toBe(false);
+    const cwdEntries = readdirSync(sessionCwd);
+    expect(cwdEntries).toEqual([]);
   });
 
   it("enforces structured result over exit code evaluation (Invariant I11)", async () => {
@@ -186,6 +264,7 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
       cwd: sessionCwd,
       prompt: "scenario:soft_deny",
       model: "claude-haiku-5-5",
+      session: { id: crypto.randomUUID() },
       permission: { allow: [], deny: ["Bash"] },
       budget: { timeout_ms: 20000 },
     };

@@ -112,6 +112,7 @@ export async function runTaskAction(
     cwd: worktreeInfo.worktreePath,
     prompt: promptText,
     system_append: buildWorkerPrompt(specPath).system,
+    raw_dir: ctx.runDir,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
     session: isHeal ? { resume: taskState.session_id ?? sessionId } : { id: sessionId },

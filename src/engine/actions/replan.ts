@@ -1,5 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
+
+import { assembleSystem } from "../../prompts/index.js";
 
 import type {
   FailureClass,
@@ -107,11 +110,14 @@ export async function runReplanAction(
     fs.writeFileSync(altPacketPath, JSON.stringify(packet, null, 2), "utf8");
 
     const promptData = buildReplanPrompt(packet);
+    const sessionId = crypto.randomUUID();
     const spawnReq: SpawnRequest = {
       role: "planner",
       cwd: ctx.runDir,
       prompt: promptData.user,
       system_append: promptData.system,
+      raw_dir: ctx.runDir,
+      session: { id: sessionId },
       model: escalation.route.model,
       permission: {
         allow: [ctx.runDir],
@@ -208,10 +214,14 @@ export async function runReplanAction(
     (state as any).l2_done = true;
     (state as any).l2_count = ((state as any).l2_count ?? 0) + 1;
 
+    const sessionId = crypto.randomUUID();
     const spawnReq: SpawnRequest = {
       role: "planner",
       cwd: ctx.runDir,
       prompt: "L2 replan: Amend contracts and manifest to resolve contract defect.",
+      system_append: assembleSystem("planner", { projectRoot: ctx.repoRoot }),
+      raw_dir: ctx.runDir,
+      session: { id: sessionId },
       model: ctx.settings.roles?.planner?.model ?? "claude-haiku-5-5",
       permission: {
         allow: [ctx.runDir],

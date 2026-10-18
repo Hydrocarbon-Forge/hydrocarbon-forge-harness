@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 import type { SpawnRequest } from "../../contracts/index.js";
+import { assembleSystem } from "../../prompts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import { checkRunBudget } from "../effects.js";
 import type { UsageTotals } from "../../ledger/usage.js";
@@ -38,6 +39,8 @@ export async function runSoloTask(
     role: "worker",
     cwd: ctx.repoRoot,
     prompt: ctx.prompt ?? "Execute solo task",
+    system_append: assembleSystem("worker", { projectRoot: ctx.repoRoot }),
+    raw_dir: ctx.runDir,
     model: workerModel,
     session: { id: sessionId },
     permission: {

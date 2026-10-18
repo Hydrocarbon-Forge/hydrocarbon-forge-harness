@@ -268,6 +268,7 @@ export const SpawnRequest = z.object({
     timeout_ms: z.number(),
   }).strict(),
   env: z.record(z.string(), z.string()).optional(),
+  raw_dir: z.string().optional(),
   add_dirs: z.array(z.string()).optional(),
   session: z.object({
     id: SessionId.optional(),

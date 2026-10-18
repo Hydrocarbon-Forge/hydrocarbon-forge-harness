@@ -54,11 +54,33 @@ describe("E2E Adapter Selection", () => {
       const lines = logContent.split("\n").filter((l) => l.trim().length > 0);
       const logged = lines.map((l) => JSON.parse(l));
 
-      const hasModelFlag = logged.some((entry: { argv: string[] }) => {
-        const modelIdx = entry.argv.indexOf("--model");
-        return modelIdx !== -1 && entry.argv[modelIdx + 1] === "claude-haiku-5-5";
+      const entry = logged.find((e: { argv: string[] }) => {
+        const modelIdx = e.argv.indexOf("--model");
+        return modelIdx !== -1 && e.argv[modelIdx + 1] === "claude-haiku-5-5";
       });
-      expect(hasModelFlag).toBe(true);
+      expect(entry).toBeDefined();
+
+      const argv = entry.argv;
+
+      // 1. --session-id is a UUID
+      const sessionIdx = argv.indexOf("--session-id");
+      expect(sessionIdx).not.toBe(-1);
+      const sessionId = argv[sessionIdx + 1];
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      expect(uuidRegex.test(sessionId)).toBe(true);
+
+      // 2. --append-system-prompt is present with the system text
+      const appendIdx = argv.indexOf("--append-system-prompt");
+      expect(appendIdx).not.toBe(-1);
+      const systemPrompt = argv[appendIdx + 1];
+      expect(systemPrompt.length).toBeGreaterThan(0);
+
+      // 3. --disallowedTools contains Bash(git commit*) and Agent
+      const disallowedIdx = argv.indexOf("--disallowedTools");
+      expect(disallowedIdx).not.toBe(-1);
+      const disallowed = argv[disallowedIdx + 1].split(",");
+      expect(disallowed).toContain("Bash(git commit*)");
+      expect(disallowed).toContain("Agent");
 
       const sessionStarted = res.events.find(
         (e) => e.type === "task.session.started"

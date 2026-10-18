@@ -42,11 +42,31 @@ export interface ClaudeRawResultEvent {
 
 export function extractClaudeUsage(
   raw: unknown,
-  model: string,
+  fallbackModel: string,
   pricing?: PricingTable
 ): UsageRecord {
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
   const u = (obj.usage && typeof obj.usage === "object" ? obj.usage : obj) as Record<string, any>;
+
+  let model = fallbackModel;
+  const modelUsage = obj.modelUsage ?? u.modelUsage;
+  if (modelUsage && typeof modelUsage === "object") {
+    let maxOutput = -1;
+    let topModel: string | undefined;
+    for (const [k, v] of Object.entries(modelUsage)) {
+      const out =
+        typeof (v as any)?.outputTokens === "number"
+          ? (v as any).outputTokens
+          : 0;
+      if (out > maxOutput) {
+        maxOutput = out;
+        topModel = k;
+      }
+    }
+    if (topModel) {
+      model = topModel;
+    }
+  }
 
   const input_tokens = typeof u.input_tokens === "number" ? u.input_tokens : 0;
   const output_tokens = typeof u.output_tokens === "number" ? u.output_tokens : 0;
@@ -152,6 +172,8 @@ export function extractClaudeSessionResult(
 
   if (resultEvent) {
     const ok = killedFor ? false : resultEvent.ok;
+    const finalKilled =
+      killedFor ?? (resultEvent.stop_reason === "budget" ? "budget" : undefined);
     const res: SessionResult = {
       ok,
       session_id: sessionId,
@@ -159,7 +181,7 @@ export function extractClaudeSessionResult(
       usage,
       exit_code: exitCode,
       denials,
-      ...(killedFor !== undefined ? { killed_for: killedFor } : {}),
+      ...(finalKilled !== undefined ? { killed_for: finalKilled } : {}),
     };
     return res;
   }
@@ -210,11 +232,12 @@ export function normalizeClaudeEvent(
     if (eventObj.subtype === "permission_denied") {
       const tool = typeof eventObj.tool_name === "string" ? eventObj.tool_name : "";
       const reason = typeof eventObj.message === "string" ? eventObj.message : undefined;
+      const key = eventObj.tool_use_id ? String(eventObj.tool_use_id) : tool;
       if (options?.seenDenials) {
-        options.seenDenials.add(tool);
-        if (eventObj.tool_use_id) {
-          options.seenDenials.add(`${tool}:${eventObj.tool_use_id}`);
+        if (options.seenDenials.has(key)) {
+          return [];
         }
+        options.seenDenials.add(key);
       }
       return [
         {
@@ -287,13 +310,50 @@ export function normalizeClaudeEvent(
     return [{ type: "error", kind: "rate_limit", message }];
   }
 
+  if (type === "error" || type === "stream_error") {
+    const rawMsg =
+      typeof eventObj.message === "string"
+        ? eventObj.message
+        : typeof eventObj.error === "string"
+        ? eventObj.error
+        : typeof eventObj.error?.message === "string"
+        ? eventObj.error.message
+        : JSON.stringify(eventObj.error ?? eventObj);
+    const lower = rawMsg.toLowerCase();
+    let kind: "rate_limit" | "auth" | "crash" | "protocol" = "protocol";
+    if (lower.includes("rate limit") || lower.includes("429")) {
+      kind = "rate_limit";
+    } else if (
+      lower.includes("authentication") ||
+      lower.includes("invalid api key") ||
+      lower.includes("401")
+    ) {
+      kind = "auth";
+    }
+    return [{ type: "error", kind, message: rawMsg }];
+  }
+
   if (type === "result") {
-    let model = options?.model;
-    if (!model && eventObj.modelUsage && typeof eventObj.modelUsage === "object") {
-      const keys = Object.keys(eventObj.modelUsage);
-      if (keys.length > 0) {
-        model = keys[0];
+    let model: string | undefined;
+    if (eventObj.modelUsage && typeof eventObj.modelUsage === "object") {
+      let maxOutput = -1;
+      let topModel: string | undefined;
+      for (const [k, v] of Object.entries(eventObj.modelUsage)) {
+        const out =
+          typeof (v as any)?.outputTokens === "number"
+            ? (v as any).outputTokens
+            : 0;
+        if (out > maxOutput) {
+          maxOutput = out;
+          topModel = k;
+        }
       }
+      if (topModel) {
+        model = topModel;
+      }
+    }
+    if (!model) {
+      model = options?.model;
     }
     if (!model && typeof eventObj.model === "string") {
       model = eventObj.model;
@@ -307,17 +367,16 @@ export function normalizeClaudeEvent(
       {
         type: "usage",
         record: usage,
-        cumulative: true,
+        cumulative: false,
       },
     ];
 
     if (Array.isArray(eventObj.permission_denials)) {
       for (const denial of eventObj.permission_denials) {
         const tool = denial.tool_name ?? "";
-        const key = denial.tool_use_id ? `${tool}:${denial.tool_use_id}` : tool;
-        if (!options?.seenDenials?.has(key) && !options?.seenDenials?.has(tool)) {
+        const key = denial.tool_use_id ? String(denial.tool_use_id) : tool;
+        if (!options?.seenDenials?.has(key)) {
           options?.seenDenials?.add(key);
-          options?.seenDenials?.add(tool);
           events.push({ type: "permission.denied", tool });
         }
       }
@@ -328,6 +387,27 @@ export function normalizeClaudeEvent(
     const finalText = typeof eventObj.result === "string" ? eventObj.result : "";
     const stopReason =
       typeof eventObj.stop_reason === "string" ? eventObj.stop_reason : undefined;
+
+    if (isError) {
+      const lower = (finalText || String(subtype ?? "")).toLowerCase();
+      if (lower.includes("rate limit") || lower.includes("429")) {
+        events.push({
+          type: "error",
+          kind: "rate_limit",
+          message: finalText || "Rate limit exceeded",
+        });
+      } else if (
+        lower.includes("authentication") ||
+        lower.includes("invalid api key") ||
+        lower.includes("401")
+      ) {
+        events.push({
+          type: "error",
+          kind: "auth",
+          message: finalText || "Authentication failed",
+        });
+      }
+    }
 
     if (subtype === "success" && !isError) {
       events.push({
@@ -342,7 +422,7 @@ export function normalizeClaudeEvent(
       events.push({
         type: "session.result",
         ok: false,
-        stop_reason: "budget_exceeded",
+        stop_reason: "budget",
         final_text: finalText,
         usage,
         exit_code: 1,

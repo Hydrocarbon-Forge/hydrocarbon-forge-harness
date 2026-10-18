@@ -18,6 +18,7 @@ import {
   normalizeClaudeEvent,
   extractClaudeSessionResult,
 } from "../normalize/claude.js";
+import { log } from "../../util/log.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -42,6 +43,18 @@ export interface ClaudeAdapterOptions {
   maxConcurrency?: number;
 }
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function convertClaudePermissionRule(rule: string): string {
+  const trimmed = rule.trim();
+  if (!trimmed) return "";
+  if (trimmed === "subagents") return "Agent";
+  if (/^[A-Za-z]+\(.*\)$/.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("git ")) return `Bash(${trimmed}*)`;
+  return trimmed;
+}
+
 export function buildClaudeArgs(req: SpawnRequest): string[] {
   const args: string[] = [
     "-p",
@@ -60,20 +73,42 @@ export function buildClaudeArgs(req: SpawnRequest): string[] {
   }
 
   if (req.session?.resume) {
+    if (!UUID_REGEX.test(req.session.resume)) {
+      throw new Error(`claude session id must be a UUID: ${req.session.resume}`);
+    }
     args.push("--resume", req.session.resume);
   } else if (req.session?.id) {
+    if (!UUID_REGEX.test(req.session.id)) {
+      throw new Error(`claude session id must be a UUID: ${req.session.id}`);
+    }
     args.push("--session-id", req.session.id);
   } else {
-    args.push("--session-id", crypto.randomUUID());
+    throw new Error(`claude session id must be a UUID: undefined`);
+  }
+
+  if (req.system_append && req.system_append.trim().length > 0) {
+    args.push("--append-system-prompt", req.system_append);
   }
 
   args.push("--permission-mode", "dontAsk", "--permission-prompts", "none");
 
   if (req.permission.allow.length > 0) {
-    args.push("--allowedTools", req.permission.allow.join(","));
+    const allowed = req.permission.allow
+      .map(convertClaudePermissionRule)
+      .filter(Boolean);
+    if (allowed.length > 0) {
+      args.push("--allowedTools", allowed.join(","));
+    }
   }
 
-  const disallowed = ["Agent", ...req.permission.deny.filter((t) => t !== "Agent")];
+  const disallowedSet = new Set<string>(["Agent"]);
+  for (const rule of req.permission.deny) {
+    const converted = convertClaudePermissionRule(rule);
+    if (converted) {
+      disallowedSet.add(converted);
+    }
+  }
+  const disallowed = Array.from(disallowedSet);
   args.push("--disallowedTools", disallowed.join(","));
 
   if (req.budget.max_usd !== undefined && req.budget.max_usd > 0) {
@@ -169,19 +204,12 @@ export class ClaudeAdapter implements HarnessAdapter {
   }
 
   spawn(req: SpawnRequest): SessionHandle {
-    const sessionId =
-      req.session?.resume ?? req.session?.id ?? crypto.randomUUID();
+    const sessionId = req.session?.resume ?? req.session?.id;
+    if (!sessionId || !UUID_REGEX.test(sessionId)) {
+      throw new Error(`claude session id must be a UUID: ${sessionId}`);
+    }
 
-    const reqWithSession: SpawnRequest = {
-      ...req,
-      session: {
-        ...req.session,
-        id: req.session?.resume ? req.session?.id : sessionId,
-        resume: req.session?.resume,
-      },
-    };
-
-    const args = buildClaudeArgs(reqWithSession);
+    const args = buildClaudeArgs(req);
     const scrubbed = scrubClaudeEnv(req.env);
     const envRecord: Record<string, string> = {};
     for (const [k, v] of Object.entries(scrubbed)) {
@@ -190,13 +218,16 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
     }
 
-    const rawDir = join(req.cwd, "raw");
-    mkdirSync(rawDir, { recursive: true });
-    const rawFilePath = join(rawDir, `${sessionId}.ndjson`);
-    const rawWriteStream = createWriteStream(rawFilePath, { flags: "a" });
-    rawWriteStream.on("error", (err) => {
-      console.error(`Failed to write raw stream to ${rawFilePath}:`, err);
-    });
+    let rawWriteStream: NodeJS.WritableStream | null = null;
+    if (req.raw_dir) {
+      mkdirSync(req.raw_dir, { recursive: true });
+      const rawFilePath = join(req.raw_dir, `${sessionId}.ndjson`);
+      const stream = createWriteStream(rawFilePath, { flags: "a" });
+      stream.on("error", (err) => {
+        log.warn(`Failed to write raw stream to ${rawFilePath}:`, err);
+      });
+      rawWriteStream = stream;
+    }
 
     const proc = spawnSupervisedProcess({
       command: this.options.bin ?? "claude",
@@ -224,10 +255,12 @@ export class ClaudeAdapter implements HarnessAdapter {
       try {
         for await (const line of readNdjsonLines(proc.stdout, {
           rawSink: (chunk) => {
-            try {
-              rawWriteStream.write(chunk);
-            } catch (err) {
-              console.error("Raw stream write error:", err);
+            if (rawWriteStream) {
+              try {
+                rawWriteStream.write(chunk);
+              } catch (err) {
+                log.warn("Raw stream write error:", err);
+              }
             }
           },
           onParseError: () => {},
@@ -248,11 +281,13 @@ export class ClaudeAdapter implements HarnessAdapter {
           }
         }
       } catch (err) {
-        console.error("Error reading NDJSON stream:", err);
+        log.warn("Error reading NDJSON stream:", err);
       } finally {
-        await new Promise<void>((resolve) => {
-          rawWriteStream.end(() => resolve());
-        });
+        if (rawWriteStream) {
+          await new Promise<void>((resolve) => {
+            rawWriteStream!.end(() => resolve());
+          });
+        }
       }
     })();
 
