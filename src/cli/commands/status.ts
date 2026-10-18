@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, RunId } from "../../contracts/index.js";
+import { parseEngineEvent } from "../../contracts/events.js";
 import { reduce, type EngineState } from "../../engine/reducer.js";
 import type { SessionStore } from "../../store/sessions.js";
 
@@ -52,6 +53,63 @@ export interface CliCommand {
 
 const { registry } = await import(`../registry.js`);
 
+export function isPassedState(state: string): boolean {
+  return state === "PASSED" || state === "MERGED";
+}
+
+// Reads a run's events.jsonl through the catalog types only. Complete lines
+// that are not catalog events are skipped; a torn final line (partial write)
+// is ignored with a warning on stderr.
+export function readCatalogEvents(
+  eventsPath: string,
+  stderr: NodeJS.WriteStream
+): ReturnType<typeof parseEngineEvent>[] {
+  if (!fs.existsSync(eventsPath)) return [];
+  const content = fs.readFileSync(eventsPath, "utf8");
+  const lines = content.split("\n").filter((l) => l.trim().length > 0);
+  const events: ReturnType<typeof parseEngineEvent>[] = [];
+  let warned = false;
+  for (const line of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      warned = true;
+      continue;
+    }
+    try {
+      events.push(parseEngineEvent(parsed));
+    } catch {
+      // Not a catalog event: the CLI never reads it.
+      continue;
+    }
+  }
+  if (warned) {
+    stderr.write(
+      `warning: ${eventsPath} contains torn or unparsable lines; complete lines were used\n`
+    );
+  }
+  return events;
+}
+
+export function reduceRunEvents(eventsPath: string, stderr: NodeJS.WriteStream): {
+  state: EngineState;
+  events: ReturnType<typeof parseEngineEvent>[];
+} {
+  const events = readCatalogEvents(eventsPath, stderr);
+  let state: EngineState = {
+    run_id: "" as RunId,
+    state: "CREATED",
+    tasks: {},
+    usage: { total_usd: 0, by_role: {} },
+    checkpoints: [],
+  };
+  for (const ev of events) {
+    state = reduce(state, ev);
+  }
+  return { state, events };
+}
+
 function findLatestRunId(runsDir: string): string | null {
   if (!fs.existsSync(runsDir)) return null;
   const entries = fs.readdirSync(runsDir, { withFileTypes: true });
@@ -92,37 +150,54 @@ export const statusCommand: CliCommand = {
       return 2;
     }
 
-    const content = fs.readFileSync(eventsFile, "utf8");
-    const lines = content.trim().split("\n").filter((l) => l.trim().length > 0);
+    const { state } = reduceRunEvents(eventsFile, ctx.stderr);
 
-    let state: EngineState = {
-      run_id: targetRunId as RunId,
-      state: "CREATED",
-      tasks: {},
-      usage: { total_usd: 0, by_role: {} },
-      checkpoints: [],
-    };
+    const taskEntries = Object.entries(state.tasks);
+    const taskCount = taskEntries.length;
+    const passedCount = taskEntries.filter(([, t]) => isPassedState(t.state)).length;
 
-    for (const line of lines) {
-      try {
-        const ev = JSON.parse(line);
-        state = reduce(state, ev);
-      } catch {
-        // ignore malformed
-      }
+    if (ctx.flags.outputFormat === "json") {
+      const payload = {
+        run_id: state.run_id || targetRunId,
+        state: state.state,
+        pause_reason: state.pause_reason,
+        passed: passedCount,
+        total: taskCount,
+        tasks: Object.fromEntries(
+          taskEntries.map(([id, t]) => [
+            id,
+            {
+              state: t.state,
+              generation: t.generation,
+              attempt: t.attempt,
+              failure_class: t.failure_class,
+            },
+          ])
+        ),
+        usage: state.usage,
+      };
+      ctx.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      return 0;
     }
 
-    const taskCount = Object.keys(state.tasks).length;
-    const passedCount = Object.values(state.tasks).filter((t) => t.state === "PASSED" || (t as any).state === "verified").length;
-
     ctx.stdout.write(`=== Run Status ===\n`);
-    ctx.stdout.write(`Run ID:      ${state.run_id}\n`);
+    ctx.stdout.write(`Run ID:      ${state.run_id || targetRunId}\n`);
     ctx.stdout.write(`State:       ${state.state}\n`);
     if (state.pause_reason) {
       ctx.stdout.write(`Pause Reason: ${state.pause_reason}\n`);
     }
     ctx.stdout.write(`Tasks:       ${passedCount}/${taskCount} passed\n`);
     ctx.stdout.write(`Total Cost:  $${state.usage.total_usd.toFixed(2)}\n`);
+
+    if (taskCount > 0) {
+      ctx.stdout.write(`\nID\tState\tGen\tAtt\tFailure\n`);
+      ctx.stdout.write(`------------------------------------------------\n`);
+      for (const [id, t] of taskEntries) {
+        ctx.stdout.write(
+          `${id}\t${t.state}\t${t.generation}\t${t.attempt}\t${t.failure_class ?? "-"}\n`
+        );
+      }
+    }
 
     return 0;
   },

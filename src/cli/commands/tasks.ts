@@ -2,7 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, TaskId } from "../../contracts/index.js";
+import type { EngineState } from "../../engine/reducer.js";
+import type { EngineEventV1 } from "../../contracts/events.js";
 import type { SessionStore } from "../../store/sessions.js";
+
+type ReduceRunEventsFn = (
+  eventsPath: string,
+  stderr: NodeJS.WriteStream
+) => {
+  state: EngineState;
+  events: EngineEventV1[];
+};
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -50,16 +60,9 @@ export interface CliCommand {
 }
 
 const { registry } = await import(`../registry.js`);
-
-interface TaskDisplayInfo {
-  id: TaskId;
-  taskClass?: string;
-  state: string;
-  generation: number;
-  attempt: number;
-  failureClass?: string;
-  verdict?: string;
-}
+const { reduceRunEvents } = (await import(`./status.js`)) as unknown as {
+  reduceRunEvents: ReduceRunEventsFn;
+};
 
 export const tasksCommand: CliCommand = {
   name: "tasks",
@@ -105,54 +108,25 @@ export const tasksCommand: CliCommand = {
       return 2;
     }
 
-    const content = fs.readFileSync(eventsFile, "utf8");
-    const lines = content.trim().split("\n").filter((l) => l.trim().length > 0);
-
-    const taskMap = new Map<TaskId, TaskDisplayInfo>();
-
-    for (const line of lines) {
-      try {
-        const ev = JSON.parse(line);
-        const data = (ev.data ?? {}) as Record<string, any>;
-        const tid = (data.task_id || data.id) as TaskId | undefined;
-
-        if (tid) {
-          let task = taskMap.get(tid);
-          if (!task) {
-            task = {
-              id: tid,
-              taskClass: data.class || "feature",
-              state: "PENDING",
-              generation: data.generation ?? 1,
-              attempt: data.attempt ?? 1,
-            };
-            taskMap.set(tid, task);
-          }
-          if (data.class) task.taskClass = data.class;
-          if (data.generation) task.generation = data.generation;
-          if (data.attempt) task.attempt = data.attempt;
-
-          if (ev.type === "task.session.started") {
-            task.state = "RUNNING";
-          } else if (ev.type === "task.verify.finished") {
-            task.verdict = data.passed ? "pass" : "fail";
-            task.state = task.verdict === "pass" ? "VERIFIED" : "VERIFY_FAILED";
-          } else if (ev.type === "task.failed") {
-            task.state = "FAILED";
-            task.failureClass = data.failure_class;
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
+    // Task states come from replaying the catalog event log through the same
+    // reducer the engine uses, so every real state is shown.
+    const { state } = reduceRunEvents(eventsFile, ctx.stderr);
+    const taskEntries = Object.values(state.tasks).sort((a, b) =>
+      a.id.localeCompare(b.id)
+    );
 
     ctx.stdout.write(`Tasks for Run ${targetRunId}:\n\n`);
-    ctx.stdout.write(`ID\tClass\tState\tGen\tAtt\tFailure\tVerdict\n`);
+    ctx.stdout.write(`ID\tState\tGen\tAtt\tFailure\tVerdict\n`);
     ctx.stdout.write(`----------------------------------------------------------------\n`);
-    for (const t of taskMap.values()) {
+    for (const t of taskEntries) {
+      const verdict =
+        t.state === "MERGED" || t.state === "PASSED"
+          ? "pass"
+          : t.state === "FAILED"
+            ? "fail"
+            : "-";
       ctx.stdout.write(
-        `${t.id}\t${t.taskClass ?? "feature"}\t${t.state}\t${t.generation}\t${t.attempt}\t${t.failureClass ?? "-"}\t${t.verdict ?? "-"}\n`,
+        `${t.id}\t${t.state}\t${t.generation}\t${t.attempt}\t${t.failure_class ?? "-"}\t${verdict}\n`
       );
     }
 

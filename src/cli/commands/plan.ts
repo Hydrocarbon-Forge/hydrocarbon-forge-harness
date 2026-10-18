@@ -149,6 +149,7 @@ export const planCommand: CliCommand = {
     const formatter = createFormatter(
       ctx.flags.outputFormat ?? "text",
       ctx.stdout,
+      ctx.stderr,
     );
 
     let engine = ctx.engine;

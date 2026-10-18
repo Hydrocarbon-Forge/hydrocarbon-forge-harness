@@ -170,6 +170,7 @@ export const resumeCommand: CliCommand = {
     const formatter = createFormatter(
       ctx.flags.outputFormat ?? "text",
       ctx.stdout,
+      ctx.stderr,
     );
 
     const overrides = buildSettingsOverrides(ctx.flags, ctx.flags.mode);

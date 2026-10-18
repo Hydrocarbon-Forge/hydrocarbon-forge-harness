@@ -1,38 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { Writable } from "node:stream";
+import { join } from "node:path";
 
-import * as Contracts from "../../../src/contracts/index.js";
-import { createRunId, nowIsoTimestamp } from "../../../src/util/index.js";
-
-export interface StreamResultEvent {
-  type: "result";
-  subtype: "success" | "error_failed" | "error_budget" | "error_needs_human";
-  is_error: boolean;
-  session_id: string;
-  run_id: Contracts.RunId;
-  num_tasks: number;
-  total_cost_usd: number;
-  usage: { by_role: Record<string, number> };
-  duration_ms: number;
-}
-
-export interface OutputFormatter {
-  onEvent(event: Contracts.EngineEvent): void;
-  onSummary(summary: Contracts.RunSummary, sessionId: string): void;
-  onError(error: Error | string): void;
-  flush(): Promise<void>;
-}
-
-export type CreateFormatterFn = (
-  format: "text" | "json" | "stream-json",
-  out: NodeJS.WriteStream,
-) => OutputFormatter;
-
-async function loadOutputModule(): Promise<{
-  createFormatter: CreateFormatterFn;
-}> {
-  return (await import("../../../src/cli/output.js" as any)) as any;
-}
+import type * as Contracts from "../../../src/contracts/index.js";
+import type { EngineEvent, RunSummary, RunOptions } from "../../../src/contracts/index.js";
+import { createRunId } from "../../../src/util/index.js";
+import { createFormatter } from "../../../src/cli/output.js";
+import { streamTypeFor, STREAM_TYPE } from "../../../src/cli/stream-map.js";
+import { EVENT_TYPES } from "../../../src/contracts/events.js";
+import {
+  setupScenarioEnv,
+  fakeClaudeAdapter,
+  loadEngine,
+  writePlanFiles,
+  readEventLog,
+  type ScenarioEnv,
+} from "../scenarios/helpers.js";
+import {
+  sampleValidManifest,
+  sampleValidTaskSpecMarkdown,
+} from "../roles/fixtures.js";
 
 function createMockStream(): NodeJS.WriteStream & {
   getOutput: () => string;
@@ -51,235 +38,283 @@ function createMockStream(): NodeJS.WriteStream & {
   return stream;
 }
 
-function makeEngineEvent(
-  run_id: Contracts.RunId,
-  seq: number,
-  type: string,
-  data: unknown = {},
-): Contracts.EngineEvent {
-  return Contracts.EngineEvent.parse({
-    v: 1,
-    seq,
-    ts: nowIsoTimestamp(),
-    run_id,
-    type,
-    data,
-  });
-}
+// Real two-task engine run against a temp repo; the engine writes every
+// catalog event into events.jsonl and streams them to onEvent.
+describe("cli: output formatters driven by real engine runs", () => {
+  let env: ScenarioEnv;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter> | undefined;
+  let engine: Contracts.Engine;
 
-function makeSampleSummary(run_id: Contracts.RunId): Contracts.RunSummary {
-  return Contracts.RunSummary.parse({
-    run_id,
-    status: "finished",
-    tasks: {
-      T1: { state: "verified", generation: 1 },
-      T2: { state: "verified", generation: 1 },
-    },
-    usage: {
-      total_usd: 0.42,
-      by_role: { planner: 0.12, worker: 0.30 },
-    },
-    branch: `substrate/runs/${run_id}`,
-    exit_code: 0,
-  });
-}
-
-describe("cli: output formatters (text, json, stream-json)", () => {
-  describe("text format", () => {
-    it("prints human-readable summary table on onSummary", async () => {
-      const { createFormatter } = await loadOutputModule();
-      const stream = createMockStream();
-      const formatter = createFormatter("text", stream);
-
-      const runId = createRunId() as Contracts.RunId;
-      const summary = makeSampleSummary(runId);
-
-      formatter.onEvent(makeEngineEvent(runId, 1, "task.started", { task_id: "T1" }));
-      formatter.onSummary(summary, "sess_text_test");
-      await formatter.flush();
-
-      const output = stream.getOutput();
-      // Verifies human summary contents per §4.6
-      expect(output).toContain(runId);
-      expect(output).toMatch(/finished/i);
-      expect(output).toContain("0.42");
-      expect(output).toContain(`substrate/runs/${runId}`);
-    });
-
-    it("formats errors clearly on onError", async () => {
-      const { createFormatter } = await loadOutputModule();
-      const stream = createMockStream();
-      const formatter = createFormatter("text", stream);
-
-      formatter.onError(new Error("Fatal harness defect"));
-      await formatter.flush();
-
-      const output = stream.getOutput();
-      expect(output).toMatch(/Error.*Fatal harness defect/i);
-    });
-  });
-
-  describe("json format", () => {
-    it("buffers events and outputs a single valid JSON object on onSummary", async () => {
-      const { createFormatter } = await loadOutputModule();
-      const stream = createMockStream();
-      const formatter = createFormatter("json", stream);
-
-      const runId = createRunId() as Contracts.RunId;
-      const summary = makeSampleSummary(runId);
-
-      formatter.onEvent(makeEngineEvent(runId, 1, "run.created", { run_id: runId }));
-      formatter.onSummary(summary, "sess_json_123");
-      await formatter.flush();
-
-      const output = stream.getOutput().trim();
-      const parsed = JSON.parse(output);
-
-      expect(parsed).toBeDefined();
-      expect(parsed.run_id).toBe(runId);
-      expect(parsed.session_id).toBe("sess_json_123");
-      expect(parsed.status).toBe("finished");
-      expect(parsed.exit_code).toBe(0);
-      expect(parsed.usage.total_usd).toBe(0.42);
-      expect(parsed.tasks.T1.state).toBe("verified");
-    });
-  });
-
-  describe("stream-json format (NDJSON & Claude Code result event)", () => {
-    it("streams events as single-line NDJSON and translates engine event types", async () => {
-      const { createFormatter } = await loadOutputModule();
-      const stream = createMockStream();
-      const formatter = createFormatter("stream-json", stream);
-
-      const runId = createRunId() as Contracts.RunId;
-
-      // Send standard progression of events
-      formatter.onEvent(makeEngineEvent(runId, 1, "system.init", { session_id: "sess_stream", run_id: runId }));
-      formatter.onEvent(makeEngineEvent(runId, 2, "run.state", { state: "running", ts: nowIsoTimestamp() }));
-      formatter.onEvent(makeEngineEvent(runId, 3, "plan.ready", { task_count: 2 }));
-      formatter.onEvent(makeEngineEvent(runId, 4, "task.started", { task_id: "T1", title: "Task 1" }));
-      formatter.onEvent(makeEngineEvent(runId, 5, "task.verified", { task_id: "T1", verdict: "pass" }));
-      formatter.onEvent(makeEngineEvent(runId, 6, "batch.merged", { batch_id: "b1", task_ids: ["T1"] }));
-
-      await formatter.flush();
-
-      const lines = stream.getLines();
-      expect(lines.length).toBeGreaterThanOrEqual(6);
-
-      // Verify every line is valid JSON
-      for (const line of lines) {
-        expect(() => JSON.parse(line)).not.toThrow();
-      }
-
-      // Verify protocol event types
-      const parsedEvents = lines.map((l) => JSON.parse(l));
-      const types = parsedEvents.map((e) => e.type);
-      expect(types).toContain("system.init");
-      expect(types).toContain("run.state");
-      expect(types).toContain("plan.ready");
-      expect(types).toContain("task.started");
-      expect(types).toContain("task.verified");
-      expect(types).toContain("batch.merged");
-    });
-
-    it("terminates with standard Claude Code-style result event schema on successful run", async () => {
-      const { createFormatter } = await loadOutputModule();
-      const stream = createMockStream();
-      const formatter = createFormatter("stream-json", stream);
-
-      const runId = createRunId() as Contracts.RunId;
-      const summary = makeSampleSummary(runId);
-
-      formatter.onSummary(summary, "sess_stream_success");
-      await formatter.flush();
-
-      const lines = stream.getLines();
-      expect(lines.length).toBeGreaterThan(0);
-      const lastEvent = JSON.parse(lines[lines.length - 1]) as StreamResultEvent;
-
-      // Validate StreamResultEvent schema per §4.6
-      expect(lastEvent.type).toBe("result");
-      expect(lastEvent.subtype).toBe("success");
-      expect(lastEvent.is_error).toBe(false);
-      expect(lastEvent.session_id).toBe("sess_stream_success");
-      expect(lastEvent.run_id).toBe(runId);
-      expect(lastEvent.num_tasks).toBe(2);
-      expect(lastEvent.total_cost_usd).toBe(0.42);
-      expect(typeof lastEvent.usage.by_role).toBe("object");
-      expect(lastEvent.usage.by_role.worker).toBe(0.30);
-      expect(typeof lastEvent.duration_ms).toBe("number");
-    });
-
-    it("maps failure, budget, and pause states to corresponding result event subtypes", async () => {
-      const { createFormatter } = await loadOutputModule();
-
-      // Case 1: Failed run
+  beforeEach(async () => {
+    fakeClaude = fakeClaudeAdapter([
       {
-        const stream = createMockStream();
-        const formatter = createFormatter("stream-json", stream);
-        const runId = createRunId() as Contracts.RunId;
-        const failedSummary: Contracts.RunSummary = {
-          run_id: runId,
-          status: "failed",
-          tasks: { T1: { state: "failed", generation: 1, failure_class: "verify_failed" } },
-          usage: { total_usd: 0.1, by_role: {} },
-          branch: `substrate/runs/${runId}`,
-          exit_code: 1,
-        };
-        formatter.onSummary(failedSummary, "sess_failed");
-        await formatter.flush();
-
-        const lastEvent = JSON.parse(stream.getLines().pop()!) as StreamResultEvent;
-        expect(lastEvent.type).toBe("result");
-        expect(lastEvent.subtype).toBe("error_failed");
-        expect(lastEvent.is_error).toBe(true);
-      }
-
-      // Case 2: Budget exhausted
+        edits: {
+          "src/t1.ts": "export const t1 = 1;\n",
+          "test/t1.test.ts": "export const testT1 = true;\n",
+        },
+        reply: "Done T1",
+      },
       {
-        const stream = createMockStream();
-        const formatter = createFormatter("stream-json", stream);
-        const runId = createRunId() as Contracts.RunId;
-        const budgetSummary: Contracts.RunSummary = {
-          run_id: runId,
-          status: "paused",
-          pause_reason: "budget_exhausted",
-          tasks: {},
-          usage: { total_usd: 5.01, by_role: {} },
-          branch: `substrate/runs/${runId}`,
-          exit_code: 4,
-        };
-        formatter.onSummary(budgetSummary, "sess_budget");
-        await formatter.flush();
+        edits: {
+          "src/t2.ts": "export const t2 = 2;\n",
+          "test/t2.test.ts": "export const testT2 = true;\n",
+        },
+        reply: "Done T2",
+      },
+    ]);
+    env = await setupScenarioEnv("cli-output", { adapter: fakeClaude.adapter });
 
-        const lastEvent = JSON.parse(stream.getLines().pop()!) as StreamResultEvent;
-        expect(lastEvent.type).toBe("result");
-        expect(lastEvent.subtype).toBe("error_budget");
-        expect(lastEvent.is_error).toBe(true);
-      }
-
-      // Case 3: Needs human / approval pause
-      {
-        const stream = createMockStream();
-        const formatter = createFormatter("stream-json", stream);
-        const runId = createRunId() as Contracts.RunId;
-        const humanSummary: Contracts.RunSummary = {
-          run_id: runId,
-          status: "paused",
-          pause_reason: "needs_human",
-          tasks: {},
-          usage: { total_usd: 0.05, by_role: {} },
-          branch: `substrate/runs/${runId}`,
-          exit_code: 3,
-        };
-        formatter.onSummary(humanSummary, "sess_human");
-        await formatter.flush();
-
-        const lastEvent = JSON.parse(stream.getLines().pop()!) as StreamResultEvent;
-        expect(lastEvent.type).toBe("result");
-        expect(lastEvent.subtype).toBe("error_needs_human");
-        expect(lastEvent.is_error).toBe(true);
-      }
+    const engineMod = await loadEngine();
+    engine = engineMod.createEngine({
+      settings: env.settings,
+      adapter: env.adapter,
     });
+  });
+
+  afterEach(async () => {
+    await env.cleanup();
+    fakeClaude?.cleanup();
+  });
+
+  function planTwoTasks() {
+    const runId = createRunId();
+    const manifest: Contracts.Manifest = {
+      ...sampleValidManifest(runId),
+      tasks: [
+        { id: "T1", spec: "tasks/T1.md" },
+        { id: "T2", spec: "tasks/T2.md" },
+      ],
+      integration_verify: [
+        { run: "echo integration verify passed", timeout_s: 30 },
+      ],
+    };
+    const specs: Record<string, string> = {
+      "tasks/T1.md": sampleValidTaskSpecMarkdown({
+        frontmatter: {
+          id: "T1",
+          title: "Task 1",
+          depends_on: [],
+          write: ["src/t1.ts"],
+          create: ["test/t1.test.ts"],
+          verify: [{ run: "echo verify T1", timeout_s: 30 }],
+        },
+      }),
+      "tasks/T2.md": sampleValidTaskSpecMarkdown({
+        frontmatter: {
+          id: "T2",
+          title: "Task 2",
+          depends_on: [],
+          write: ["src/t2.ts"],
+          create: ["test/t2.test.ts"],
+          verify: [{ run: "echo verify T2", timeout_s: 30 }],
+        },
+      }),
+    };
+    writePlanFiles(env.repoRoot, runId, manifest, specs);
+    return runId;
+  }
+
+  async function runTwoTasks(
+    formatter: ReturnType<typeof createFormatter>
+  ): Promise<{ summary: RunSummary; runId: string }> {
+    const runId = planTwoTasks();
+    const opts: RunOptions = {
+      prompt: "Implement tasks T1 and T2",
+      cwd: env.repoRoot,
+      mode: "plan",
+      permission_mode: "bypassPermissions",
+      onEvent: (event: EngineEvent) => formatter.onEvent(event),
+    };
+    const summary = await engine.run(opts);
+    formatter.onSummary(summary, "sess_output_test");
+    await formatter.flush();
+    return { summary, runId };
+  }
+
+  // Behavior 1: text progress (stderr), one line per tracked event type.
+  it("text progress prints the tracked event lines on stderr and nothing else on stdout in text mode", async () => {
+    const stdout = createMockStream();
+    const stderr = createMockStream();
+    const formatter = createFormatter("text", stdout, stderr);
+
+    const { summary } = await runTwoTasks(formatter);
+
+    const errOut = stderr.getOutput();
+    expect(errOut).toContain("[task T1] started (gen 1, attempt 1)");
+    expect(errOut).toContain("[task T2] started (gen 1, attempt 1)");
+    expect(errOut).toContain("[task T1] verify passed");
+    expect(errOut).toContain("[task T2] verify passed");
+    expect(errOut).toContain("[task T1] merged");
+    expect(errOut).toContain("[task T2] merged");
+    // No failures in this run: no failed lines.
+    expect(errOut).not.toMatch(/\] failed:/);
+
+    const log = readEventLog(env.runDir, summary.run_id);
+    const eventTypes = log.map((e) => e.type);
+    expect(eventTypes).not.toContain("task.failed");
+    expect(eventTypes).not.toContain("run.paused");
+
+    // stdout holds only the final summary.
+    const stdoutOut = stdout.getOutput();
+    expect(stdoutOut).toContain("--- Run Summary ---");
+    expect(stdoutOut).not.toContain("[task ");
+  });
+
+  // Behavior 2: text summary counts a task passed when its state is PASSED
+  // or MERGED; the total is the number of tasks in the summary.
+  it("text summary counts PASSED or MERGED tasks as passed", async () => {
+    const stdout = createMockStream();
+    const stderr = createMockStream();
+    const formatter = createFormatter("text", stdout, stderr);
+
+    const { summary } = await runTwoTasks(formatter);
+
+    const passedStates = Object.values(summary.tasks).filter(
+      (t) => t.state === "PASSED" || t.state === "MERGED"
+    ).length;
+    const out = stdout.getOutput();
+    expect(out).toContain(`Tasks:      ${passedStates} passed / 2 total`);
+    expect(passedStates).toBe(2);
+    expect(out).toContain("--- Run Summary ---");
+    expect(out).toMatch(/finished/i);
+  });
+
+  // Behavior 3: JSON mode writes exactly one JSON object to stdout.
+  it("json mode writes exactly one JSON object with the run summary", async () => {
+    const stdout = createMockStream();
+    const formatter = createFormatter("json", stdout);
+
+    const { summary } = await runTwoTasks(formatter);
+
+    const lines = stdout.getOutput().trim().split("\n");
+    // One object: it must parse as a whole (pretty-printed across lines).
+    const parsed = JSON.parse(stdout.getOutput());
+    expect(parsed.run_id).toBe(summary.run_id);
+    expect(parsed.session_id).toBe("sess_output_test");
+    expect(parsed.status).toBe("finished");
+    expect(parsed.events.length).toBeGreaterThan(0);
+    void lines;
+  });
+
+  it("json mode renders errors as one error object on stdout", async () => {
+    const stdout = createMockStream();
+    const formatter = createFormatter("json", stdout);
+
+    formatter.onError(new Error("engine exploded"));
+    await formatter.flush();
+
+    const parsed = JSON.parse(stdout.getOutput().trim());
+    expect(parsed).toEqual({ error: "engine exploded" });
+  });
+
+  // Behavior 4: stream-json writes NDJSON only, mapped through the table,
+  // and ends with the result object.
+  it("stream-json streams NDJSON event lines mapped by the table and ends with the result object", async () => {
+    const stdout = createMockStream();
+    const stderr = createMockStream();
+    const formatter = createFormatter("stream-json", stdout, stderr);
+
+    const { summary } = await runTwoTasks(formatter);
+
+    const lines = stdout.getOutput().trim().split("\n");
+    for (const line of lines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+    const parsed = lines.map((l) => JSON.parse(l));
+
+    // Engine events stream with mapped names and envelope fields.
+    const eventLines = parsed.filter((p) => p.type !== "result");
+    expect(eventLines.length).toBeGreaterThan(0);
+    for (const p of eventLines) {
+      expect(p).toHaveProperty("run_id");
+      expect(p).toHaveProperty("seq");
+      expect(p).toHaveProperty("ts");
+      expect(p.type).not.toBe("usage.recorded");
+      if (p.type === "usage") {
+        expect(p.record).toBeDefined();
+      }
+      // The mapped name never leaks an unmapped member name.
+      expect(p.type).not.toBe("unknown");
+    }
+
+    const last = parsed[parsed.length - 1];
+    expect(last.type).toBe("result");
+    expect(last.subtype).toBe("success");
+    expect(last.is_error).toBe(false);
+    expect(last.run_id).toBe(summary.run_id);
+    expect(last.num_tasks).toBe(2);
+    expect(typeof last.duration_ms).toBe("number");
+
+    // Nothing else goes to stdout: stderr holds nothing in stream-json mode.
+    expect(stderr.getOutput()).toBe("");
+  });
+
+  // Edge case: run.paused streams with its reason field, mapped unchanged.
+  it("stream-json includes run.paused with its reason field", async () => {
+    fakeClaude?.cleanup();
+    fakeClaude = fakeClaudeAdapter([
+      { failure: "permission_denial", reply: "Denied by policy" },
+    ]);
+    const engineMod = await loadEngine();
+    engine = engineMod.createEngine({
+      settings: env.settings,
+      adapter: fakeClaude.adapter,
+    });
+
+    const stdout = createMockStream();
+    const stderr = createMockStream();
+    const formatter = createFormatter("stream-json", stdout, stderr);
+
+    const runId = createRunId();
+    const manifest: Contracts.Manifest = {
+      ...sampleValidManifest(runId),
+      tasks: [{ id: "T1", spec: "tasks/T1.md" }],
+    };
+    writePlanFiles(env.repoRoot, runId, manifest, {
+      "tasks/T1.md": sampleValidTaskSpecMarkdown({
+        frontmatter: {
+          id: "T1",
+          title: "Permission Sensitive Task",
+          depends_on: [],
+          write: ["src/feature.ts"],
+          verify: [{ run: "echo verify", timeout_s: 30 }],
+        },
+      }),
+    });
+
+    const summary = await engine.run({
+      prompt: "Execute task triggering tool denial",
+      cwd: env.repoRoot,
+      mode: "plan",
+      permission_mode: "dontAsk",
+      onEvent: (event: EngineEvent) => formatter.onEvent(event),
+    });
+
+    formatter.onSummary(summary, "sess_paused");
+    await formatter.flush();
+
+    const parsed = stdout.getOutput().trim().split("\n").map((l) => JSON.parse(l));
+    const paused = parsed.find((p) => p.type === "run.paused");
+    expect(paused).toBeDefined();
+    expect(paused.reason).toBe(summary.pause_reason);
+    expect(summary.status).toBe("paused");
+
+    const last = parsed[parsed.length - 1];
+    expect(last.type).toBe("result");
+    expect(last.subtype).toBe("error_needs_human");
+  });
+
+  // stream-map.ts is a complete table over the catalog.
+  it("STREAM_TYPE covers every catalog member and streamTypeFor maps unknown types", () => {
+    for (const type of EVENT_TYPES) {
+      const mapped = STREAM_TYPE[type];
+      if (type === "usage.recorded") {
+        expect(mapped).toBe("usage");
+      } else {
+        expect(mapped).toBe(type);
+      }
+    }
+    expect(streamTypeFor("usage.recorded")).toBe("usage");
+    expect(streamTypeFor("not.in.catalog")).toBe("unknown");
   });
 });

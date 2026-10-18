@@ -1,5 +1,7 @@
 import type { EngineEvent, RunId, RunSummary } from "../contracts/index.js";
 
+const { streamTypeFor } = await import(`./stream-map.js`);
+
 export interface StreamResultEvent {
   type: "result";
   subtype: "success" | "error_failed" | "error_budget" | "error_needs_human";
@@ -19,19 +21,37 @@ export interface OutputFormatter {
   flush(): Promise<void>;
 }
 
-class TextFormatter implements OutputFormatter {
-  constructor(private readonly out: NodeJS.WriteStream) {}
+function isPassedTask(t: { state: string }): boolean {
+  return t.state === "PASSED" || t.state === "MERGED";
+}
 
+function countPassed(summary: RunSummary): number {
+  const tasks = summary.tasks ?? {};
+  return Object.values(tasks).filter((t) => isPassedTask(t as { state: string })).length;
+}
+
+class TextFormatter implements OutputFormatter {
+  constructor(
+    private readonly out: NodeJS.WriteStream,
+    private readonly err: NodeJS.WriteStream
+  ) {}
+
+  // Text progress: one line per event on stderr, only for the tracked types.
   onEvent(event: EngineEvent): void {
+    const data = (event.data ?? {}) as Record<string, any>;
     if (event.type === "task.session.started") {
-      const data = (event.data ?? {}) as Record<string, any>;
-      this.out.write(`[Task ${data.task_id ?? ""}] started: ${data.session_id ?? ""}\n`);
+      this.err.write(
+        `[task ${data.task_id ?? ""}] started (gen ${data.generation ?? 1}, attempt ${data.attempt ?? 1})\n`
+      );
     } else if (event.type === "task.verify.finished") {
-      const data = (event.data ?? {}) as Record<string, any>;
-      this.out.write(`[Task ${data.task_id ?? ""}] verified: ${data.passed ? "pass" : "fail"}\n`);
-    } else if (event.type === "batch.merged") {
-      const data = (event.data ?? {}) as Record<string, any>;
-      this.out.write(`[Batch ${data.batch_id ?? ""}] merged\n`);
+      const verdict = data.passed ? "verify passed" : "verify failed";
+      this.err.write(`[task ${data.task_id ?? ""}] ${verdict}\n`);
+    } else if (event.type === "task.merged") {
+      this.err.write(`[task ${data.task_id ?? ""}] merged\n`);
+    } else if (event.type === "task.failed") {
+      this.err.write(`[task ${data.task_id ?? ""}] failed: ${data.failure_class ?? "-"}\n`);
+    } else if (event.type === "run.paused") {
+      this.err.write(`run paused: ${data.reason ?? "unknown"}\n`);
     }
   }
 
@@ -41,7 +61,7 @@ class TextFormatter implements OutputFormatter {
       : "0.00";
     const tasks = summary.tasks ?? {};
     const taskKeys = Object.keys(tasks);
-    const passed = taskKeys.filter((k) => tasks[k].state === "verified").length;
+    const passed = countPassed(summary);
 
     this.out.write(`\n--- Run Summary ---\n`);
     this.out.write(`Run ID:     ${summary.run_id}\n`);
@@ -55,7 +75,7 @@ class TextFormatter implements OutputFormatter {
 
   onError(error: Error | string): void {
     const msg = error instanceof Error ? error.message : String(error);
-    this.out.write(`Error: ${msg}\n`);
+    this.err.write(`Error: ${msg}\n`);
   }
 
   async flush(): Promise<void> {
@@ -72,6 +92,7 @@ class JsonFormatter implements OutputFormatter {
     this.events.push(event);
   }
 
+  // JSON mode: exactly one JSON object on stdout, nothing else.
   onSummary(summary: RunSummary, sessionId: string): void {
     const payload = {
       ...summary,
@@ -101,13 +122,8 @@ class StreamJsonFormatter implements OutputFormatter {
       ? (event.data as Record<string, any>)
       : {};
 
-    let type = event.type;
-    if (type === "run.created" && !data.session_id) {
-      // Keep run.created or translate
-    }
-
     const payload: Record<string, any> = {
-      type,
+      type: streamTypeFor(event.type),
       run_id: event.run_id,
       seq: event.seq,
       ts: event.ts,
@@ -190,6 +206,7 @@ class StreamJsonFormatter implements OutputFormatter {
 export function createFormatter(
   format: "text" | "json" | "stream-json",
   out: NodeJS.WriteStream,
+  err?: NodeJS.WriteStream,
 ): OutputFormatter {
   switch (format) {
     case "json":
@@ -198,6 +215,8 @@ export function createFormatter(
       return new StreamJsonFormatter(out);
     case "text":
     default:
-      return new TextFormatter(out);
+      return new TextFormatter(out, err ?? out);
   }
 }
+
+export { countPassed, isPassedTask };

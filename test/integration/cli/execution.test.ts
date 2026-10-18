@@ -490,43 +490,70 @@ describe("cli: execution commands (run, plan, resume)", () => {
     it("exits 0 without creating redundant effects loop when resuming already finished run", async () => {
       const { resumeCommand } = await loadResumeCommand();
 
-      const runId = createRunId() as Contracts.RunId;
       let resumeCalled = false;
 
-      // Create run directory with finished state marker
-      const runDir = join(tmpDir, ".substrate", "runs", runId);
-      mkdirSync(runDir, { recursive: true });
-      writeFileSync(
-        join(runDir, "events.jsonl"),
-        JSON.stringify({
-          v: 1,
-          seq: 1,
-          ts: new Date().toISOString(),
-          run_id: runId,
-          type: "run.finished",
-          data: { status: "finished" },
-        }) + "\n",
-      );
+      // Drive a real zero-task engine run to completion so events.jsonl is
+      // produced by the engine, not by the test.
+      const engineMod = (await import(
+        "../../../src/engine/engine.js" as any
+      )) as any;
+      const { createTestRepo } = await import("../git/test-repo.js");
+      const { writePlanFiles } = await import("../scenarios/helpers.js");
+      const { sampleValidManifest } = await import("../roles/fixtures.js");
+      const { FakeAdapter } = await import("../../conformance/fake-adapter.js");
+      const { DEFAULT_SETTINGS } = await import("../../../src/config/index.js");
 
-      const engine = createMockEngine({
-        onResume: () => {
-          resumeCalled = true;
-        },
-      });
+      const testRepo = createTestRepo("sub-cli-resume-finished-");
+      try {
+        const runId = createRunId() as Contracts.RunId;
+        const manifest = {
+          ...sampleValidManifest(runId),
+          tasks: [],
+        };
+        writePlanFiles(testRepo.dir, runId, manifest as any, {});
 
-      const ctx: CommandContext = {
-        cwd: tmpDir,
-        flags: {},
-        rawArgs: [runId],
-        stdout: createMockStream(),
-        stderr: createMockStream(),
-        engine,
-        sessionStore: createMockSessionStore(),
-      };
+        const engine = engineMod.createEngine({
+          settings: { ...DEFAULT_SETTINGS },
+          adapter: new FakeAdapter(),
+        });
+        await engine.run({
+          prompt: "Zero task run to completion",
+          cwd: testRepo.dir,
+          mode: "plan",
+          permission_mode: "bypassPermissions",
+        });
 
-      const exitCode = await resumeCommand.execute(ctx);
-      expect(exitCode).toBe(0);
-      expect(resumeCalled).toBe(false); // Resuming already finished run does not re-invoke engine
+        const resumingEngine: Contracts.Engine = {
+          run: engine.run.bind(engine),
+          resume: async () => {
+            resumeCalled = true;
+            return {
+              run_id: runId,
+              status: "finished",
+              tasks: {},
+              usage: { total_usd: 0, by_role: {} },
+              branch: `substrate/runs/${runId}`,
+              exit_code: 0,
+            };
+          },
+        };
+
+        const ctx: CommandContext = {
+          cwd: testRepo.dir,
+          flags: {},
+          rawArgs: [runId],
+          stdout: createMockStream(),
+          stderr: createMockStream(),
+          engine: resumingEngine,
+          sessionStore: createMockSessionStore(),
+        };
+
+        const exitCode = await resumeCommand.execute(ctx);
+        expect(exitCode).toBe(0);
+        expect(resumeCalled).toBe(false); // Resuming already finished run does not re-invoke engine
+      } finally {
+        testRepo.cleanup();
+      }
     });
 
     it("returns exit code 2 when resume target is not found", async () => {

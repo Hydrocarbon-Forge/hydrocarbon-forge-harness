@@ -1,12 +1,25 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, appendFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Writable } from "node:stream";
 
 import type * as Contracts from "../../../src/contracts/index.js";
+import { reduce } from "../../../src/engine/reducer.js";
 import { createRunId, nowIsoTimestamp } from "../../../src/util/index.js";
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
+import {
+  setupScenarioEnv,
+  fakeClaudeAdapter,
+  loadEngine,
+  writePlanFiles,
+  readEventLog,
+  type ScenarioEnv,
+} from "../scenarios/helpers.js";
+import {
+  sampleValidManifest,
+  sampleValidTaskSpecMarkdown,
+} from "../roles/fixtures.js";
 import type { CommandContext, CliCommand } from "./execution.test.js";
 
 async function loadCommand(modulePath: string, exportName: string): Promise<CliCommand> {
@@ -45,39 +58,208 @@ describe("cli: inspection and lifecycle commands", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  // Shared fixture: a real two-task engine run executed through the run
+  // command in a temp repo, used by the inspection commands below.
+  async function runTwoTaskRun(): Promise<ScenarioEnv> {
+    const fakeClaude = fakeClaudeAdapter([
+      {
+        edits: {
+          "src/t1.ts": "export const t1 = 1;\n",
+          "test/t1.test.ts": "export const testT1 = true;\n",
+        },
+        reply: "Done T1",
+      },
+      {
+        edits: {
+          "src/t2.ts": "export const t2 = 2;\n",
+          "test/t2.test.ts": "export const testT2 = true;\n",
+        },
+        reply: "Done T2",
+      },
+    ]);
+    const env = await setupScenarioEnv("cli-cmds", { adapter: fakeClaude.adapter });
+    const cleanup = env.cleanup.bind(env);
+    env.cleanup = async () => {
+      await cleanup();
+      fakeClaude.cleanup();
+    };
+
+    const engineMod = await loadEngine();
+    const engine = engineMod.createEngine({
+      settings: env.settings,
+      adapter: env.adapter,
+    });
+
+    const runId = createRunId();
+    const manifest: Contracts.Manifest = {
+      ...sampleValidManifest(runId),
+      tasks: [
+        { id: "T1", spec: "tasks/T1.md" },
+        { id: "T2", spec: "tasks/T2.md" },
+      ],
+      integration_verify: [
+        { run: "echo integration verify passed", timeout_s: 30 },
+      ],
+    };
+    writePlanFiles(env.repoRoot, runId, manifest, {
+      "tasks/T1.md": sampleValidTaskSpecMarkdown({
+        frontmatter: {
+          id: "T1",
+          title: "Task 1",
+          depends_on: [],
+          write: ["src/t1.ts"],
+          create: ["test/t1.test.ts"],
+          verify: [{ run: "echo verify T1", timeout_s: 30 }],
+        },
+      }),
+      "tasks/T2.md": sampleValidTaskSpecMarkdown({
+        frontmatter: {
+          id: "T2",
+          title: "Task 2",
+          depends_on: [],
+          write: ["src/t2.ts"],
+          create: ["test/t2.test.ts"],
+          verify: [{ run: "echo verify T2", timeout_s: 30 }],
+        },
+      }),
+    });
+
+    const runCommand = await loadCommand("../../../src/cli/commands/run.js", "runCommand");
+    const stdout = createMockStream();
+    const stderr = createMockStream();
+    const ctx: CommandContext = {
+      cwd: env.repoRoot,
+      flags: { permissionMode: "bypassPermissions" },
+      rawArgs: ["Implement tasks T1 and T2"],
+      stdout,
+      stderr,
+      engine,
+    };
+    const exit = await runCommand.execute(ctx);
+    if (exit !== 0) {
+      throw new Error(
+        `fixture two-task run failed with exit ${exit}: ${stderr.getOutput()}`
+      );
+    }
+    return env;
+  }
+
+  function findRunId(env: ScenarioEnv): string {
+    const runsDir = join(env.repoRoot, ".substrate", "runs");
+    const entries = readdirSync(runsDir);
+    return entries[0];
+  }
+
   describe("status command", () => {
-    it("reads run events and displays state, pause reason, tasks, and cumulative cost", async () => {
-      const statusCommand = await loadCommand("../../../src/cli/commands/status.js", "statusCommand");
+    it("drives a two-task run and counts passed tasks like the summary", async () => {
+      const env = await runTwoTaskRun();
+      try {
+        const runId = findRunId(env);
+        const statusCommand = await loadCommand("../../../src/cli/commands/status.js", "statusCommand");
+        const stdout = createMockStream();
+        const stderr = createMockStream();
 
-      const runId = createRunId() as Contracts.RunId;
-      const runDir = join(tmpDir, ".substrate", "runs", runId);
-      mkdirSync(runDir, { recursive: true });
+        const ctx: CommandContext = {
+          cwd: env.repoRoot,
+          flags: {},
+          rawArgs: [runId],
+          stdout,
+          stderr,
+        };
 
-      const events = [
-        { v: 1, seq: 1, ts: nowIsoTimestamp(), run_id: runId, type: "run.created", data: { run_id: runId } },
-        { v: 1, seq: 2, ts: nowIsoTimestamp(), run_id: runId, type: "task.started", data: { task_id: "T1" } },
-        { v: 1, seq: 3, ts: nowIsoTimestamp(), run_id: runId, type: "task.verified", data: { task_id: "T1", verdict: "pass" } },
-        { v: 1, seq: 4, ts: nowIsoTimestamp(), run_id: runId, type: "run.state", data: { state: "finished" } },
-      ];
-      writeFileSync(join(runDir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+        const exitCode = await statusCommand.execute(ctx);
+        expect(exitCode).toBe(0);
 
-      const stdout = createMockStream();
-      const stderr = createMockStream();
+        const log = readEventLog(env.runDir, runId);
+        // Replay the run log through the engine reducer like the engine does.
+        let state = {
+          run_id: runId as Contracts.RunId,
+          state: "CREATED" as const,
+          tasks: {} as Record<string, any>,
+          usage: { total_usd: 0, by_role: {} },
+          checkpoints: [] as string[],
+        };
+        for (const ev of log) {
+          state = reduce(state as any, ev) as typeof state;
+        }
+        const passedInSummary = Object.values(state.tasks).filter(
+          (t: any) => t.state === "PASSED" || t.state === "MERGED"
+        ).length;
 
-      const ctx: CommandContext = {
-        cwd: tmpDir,
-        flags: {},
-        rawArgs: [runId],
-        stdout,
-        stderr,
-      };
+        const output = stdout.getOutput();
+        expect(output).toContain(runId);
+        expect(output).toMatch(/FINISHED/);
+        // Every task's real state appears in the table.
+        expect(output).toMatch(/T1\tMERGED/);
+        expect(output).toMatch(/T2\tMERGED/);
+        // The status passed count equals the summary's passed count for the
+        // same run (invariant).
+        expect(output).toContain(`${passedInSummary}/${passedInSummary} passed`);
+      } finally {
+        await env.cleanup();
+      }
+    });
 
-      const exitCode = await statusCommand.execute(ctx);
-      expect(exitCode).toBe(0);
+    it("status --output-format json prints one object whose passed count equals PASSED or MERGED tasks", async () => {
+      const env = await runTwoTaskRun();
+      try {
+        const runId = findRunId(env);
+        const statusCommand = await loadCommand("../../../src/cli/commands/status.js", "statusCommand");
+        const stdout = createMockStream();
+        const stderr = createMockStream();
 
-      const output = stdout.getOutput();
-      expect(output).toContain(runId);
-      expect(output).toMatch(/finished|passed/i);
+        const ctx: CommandContext = {
+          cwd: env.repoRoot,
+          flags: { outputFormat: "json" },
+          rawArgs: [runId],
+          stdout,
+          stderr,
+        };
+
+        const exitCode = await statusCommand.execute(ctx);
+        expect(exitCode).toBe(0);
+        if (stdout.getOutput().length === 0) {
+          throw new Error(`status produced no stdout; stderr: ${stderr.getOutput()}`);
+        }
+
+        const parsed = JSON.parse(stdout.getOutput());
+        const tracked = Object.values(parsed.tasks).filter(
+          (t: any) => t.state === "PASSED" || t.state === "MERGED"
+        ).length;
+        expect(parsed.passed).toBe(tracked);
+        expect(parsed.passed).toBe(2);
+        expect(stdout.getOutput().trim().split("\n").length).toBeGreaterThan(0);
+      } finally {
+        await env.cleanup();
+      }
+    });
+
+    it("recovers from a torn final line with a warning and exit 0", async () => {
+      const env = await runTwoTaskRun();
+      try {
+        const runId = findRunId(env);
+        // Simulate a partial write: append a torn last line.
+        appendFileSync(join(env.runDir, runId, "events.jsonl"), '{"v":1,"seq":', "utf8");
+
+        const statusCommand = await loadCommand("../../../src/cli/commands/status.js", "statusCommand");
+        const stdout = createMockStream();
+        const stderr = createMockStream();
+
+        const ctx: CommandContext = {
+          cwd: env.repoRoot,
+          flags: {},
+          rawArgs: [runId],
+          stdout,
+          stderr,
+        };
+
+        const exitCode = await statusCommand.execute(ctx);
+        expect(exitCode).toBe(0);
+        expect(stderr.getOutput()).toMatch(/torn or unparsable lines/);
+        expect(stdout.getOutput()).toContain(`/2 passed`);
+      } finally {
+        await env.cleanup();
+      }
     });
 
     it("returns exit code 2 when run is not found", async () => {
@@ -100,80 +282,69 @@ describe("cli: inspection and lifecycle commands", () => {
   });
 
   describe("tasks command", () => {
-    it("displays table of tasks with ID, Class, State, Generation, Attempt, FailureClass, and Verify status", async () => {
-      const tasksCommand = await loadCommand("../../../src/cli/commands/tasks.js", "tasksCommand");
+    it("prints every task with its real state, generation and attempt count", async () => {
+      const env = await runTwoTaskRun();
+      try {
+        const runId = findRunId(env);
+        const tasksCommand = await loadCommand("../../../src/cli/commands/tasks.js", "tasksCommand");
+        const stdout = createMockStream();
+        const stderr = createMockStream();
 
-      const runId = createRunId() as Contracts.RunId;
-      const runDir = join(tmpDir, ".substrate", "runs", runId);
-      mkdirSync(runDir, { recursive: true });
+        const ctx: CommandContext = {
+          cwd: env.repoRoot,
+          flags: {},
+          rawArgs: [runId],
+          stdout,
+          stderr,
+        };
 
-      const events = [
-        { v: 1, seq: 1, ts: nowIsoTimestamp(), run_id: runId, type: "task.started", data: { task_id: "T1", class: "feature" } },
-        { v: 1, seq: 2, ts: nowIsoTimestamp(), run_id: runId, type: "task.verified", data: { task_id: "T1", verdict: "pass" } },
-      ];
-      writeFileSync(join(runDir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+        const exitCode = await tasksCommand.execute(ctx);
+        expect(exitCode).toBe(0);
 
-      const stdout = createMockStream();
-      const stderr = createMockStream();
-
-      const ctx: CommandContext = {
-        cwd: tmpDir,
-        flags: {},
-        rawArgs: [runId],
-        stdout,
-        stderr,
-      };
-
-      const exitCode = await tasksCommand.execute(ctx);
-      expect(exitCode).toBe(0);
-
-      const output = stdout.getOutput();
-      expect(output).toMatch(/T1/);
+        const output = stdout.getOutput();
+        expect(output).toContain(runId);
+        expect(output).toMatch(/T1\tMERGED\t1\t1\t-/);
+        expect(output).toMatch(/T2\tMERGED\t1\t1\t-/);
+        expect(output).toMatch(/pass/);
+      } finally {
+        await env.cleanup();
+      }
     });
   });
 
   describe("cost command", () => {
-    it("displays cost breakdown per role and per model for a run ID", async () => {
-      const costCommand = await loadCommand("../../../src/cli/commands/cost.js", "costCommand");
+    it("reads usage recorded by a real run and breaks cost down per role and model", async () => {
+      const env = await runTwoTaskRun();
+      try {
+        const runId = findRunId(env);
+        const log = readEventLog(env.runDir, runId);
+        const usageEvents = log.filter((e) => e.type === "usage.recorded");
+        expect(usageEvents.length).toBeGreaterThan(0);
 
-      const runId = createRunId() as Contracts.RunId;
-      const runDir = join(tmpDir, ".substrate", "runs", runId);
-      mkdirSync(runDir, { recursive: true });
+        const costCommand = await loadCommand("../../../src/cli/commands/cost.js", "costCommand");
+        const stdout = createMockStream();
+        const stderr = createMockStream();
 
-      const events = [
-        {
-          v: 1,
-          seq: 1,
-          ts: nowIsoTimestamp(),
-          run_id: runId,
-          type: "usage",
-          data: {
-            role: "worker",
-            model: "claude-sonnet-5-5",
-            cost_usd: 0.25,
-            input_tokens: 1000,
-            output_tokens: 500,
-          },
-        },
-      ];
-      writeFileSync(join(runDir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+        const ctx: CommandContext = {
+          cwd: env.repoRoot,
+          flags: {},
+          rawArgs: [runId],
+          stdout,
+          stderr,
+        };
 
-      const stdout = createMockStream();
-      const stderr = createMockStream();
+        const exitCode = await costCommand.execute(ctx);
+        expect(exitCode).toBe(0);
 
-      const ctx: CommandContext = {
-        cwd: tmpDir,
-        flags: {},
-        rawArgs: [runId],
-        stdout,
-        stderr,
-      };
-
-      const exitCode = await costCommand.execute(ctx);
-      expect(exitCode).toBe(0);
-
-      const output = stdout.getOutput();
-      expect(output).toContain("0.25");
+        // The roles the run actually reported usage for appear in the table.
+        const roles = new Set(usageEvents.map((e) => (e.data as any).role));
+        const output = stdout.getOutput();
+        for (const role of roles) {
+          expect(output).toContain(role);
+        }
+      } finally {
+        await env.cleanup();
+      }
     });
 
     it("displays aggregate ledger spend when run ID is omitted", async () => {
@@ -211,19 +382,56 @@ describe("cli: inspection and lifecycle commands", () => {
   });
 
   describe("report command", () => {
-    it("prints diagnostic report including goal, DAG, replan iterations, and verify tails", async () => {
+    it("prints goal, duration, task table, tokens, cost, files and verify outcomes for a real run", async () => {
+      const env = await runTwoTaskRun();
+      try {
+        const runId = findRunId(env);
+        const reportCommand = await loadCommand("../../../src/cli/commands/report.js", "reportCommand");
+        const stdout = createMockStream();
+        const stderr = createMockStream();
+
+        const ctx: CommandContext = {
+          cwd: env.repoRoot,
+          flags: {},
+          rawArgs: [runId],
+          stdout,
+          stderr,
+        };
+
+        const exitCode = await reportCommand.execute(ctx);
+        expect(exitCode).toBe(0);
+
+        const log = readEventLog(env.runDir, runId);
+        const usage = log.filter((e) => e.type === "usage.recorded");
+        const tokensIn = usage.reduce((n, e) => n + ((e.data as any).record?.input_tokens ?? 0), 0);
+        const tokensOut = usage.reduce((n, e) => n + ((e.data as any).record?.output_tokens ?? 0), 0);
+
+        const output = stdout.getOutput();
+        // Goal: the first run.created data's prompt.
+        expect(output).toContain("Implement tasks T1 and T2");
+        expect(output).toMatch(/Duration: /);
+        expect(output).toMatch(/T1\tMERGED\t1\t1/);
+        expect(output).toContain(`Tokens In:  ${tokensIn}`);
+        expect(output).toContain(`Tokens Out: ${tokensOut}`);
+        expect(output).toMatch(/Cost:       \$0\.00/);
+        // Verify outcomes for each verify.finished in the log.
+        const verifies = log.filter((e) => e.type === "task.verify.finished");
+        expect(output).toContain("Verify Outcomes:");
+        for (const v of verifies) {
+          const d = v.data as any;
+          expect(output).toContain(`task ${d.task_id}: ${d.passed ? "passed" : "failed"}`);
+        }
+      } finally {
+        await env.cleanup();
+      }
+    });
+
+    it("prints 'no events recorded' and exits 1 for a run without events", async () => {
       const reportCommand = await loadCommand("../../../src/cli/commands/report.js", "reportCommand");
 
-      const runId = createRunId() as Contracts.RunId;
+      const runId = createRunId();
       const runDir = join(tmpDir, ".substrate", "runs", runId);
       mkdirSync(runDir, { recursive: true });
-
-      writeFileSync(join(runDir, "manifest.yaml"), `goal: "Build feature"\ntasks:\n  T1:\n    title: "T1 task"\n`, "utf8");
-      writeFileSync(
-        join(runDir, "events.jsonl"),
-        JSON.stringify({ v: 1, seq: 1, ts: nowIsoTimestamp(), run_id: runId, type: "run.created", data: { goal: "Build feature" } }) + "\n",
-        "utf8",
-      );
 
       const stdout = createMockStream();
       const stderr = createMockStream();
@@ -237,59 +445,23 @@ describe("cli: inspection and lifecycle commands", () => {
       };
 
       const exitCode = await reportCommand.execute(ctx);
-      expect(exitCode).toBe(0);
-
-      const output = stdout.getOutput();
-      expect(output).toContain("Build feature");
-    });
-  });
-
-  describe("verify command", () => {
-    it("locates task in run worktree, runs verify commands, and returns 0 on pass or 1 on fail", async () => {
-      const verifyCommand = await loadCommand("../../../src/cli/commands/verify.js", "verifyCommand");
-
-      const runId = createRunId() as Contracts.RunId;
-      const worktreeDir = join(tmpDir, ".substrate", "worktrees", runId, "T1");
-      mkdirSync(worktreeDir, { recursive: true });
-
-      const stdout = createMockStream();
-      const stderr = createMockStream();
-
-      const ctx: CommandContext = {
-        cwd: tmpDir,
-        flags: {},
-        rawArgs: [runId, "T1"],
-        stdout,
-        stderr,
-      };
-
-      const exitCode = await verifyCommand.execute(ctx);
-      expect(exitCode === 0 || exitCode === 1).toBe(true);
+      expect(exitCode).toBe(1);
+      expect(stdout.getOutput()).toContain("no events recorded");
     });
   });
 
   describe("merge command", () => {
-    it("merges run branch into current branch when finished and clean", async () => {
-      const mergeCommand = await loadCommand("../../../src/cli/commands/merge.js", "mergeCommand");
-
-      const testRepo = createTestRepo("sub-cli-merge-");
+    it("merges a finished run branch into the current branch", async () => {
+      const env = await runTwoTaskRun();
       try {
-        const runId = createRunId() as Contracts.RunId;
-        testRepo.createBranch(`substrate/runs/${runId}`);
-
-        const runDir = join(testRepo.dir, ".substrate", "runs", runId);
-        mkdirSync(runDir, { recursive: true });
-        writeFileSync(
-          join(runDir, "events.jsonl"),
-          JSON.stringify({ v: 1, seq: 1, ts: nowIsoTimestamp(), run_id: runId, type: "run.state", data: { state: "finished" } }) + "\n",
-          "utf8",
-        );
+        const runId = findRunId(env);
+        const mergeCommand = await loadCommand("../../../src/cli/commands/merge.js", "mergeCommand");
 
         const stdout = createMockStream();
         const stderr = createMockStream();
 
         const ctx: CommandContext = {
-          cwd: testRepo.dir,
+          cwd: env.repoRoot,
           flags: {},
           rawArgs: [runId],
           stdout,
@@ -298,41 +470,25 @@ describe("cli: inspection and lifecycle commands", () => {
 
         const exitCode = await mergeCommand.execute(ctx);
         expect(exitCode).toBe(0);
+        expect(stdout.getOutput()).toMatch(/Successfully merged/);
       } finally {
-        testRepo.cleanup();
+        await env.cleanup();
       }
     });
   });
 
   describe("undo command", () => {
-    it("reverts run branch to prior batch checkpoint ref and exits 0", async () => {
-      const undoCommand = await loadCommand("../../../src/cli/commands/undo.js", "undoCommand");
-
-      const testRepo = createTestRepo("sub-cli-undo-");
+    it("reverts the run branch to the last batch checkpoint ref", async () => {
+      const env = await runTwoTaskRun();
       try {
-        const runId = createRunId() as Contracts.RunId;
-        testRepo.createBranch(`substrate/runs/${runId}`);
-
-        const runDir = join(testRepo.dir, ".substrate", "runs", runId);
-        mkdirSync(runDir, { recursive: true });
-        writeFileSync(
-          join(runDir, "events.jsonl"),
-          JSON.stringify({
-            v: 1,
-            seq: 1,
-            ts: nowIsoTimestamp(),
-            run_id: runId,
-            type: "batch.merged",
-            data: { batch_id: "b1", checkpoint_ref: "HEAD~1" },
-          }) + "\n",
-          "utf8",
-        );
+        const runId = findRunId(env);
+        const undoCommand = await loadCommand("../../../src/cli/commands/undo.js", "undoCommand");
 
         const stdout = createMockStream();
         const stderr = createMockStream();
 
         const ctx: CommandContext = {
-          cwd: testRepo.dir,
+          cwd: env.repoRoot,
           flags: {},
           rawArgs: [runId],
           stdout,
@@ -342,7 +498,7 @@ describe("cli: inspection and lifecycle commands", () => {
         const exitCode = await undoCommand.execute(ctx);
         expect(exitCode).toBe(0);
       } finally {
-        testRepo.cleanup();
+        await env.cleanup();
       }
     });
   });

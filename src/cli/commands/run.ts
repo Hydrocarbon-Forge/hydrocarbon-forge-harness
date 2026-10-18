@@ -179,6 +179,7 @@ export const runCommand: CliCommand = {
     const formatter = createFormatter(
       ctx.flags.outputFormat ?? "text",
       ctx.stdout,
+      ctx.stderr,
     );
 
     let engine = ctx.engine;
