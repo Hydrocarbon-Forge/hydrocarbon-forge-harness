@@ -1,0 +1,22 @@
+{"v":1,"seq":1,"ts":"<ts>","run_id":"<run_id>","type":"run.created","data":{"run_id":"<run_id>","prompt":"Execute timing out task","mode":"plan","permission_mode":"bypassPermissions"}}
+{"v":1,"seq":2,"ts":"<ts>","run_id":"<run_id>","type":"run.routed","data":{"mode":"plan"}}
+{"v":1,"seq":3,"ts":"<ts>","run_id":"<run_id>","type":"plan.started","data":{}}
+{"v":1,"seq":4,"ts":"<ts>","run_id":"<run_id>","type":"contracts.committed","data":{"commit_sha":"<commit_sha>"}}
+{"v":1,"seq":5,"ts":"<ts>","run_id":"<run_id>","type":"plan.produced","data":{"manifest":{"version":1,"run_id":"<run_id>","goal":"Build feature component","base_ref":"main","ecosystem":"node-ts","setup":[{"run":"echo setup","timeout_s":30}],"contracts":{"files":["contracts/types.ts"],"typecheck":[{"run":"echo typecheck contracts","timeout_s":30}]},"integration_verify":[{"run":"echo verify all","timeout_s":60}],"tasks":[{"id":"T1","spec":"tasks/T1.md"}],"budget":{"max_usd":5,"max_tokens":200000,"max_wall_min":30}},"tasks":[{"id":"T1","spec":"tasks/T1.md"}]}}
+{"v":1,"seq":6,"ts":"<ts>","run_id":"<run_id>","type":"plan.lint","data":{"valid":true,"diagnostics":[{"code":"L024","severity":"warn","task":"T1","path":"test/feature.test.ts","message":"Task T1 has class 'feature' but modifies test path 'test/feature.test.ts'"}]}}
+{"v":1,"seq":7,"ts":"<ts>","run_id":"<run_id>","type":"plan.approved","data":{}}
+{"v":1,"seq":8,"ts":"<ts>","run_id":"<run_id>","type":"setup.done","data":{}}
+{"v":1,"seq":9,"ts":"<ts>","run_id":"<run_id>","type":"batch.started","data":{"batch":["T1"]}}
+{"v":1,"seq":10,"ts":"<ts>","run_id":"<run_id>","type":"task.ready","data":{"task_id":"T1"}}
+{"v":1,"seq":11,"ts":"<ts>","run_id":"<run_id>","type":"task.session.started","data":{"task_id":"T1","generation":1,"attempt":1,"session_id":"worker-T1-g1-a1"}}
+{"v":1,"seq":12,"ts":"<ts>","run_id":"<run_id>","type":"task.failed","data":{"task_id":"T1","generation":1,"attempt":1,"failure_class":"timeout"}}
+{"v":1,"seq":13,"ts":"<ts>","run_id":"<run_id>","type":"task.replanned","data":{"task_id":"T1","generation":2}}
+{"v":1,"seq":14,"ts":"<ts>","run_id":"<run_id>","type":"replan.finished","data":{"task_id":"T1","generation":2}}
+{"v":1,"seq":15,"ts":"<ts>","run_id":"<run_id>","type":"task.ready","data":{"task_id":"T1"}}
+{"v":1,"seq":16,"ts":"<ts>","run_id":"<run_id>","type":"task.session.started","data":{"task_id":"T1","generation":2,"attempt":1,"session_id":"worker-T1-g1-a1"}}
+{"v":1,"seq":17,"ts":"<ts>","run_id":"<run_id>","type":"task.failed","data":{"task_id":"T1","generation":2,"attempt":1,"failure_class":"timeout"}}
+{"v":1,"seq":18,"ts":"<ts>","run_id":"<run_id>","type":"task.replanned","data":{"task_id":"T1","generation":3}}
+{"v":1,"seq":19,"ts":"<ts>","run_id":"<run_id>","type":"replan.finished","data":{"task_id":"T1","generation":3}}
+{"v":1,"seq":20,"ts":"<ts>","run_id":"<run_id>","type":"task.ready","data":{"task_id":"T1"}}
+{"v":1,"seq":21,"ts":"<ts>","run_id":"<run_id>","type":"task.session.started","data":{"task_id":"T1","generation":3,"attempt":1,"session_id":"worker-T1-g1-a1"}}
+{"v":1,"seq":22,"ts":"<ts>","run_id":"<run_id>","type":"task.failed","data":{"task_id":"T1","generation":3,"attempt":1,"failure_class":"timeout"}}

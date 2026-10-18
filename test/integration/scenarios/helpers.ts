@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync, readdirSync, appendFileSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
+import { expect } from "vitest";
 
 import type {
   RunId,
@@ -144,14 +145,105 @@ export async function setupScenarioEnv(
     adapter,
     testRepo,
     async cleanup() {
+      if (process.env.SUBSTRATE_GOLDEN === "record" || process.env.SUBSTRATE_GOLDEN === "compare") {
+        if (existsSync(runsDir)) {
+          const runDirs = readdirSync(runsDir);
+          for (const rId of runDirs) {
+            if (!recordedRuns.has(rId) && existsSync(join(runsDir, rId, "events.jsonl"))) {
+              readEventLog(runsDir, rId as RunId);
+            }
+          }
+        }
+      }
       testRepo.cleanup();
     },
   };
 }
 
+const recordedRuns = new Set<string>();
+const callCounts = new Map<string, number>();
+
+function normalizeEventForGolden(evt: EngineEvent): Record<string, unknown> {
+  const clone = JSON.parse(JSON.stringify(evt));
+  clone.ts = "<ts>";
+  clone.run_id = "<run_id>";
+  const str = JSON.stringify(clone)
+    .replace(/r_[A-Za-z0-9]{12}/g, "<run_id>")
+    .replace(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g, "<uuid>")
+    .replace(/ses_[A-Za-z0-9]+/g, "<session>")
+    .replace(/fake-session-[a-z0-9]+/g, "<session>")
+    .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g, "<iso_timestamp>")
+    .replace(/\b[0-9a-f]{40}\b/g, "<commit_sha>");
+  return JSON.parse(str);
+}
+
+function handleGolden(events: EngineEvent[]): void {
+  const mode = process.env.SUBSTRATE_GOLDEN;
+  if (mode !== "record" && mode !== "compare") {
+    return;
+  }
+  let testPath: string | undefined;
+  try {
+    testPath = expect.getState().testPath;
+  } catch {
+    return;
+  }
+  if (!testPath) {
+    return;
+  }
+  const name = basename(testPath).replace(/\.test\.ts$/, "");
+  const goldenDir = join(process.cwd(), "test", "fixtures", "golden");
+  if (!existsSync(goldenDir)) {
+    mkdirSync(goldenDir, { recursive: true });
+  }
+  const goldenFile = join(goldenDir, `${name}.jsonl`);
+
+  const callIdx = callCounts.get(name) ?? 0;
+  callCounts.set(name, callIdx + 1);
+
+  const normalized = events.map(normalizeEventForGolden);
+  const content =
+    normalized.map((e) => JSON.stringify(e)).join("\n") +
+    (normalized.length > 0 ? "\n" : "");
+
+  if (mode === "record") {
+    if (callIdx === 0) {
+      writeFileSync(goldenFile, content, "utf8");
+    } else {
+      appendFileSync(goldenFile, content, "utf8");
+    }
+  } else if (mode === "compare") {
+    if (!existsSync(goldenFile)) {
+      throw new Error(`Golden file not found: ${goldenFile}`);
+    }
+    const raw = readFileSync(goldenFile, "utf8");
+    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+    const allExpected = lines.map((l) => JSON.parse(l));
+
+    // Group calls by seq === 1
+    const calls: any[][] = [];
+    let currentCall: any[] = [];
+    for (const evt of allExpected) {
+      if (evt.seq === 1 && currentCall.length > 0) {
+        calls.push(currentCall);
+        currentCall = [];
+      }
+      currentCall.push(evt);
+    }
+    if (currentCall.length > 0) {
+      calls.push(currentCall);
+    }
+
+    const expectedForCall = calls[callIdx] ?? [];
+    expect(normalized).toEqual(expectedForCall);
+  }
+}
+
 export function readEventLog(runDir: string, runId: RunId): EngineEvent[] {
+  recordedRuns.add(runId);
   const eventsPath = join(runDir, runId, "events.jsonl");
   if (!existsSync(eventsPath)) {
+    handleGolden([]);
     return [];
   }
   const raw = readFileSync(eventsPath, "utf8");
@@ -164,6 +256,7 @@ export function readEventLog(runDir: string, runId: RunId): EngineEvent[] {
       // ignore torn lines per spec edge cases
     }
   }
+  handleGolden(events);
   return events;
 }
 
