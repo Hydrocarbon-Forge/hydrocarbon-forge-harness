@@ -32,6 +32,9 @@ const EXPECTED_DECLARATIONS = [
   "SessionResult",
   "SessionHandle",
   "EnvReport",
+  // ModelInfo is not in Appendix A; it was added by R2.6 per owner decision
+  // (2026-10-18), see docs/plan/BLOCKED.md.
+  "ModelInfo",
   "HarnessAdapter",
   "Settings",
   "Route",

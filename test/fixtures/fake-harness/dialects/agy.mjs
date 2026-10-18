@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import { takeCall, applyCall } from "../scenario.mjs";
@@ -515,6 +515,16 @@ export async function runAgyDialectScenario(scenario, args, options = {}) {
  * @returns {Promise<number>}
  */
 export async function runDialect(argv, env) {
+  // R2.6 Behavior 6: the first argument `models` answers with the captured
+  // fixture verbatim, so the Done-when diff against it prints nothing.
+  if (argv[0] === "models") {
+    const dialectDir = dirname(fileURLToPath(import.meta.url));
+    process.stdout.write(
+      readFileSync(join(dialectDir, "..", "..", "backends", "agy", "models.txt"), "utf8")
+    );
+    return 0;
+  }
+
   if (argv.includes("--version")) {
     process.stdout.write("1.4.0\n");
     return 0;

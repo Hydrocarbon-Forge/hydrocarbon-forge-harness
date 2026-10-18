@@ -5,6 +5,7 @@ import type {
   Capabilities,
   EnvReport,
   HarnessAdapter,
+  ModelInfo,
   SessionHandle,
   SessionResult,
   SpawnRequest,
@@ -31,6 +32,10 @@ export class FakeAdapter implements HarnessAdapter {
     native_subagents_headless: false,
     max_concurrency: 4,
   };
+
+  async listModels(): Promise<ModelInfo[]> {
+    return [{ id: "fake-model", efforts: [], source: "static" }];
+  }
 
   async validateEnvironment(): Promise<EnvReport> {
     return {

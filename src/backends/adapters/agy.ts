@@ -1,6 +1,8 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import type {
   BackendEvent,
   Capabilities,
@@ -11,7 +13,7 @@ import type {
   SessionResult,
   SpawnRequest,
 } from "../../contracts/index.js";
-import { SessionResult as SessionResultSchema } from "../../contracts/index.js";
+import { ModelInfo, SessionResult as SessionResultSchema } from "../../contracts/index.js";
 import { readNdjsonStream } from "../ndjson.js";
 import { spawnSupervisedProcess } from "../process.js";
 import { AgyNormalizer, type AgyRawEvent } from "../normalize/agy.js";
@@ -22,6 +24,11 @@ export interface AgyAdapterOptions {
   pricing: PricingTable;
   maxConcurrency?: number;
 }
+
+const execFileAsync = promisify(execFile);
+
+/** Timeout for the `agy models` call, in milliseconds. */
+const MODELS_TIMEOUT_MS = 30000;
 
 /** Effort slugs agy 1.4.0 accepts (S3: no shipped slug accepts xhigh or max). */
 const AGY_EFFORTS = new Set(["low", "medium", "high"]);
@@ -91,6 +98,34 @@ export function buildAgyArgv(req: SpawnRequest): string[] {
   return argv;
 }
 
+/**
+ * Parses the stdout of `agy models` (verified on the installed binary 2026-10-18):
+ * the progress line `Fetching available models...` plus one `id<TAB>display` row
+ * per model. Rows are the only lines read; Windows line endings are stripped. A
+ * slug ending in -low, -medium or -high gets that tier as its only effort.
+ */
+export function parseAgyModels(text: string): ModelInfo[] {
+  const models: ModelInfo[] = [];
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/\r$/, "");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\t/.test(line)) {
+      continue;
+    }
+    const [id, display] = line.split("\t");
+    const tierMatch = id.match(/-(low|medium|high)$/);
+    const info: ModelInfo = {
+      id,
+      efforts: tierMatch ? [tierMatch[1]] : [],
+      source: "cli",
+    };
+    if (display !== "") {
+      info.display = display;
+    }
+    models.push(ModelInfo.parse(info));
+  }
+  return models;
+}
+
 function findExecutable(bin: string): string | null {
   if (isAbsolute(bin)) {
     return existsSync(bin) ? bin : null;
@@ -137,6 +172,23 @@ export class AgyAdapter implements HarnessAdapter {
         ? { max_concurrency: options.maxConcurrency }
         : {}),
     };
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    const exe = findExecutable(this.bin);
+    if (!exe) {
+      throw new Error(`agy models failed: ${this.bin} not found`);
+    }
+    try {
+      const { stdout } = await execFileAsync(exe, ["models"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        timeout: MODELS_TIMEOUT_MS,
+      });
+      return parseAgyModels(stdout);
+    } catch (err) {
+      throw new Error(`agy models failed: ${(err as Error).message}`);
+    }
   }
 
   async validateEnvironment(): Promise<EnvReport> {

@@ -23,6 +23,7 @@ import type {
   SpawnRequest,
   UsageRecord,
 } from "../../contracts/index.js";
+import { ModelInfo } from "../../contracts/index.js";
 import { readNdjsonStream } from "../ndjson.js";
 import { spawnSupervisedProcess } from "../process.js";
 import { normalizeOpenCodeStream } from "../normalize/opencode.js";
@@ -46,7 +47,11 @@ export interface OpenCodeAdapterOptions {
     cacheWrite: number;
     reasoning: number;
   } | null>;
+  modelsTimeoutMs?: number;
 }
+
+/** Timeout for the `opencode models` call, in milliseconds. */
+const MODELS_TIMEOUT_MS = 30000;
 
 export interface GeneratedOpenCodeConfig {
   configDir: string;
@@ -295,6 +300,58 @@ const OPENCODE_CAPABILITIES: Capabilities = Object.assign(
   }
 );
 
+/**
+ * Parses the stdout of `opencode models --standalone`: one model id per
+ * non-blank, non-comment line; the first whitespace token is the id and the
+ * rest is the display. Efforts come from the family named in the line.
+ */
+export function parseOpenCodeModels(text: string): ModelInfo[] {
+  const models: ModelInfo[] = [];
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/\r$/, "");
+    if (line === "" || line.startsWith("#")) {
+      continue;
+    }
+    const tokens = line.split(/\s+/);
+    const id = tokens[0];
+    const display = tokens.slice(1).join(" ").trim();
+    const info: ModelInfo = {
+      id,
+      efforts: openCodeFamilyEfforts(id, line),
+      source: "cli",
+    };
+    if (display !== "") {
+      info.display = display;
+    }
+    models.push(ModelInfo.parse(info));
+  }
+  return models;
+}
+
+function openCodeFamilyEfforts(id: string, line: string): string[] {
+  const lowerId = id.toLowerCase();
+  const lowerLine = line.toLowerCase();
+  if (lowerId.startsWith("openai/")) {
+    return ["none", "minimal", "low", "medium", "high", "xhigh"];
+  }
+  if (lowerId.startsWith("anthropic/")) {
+    return ["high", "max"];
+  }
+  if (lowerId.startsWith("google/")) {
+    return ["low", "high"];
+  }
+  if (lowerLine.includes("gpt")) {
+    return ["none", "minimal", "low", "medium", "high", "xhigh"];
+  }
+  if (lowerLine.includes("claude")) {
+    return ["high", "max"];
+  }
+  if (lowerLine.includes("gemini")) {
+    return ["low", "high"];
+  }
+  return [];
+}
+
 export class OpenCodeAdapter implements HarnessAdapter {
   readonly capabilities: Capabilities = OPENCODE_CAPABILITIES;
 
@@ -306,6 +363,23 @@ export class OpenCodeAdapter implements HarnessAdapter {
     this.options = options ?? {};
     this.binPath = options?.binPath ?? "opencode";
     this.versionPin = options?.versionPin ?? "2.0.21";
+  }
+
+  async listModels(): Promise<ModelInfo[]> {
+    try {
+      const { stdout } = await execFileAsync(
+        this.binPath,
+        ["models", "--standalone"],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          timeout: this.options.modelsTimeoutMs ?? MODELS_TIMEOUT_MS,
+        }
+      );
+      return parseOpenCodeModels(stdout);
+    } catch (err) {
+      throw new Error(`opencode models failed: ${(err as Error).message}`);
+    }
   }
 
   async validateEnvironment(): Promise<EnvReport> {

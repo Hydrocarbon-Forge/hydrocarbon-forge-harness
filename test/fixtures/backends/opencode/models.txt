@@ -1,0 +1,2 @@
+# UNVERIFIED: format assumed, one model id per line; recapture with opencode models --standalone when providers are configured
+opencode/deepseek-v4.1-flash-free

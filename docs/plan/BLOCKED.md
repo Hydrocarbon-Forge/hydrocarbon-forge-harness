@@ -70,3 +70,31 @@ The allowlist seed was set by R0.1 (`docs/plan/wp/R0.1.md` line 80, and the hard
 3. Or explicitly instruct R1.6 to read the seven keys in the dispatcher (not recommended — no behavioural meaning).
 
 Until the spec is amended, R1.6 remains blocked and not DONE.
+
+## R2.6 — spec-mandated `ModelInfo` zod schema conflicts with the contract catalogue test
+
+**Status: RESOLVED by owner on 2026-10-18.** The owner directed option 1: add `ModelInfo` to `EXPECTED_DECLARATIONS` in `test/unit/contracts/schemas.test.ts` (the hard-coded list is stale relative to `IMPLEMENTATION-PLAN.md` line 198, which assigns the `ModelInfo` contract to R2.6). The one-line test change was applied with a comment citing this decision, the full suite is green, and R2.6 was committed. Original analysis below. R2.6 is otherwise complete: its five Done-when items all pass today (`npx vitest run test/unit/backends/list-models.test.ts` 26 tests, the two `bin ... | diff -` proofs print `same`, `npx vitest run test/conformance` passes, `npm run typecheck` and `npm run check` exit 0; no `scripts/debt-allowlist.json` entry has `until: R2.6`). The block is the full suite: one test fails that R2.6 cannot make pass without editing a file outside its write/create lists.
+
+### The conflict
+
+`docs/plan/wp/R2.6.md` Interface mandates `export const ModelInfo = z.object({...})` in `src/contracts/index.ts` ("the type and zod object"). `test/unit/contracts/schemas.test.ts` asserts contracts export exactly its hard-coded `EXPECTED_DECLARATIONS` list ("No added contract-type schemas beyond Appendix A"), which does not include `ModelInfo`, and `ModelInfo` is not in Appendix A (`SUBSTRATE-PLAN.md`). The test file is in neither R2.6's write nor create lists. So the WP cannot be fully green: either the schema must be exported (Interface verbatim, test fails) or the test's list must be amended (file not editable by R2.6). START-HERE §10 also forbids weakening or editing an existing test to make it pass.
+
+Related deviation already recorded in PROGRESS Notes: `listModels` was made optional on `HarnessAdapter` so the protected `test/integration/backends/claude.test.ts` wrapper and `test/integration/roles/fixtures.ts` stub (which do not implement `listModels`) still typecheck.
+
+### Evidence
+
+```
+$ npm test
+FAIL test/unit/contracts/schemas.test.ts > exports exactly the Appendix A declarations (no renames, no extras)
+AssertionError: expected [ 'ModelInfo' ] to deeply equal []
+```
+
+Everything else passes: 1177 passed | 1 failed | 2 skipped.
+
+### Options for the owner
+
+1. Add `"ModelInfo"` to `EXPECTED_DECLARATIONS` in `test/unit/contracts/schemas.test.ts` (the catalogue list is stale relative to `IMPLEMENTATION-PLAN.md` line 198, which assigns the `ModelInfo` contract to R2.6), or otherwise amend the catalogue test's exemption list.
+2. Amend Appendix A in `SUBSTRATE-PLAN.md` to add `ModelInfo`, then option 1 becomes simply fixing the stale copy.
+3. Make `ModelInfo` type-only in contracts (no zod const export) — contradicts the R2.6 Interface snippet, so not recommended.
+
+Nothing was worked around while this was open; the owner resolved it with option 1, as recorded at the top.

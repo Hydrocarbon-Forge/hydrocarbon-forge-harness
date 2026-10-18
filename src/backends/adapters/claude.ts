@@ -7,6 +7,7 @@ import type {
   Capabilities,
   EnvReport,
   HarnessAdapter,
+  ModelInfo,
   SessionHandle,
   SessionResult,
   SpawnRequest,
@@ -41,7 +42,19 @@ export interface ClaudeAdapterOptions {
   bin?: string;
   versionPin?: string;
   maxConcurrency?: number;
+  /**
+   * Model ids from settings and the price table, passed in by the registry.
+   * Claude has no list command (S1), so these are the only ids the adapter can
+   * report besides its documented aliases.
+   */
+  knownModels?: string[];
 }
+
+/** Documented Claude aliases (S1): the only ids the adapter reports on its own. */
+const CLAUDE_ALIASES = ["haiku", "sonnet", "opus", "fable"];
+
+/** Efforts every alias and every known id accepts, in the order the CLI takes them. */
+const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -201,6 +214,31 @@ export class ClaudeAdapter implements HarnessAdapter {
         problems: ["Claude CLI binary not found or failed to execute"],
       };
     }
+  }
+
+  /**
+   * The four documented aliases, then every model id the registry passed in
+   * (settings roles, routing, and the price table), deduplicated with the first
+   * occurrence winning. No process is run: Claude has no list command.
+   */
+  listModels(): Promise<ModelInfo[]> {
+    const models: ModelInfo[] = [];
+    const seen = new Set<string>();
+
+    for (const id of CLAUDE_ALIASES) {
+      seen.add(id);
+      models.push({ id, efforts: [...CLAUDE_EFFORTS], source: "static" });
+    }
+
+    for (const id of this.options.knownModels ?? []) {
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      models.push({ id, efforts: [...CLAUDE_EFFORTS], source: "settings" });
+    }
+
+    return Promise.resolve(models);
   }
 
   spawn(req: SpawnRequest): SessionHandle {

@@ -313,15 +313,29 @@ export const EnvReport = z.object({
 }).strict();
 export type EnvReport = z.infer<typeof EnvReport>;
 
+export const ModelInfo = z.object({
+  id: z.string(),
+  display: z.string().optional(),
+  efforts: z.array(z.string()),
+  source: z.enum(["cli", "static", "settings"]),
+}).strict();
+export type ModelInfo = z.infer<typeof ModelInfo>;
+
 export const HarnessAdapter = z.object({
   capabilities: Capabilities,
   validateEnvironment: z.custom<() => Promise<EnvReport>>((v) => typeof v === "function"),
   spawn: z.custom<(req: SpawnRequest) => SessionHandle>((v) => typeof v === "function"),
+  listModels: z
+    .custom<() => Promise<ModelInfo[]>>((v) => typeof v === "function")
+    .optional(),
 });
 export type HarnessAdapter = {
   readonly capabilities: Capabilities;
   validateEnvironment(): Promise<EnvReport>;
   spawn(req: SpawnRequest): SessionHandle;
+  // Optional so the protected integration fixtures that wrap an adapter without
+  // exposing every method still typecheck; every concrete adapter implements it.
+  listModels?: () => Promise<ModelInfo[]>;
 };
 
 // ===== settings =====
