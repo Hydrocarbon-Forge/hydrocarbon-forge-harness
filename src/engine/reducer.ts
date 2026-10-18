@@ -149,6 +149,43 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       return state;
     }
 
+    case "tasks.invalidated": {
+      const ids = Array.isArray(data.task_ids) ? data.task_ids : [];
+      const nextTasks = { ...state.tasks };
+      for (const id of ids) {
+        if (nextTasks[id]) {
+          nextTasks[id] = { ...nextTasks[id], state: "READY" };
+        }
+      }
+      return { ...state, tasks: nextTasks };
+    }
+
+    case "integration.failed": {
+      return {
+        ...state,
+        state: "FAILED",
+        tasks: Object.fromEntries(
+          Object.entries(state.tasks).map(([id, t]) => [
+            id,
+            t.state === "RUNNING" ||
+            t.state === "VERIFYING" ||
+            t.state === "SCOPE_CHECK" ||
+            t.state === "MERGING"
+              ? { ...t, state: "FAILED" }
+              : t,
+          ])
+        ) as typeof state.tasks,
+      };
+    }
+
+    case "batch.merged": {
+      const ref = data.checkpoint_ref;
+      return {
+        ...state,
+        checkpoints: ref ? [...state.checkpoints, ref] : state.checkpoints,
+      };
+    }
+
     case "plan.approved": {
       return {
         ...state,
@@ -343,6 +380,20 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       return {
         ...state,
         tasks: { ...state.tasks, [taskId]: updated },
+      };
+    }
+
+    case "bisect.culprit": {
+      const culpritId = data.culprit_task_id;
+      if (!culpritId || !state.tasks[culpritId]) return state;
+      const current = state.tasks[culpritId];
+      const updated: TaskRuntimeState = {
+        ...current,
+        failure_class: "integration_failed",
+      };
+      return {
+        ...state,
+        tasks: { ...state.tasks, [culpritId]: updated },
       };
     }
 

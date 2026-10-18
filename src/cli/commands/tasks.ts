@@ -132,10 +132,10 @@ export const tasksCommand: CliCommand = {
           if (data.generation) task.generation = data.generation;
           if (data.attempt) task.attempt = data.attempt;
 
-          if (ev.type === "task.started") {
+          if (ev.type === "task.session.started") {
             task.state = "RUNNING";
-          } else if (ev.type === "task.verified") {
-            task.verdict = data.verdict ?? "pass";
+          } else if (ev.type === "task.verify.finished") {
+            task.verdict = data.passed ? "pass" : "fail";
             task.state = task.verdict === "pass" ? "VERIFIED" : "VERIFY_FAILED";
           } else if (ev.type === "task.failed") {
             task.state = "FAILED";

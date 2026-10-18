@@ -76,15 +76,19 @@ export const costCommand: CliCommand = {
       for (const line of lines) {
         try {
           const ev = JSON.parse(line);
-          if (ev.type === "usage") {
+          // Catalog events carry the record under data.record; accept legacy
+          // pre-catalog run logs that wrote a flat usage event.
+          const legacyUsage = /^usage$/.test(String(ev.type));
+          if (ev.type === "usage.recorded" || legacyUsage) {
             const data = ev.data ?? {};
-            const cost = Number(data.cost_usd ?? 0);
+            const record = data.record ?? data;
+            const cost = Number(record.cost_usd ?? 0);
             totalUsd += cost;
 
-            const role = data.role ?? "worker";
+            const role = record.role ?? data.role ?? "worker";
             byRole[role] = (byRole[role] ?? 0) + cost;
 
-            const model = data.model ?? "default";
+            const model = record.model ?? "default";
             byModel[model] = (byModel[model] ?? 0) + cost;
           }
         } catch {

@@ -98,7 +98,11 @@ export async function runIntegrateAction(
     ctx.preBatchCheckpoint = undefined;
     emit("integration.finished", { passed: true });
     const allTaskIds = Object.keys(state.tasks);
-    emit("batch.merged", { batch: allTaskIds });
+    const checkpointRef = execFileSync("git", ["rev-parse", runBranch], {
+      cwd: ctx.repoRoot,
+      encoding: "utf8",
+    }).trim();
+    emit("batch.merged", { batch: allTaskIds, checkpoint_ref: checkpointRef });
     emit("run.finished", { exit_code: 0 });
     return;
   }

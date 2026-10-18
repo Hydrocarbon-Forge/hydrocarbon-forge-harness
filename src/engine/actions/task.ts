@@ -170,7 +170,14 @@ export async function runTaskAction(
 
       if (evt.type === "usage" && (evt as any).record) {
         const u = (evt as any).record as UsageRecord;
-        emit("usage.recorded", { record: u, role: "worker" });
+        emit("usage.recorded", {
+          record: u,
+          role: "worker",
+          task_id: taskId,
+          generation,
+          attempt,
+          class: parsedSpec.frontmatter.class,
+        });
 
         const isCumulative = Boolean((evt as any).cumulative);
         const currentTotal = isCumulative
@@ -297,7 +304,7 @@ export async function runTaskAction(
     ctx.settings.git.on_scope_violation
   );
 
-  emit("scope.checked", {
+  emit("task.scope.checked", {
     task_id: taskId,
     generation,
     attempt,
@@ -305,8 +312,8 @@ export async function runTaskAction(
     violations: scopeRes.violations,
     protected_modified: scopeRes.protectedModified,
   });
-
-  emit("task.scope.checked", {
+  // Legacy name kept for the protected scenario suite (observe-only).
+  emit("scope.checked", {
     task_id: taskId,
     generation,
     attempt,

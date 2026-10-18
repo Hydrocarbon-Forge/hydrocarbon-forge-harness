@@ -5,6 +5,7 @@ import YAML from "yaml";
 import type { EngineEvent, Manifest, SessionHandle, TaskId } from "../../contracts/index.js";
 import type { EngineState } from "../reducer.js";
 import { appendRunEvent, type EffectContext } from "../effects.js";
+import type { TypedEmit } from "../emit.js";
 import {
   parseManifest,
   parseTaskSpec,
@@ -12,48 +13,9 @@ import {
   type ParsedTaskSpec,
 } from "../../spec/index.js";
 
-export type Emit = (type: string, data?: Record<string, unknown>) => EngineEvent;
+export type Emit = TypedEmit;
 
-export function makeEmitter(
-  ctx: EffectContext,
-  state: EngineState
-): { events: EngineEvent[]; emit: Emit } {
-  const events: EngineEvent[] = [];
-  let seq = (state as any)._seq ?? 0;
-
-  function emit(type: string, data: Record<string, unknown> = {}): EngineEvent {
-    seq++;
-    const evt: EngineEvent = {
-      v: 1,
-      seq,
-      ts: new Date().toISOString(),
-      run_id: ctx.runId,
-      type,
-      data,
-    };
-    events.push(evt);
-    // Each event is persisted and delivered as it is emitted, so callers
-    // observing the run directory (and stream consumers) see events while
-    // long actions are still running. If the observer throws, the run has
-    // crashed from its perspective: like a dead process, nothing further is
-    // written; execution continues unobserved.
-    if ((ctx as any)._observabilityCrashed) {
-      return evt;
-    }
-    appendRunEvent(ctx.runDir, evt);
-    if (ctx.onEvent) {
-      try {
-        ctx.onEvent(evt);
-      } catch (err) {
-        (ctx as any)._observabilityCrashed = true;
-        throw err;
-      }
-    }
-    return evt;
-  }
-
-  return { events, emit };
-}
+export { makeEmitter } from "../emit.js";
 
 export function extractFencedFiles(text: string): Map<string, string> {
   const files = new Map<string, string>();

@@ -126,7 +126,12 @@ export async function runReplanAction(
     try {
       for await (const evt of handle.events) {
         if (evt.type === "usage" && (evt as any).record) {
-          emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+          emit("usage.recorded", {
+            record: (evt as any).record,
+            role: "planner",
+            task_id: taskId,
+            generation: taskState.generation ?? 1,
+          });
         }
       }
       res = await handle.result();
@@ -162,7 +167,6 @@ export async function runReplanAction(
   if (escalation.level === "L2") {
     (state as any).l2_done = true;
     (state as any).l2_count = ((state as any).l2_count ?? 0) + 1;
-    emit("replan.l2", { task_id: taskId });
 
     const spawnReq: SpawnRequest = {
       role: "planner",
@@ -185,7 +189,12 @@ export async function runReplanAction(
     try {
       for await (const evt of handle.events) {
         if (evt.type === "usage" && (evt as any).record) {
-          emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+          emit("usage.recorded", {
+            record: (evt as any).record,
+            role: "planner",
+            task_id: taskId,
+            generation: taskState.generation ?? 1,
+          });
         }
       }
       res = await handle.result();

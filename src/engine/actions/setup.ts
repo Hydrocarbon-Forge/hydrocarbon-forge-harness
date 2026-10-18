@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import type { TaskSpecFrontmatter } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
@@ -30,7 +31,12 @@ export async function runSetupAction(
   if (manifest.tasks.length === 0) {
     emit("setup.done", {});
     emit("batch.started", { batch: [] });
-    emit("batch.merged", { batch: [] });
+    // Empty batch: the checkpoint is the run branch's base (HEAD at creation).
+    const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: ctx.repoRoot,
+      encoding: "utf8",
+    }).trim();
+    emit("batch.merged", { batch: [], checkpoint_ref: baseSha });
     emit("integration.finished", { passed: true });
     emit("run.finished", { exit_code: 0 });
     return;

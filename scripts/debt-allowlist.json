@@ -140,114 +140,26 @@
       "until": "R5.3"
     }
   ],
-  "events": [
-    {
-      "type": "batch.started",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "bisect.culprit",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "bisect.started",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "contracts.committed",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "governor.fallback",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "integration.failed",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "merge.conflict",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "plan.ready",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "plan.started",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "rate_limit.backoff",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "replan.l2",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "replan.started",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "run.budget.exceeded",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "run.budget.warning",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "run.state",
-      "kind": "consumed-not-emitted",
-      "until": "R1.2"
-    },
-    {
-      "type": "scope.checked",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "task.replanned",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "task.started",
-      "kind": "consumed-not-emitted",
-      "until": "R1.2"
-    },
-    {
-      "type": "task.verified",
-      "kind": "consumed-not-emitted",
-      "until": "R1.2"
-    },
-    {
-      "type": "tasks.invalidated",
-      "kind": "emitted-not-consumed",
-      "until": "R1.2"
-    },
-    {
-      "type": "usage",
-      "kind": "consumed-not-emitted",
-      "until": "R1.2"
-    }
+  "events": [],
+  "events_observe_only": [
+    "batch.started",
+    "bisect.started",
+    "contracts.committed",
+    "governor.fallback",
+    "integration.started",
+    "merge.conflict",
+    "plan.ready",
+    "plan.started",
+    "rate_limit.backoff",
+    "replan.started",
+    "run.budget.exceeded",
+    "run.budget.warning",
+    "run.resumed",
+    "scope.checked",
+    "task.replanned",
+    "task.session.ended",
+    "task.worktree.created"
   ],
-  "events_observe_only": [],
   "settings": [
     {
       "key": "backends.*.bin",
@@ -405,17 +317,17 @@
       "until": "R5.3"
     },
     {
+      "symbol": "CommandRegistry",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
       "symbol": "agentsCommand",
       "path": "src/cli/index.ts",
       "until": "R5.3"
     },
     {
       "symbol": "backendsCommand",
-      "path": "src/cli/index.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "CommandRegistry",
       "path": "src/cli/index.ts",
       "until": "R5.3"
     },
@@ -600,6 +512,11 @@
       "until": "R5.3"
     },
     {
+      "symbol": "EVENT_TYPES",
+      "path": "src/contracts/events.ts",
+      "until": "R5.3"
+    },
+    {
       "symbol": "BackendEvent",
       "path": "src/contracts/index.ts",
       "until": "R5.3"
@@ -631,11 +548,6 @@
     },
     {
       "symbol": "HarnessAdapter",
-      "path": "src/contracts/index.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "PauseReason",
       "path": "src/contracts/index.ts",
       "until": "R5.3"
     },
@@ -695,22 +607,22 @@
       "until": "R5.3"
     },
     {
-      "symbol": "batchIntegrationMerger",
-      "path": "src/git/merger.ts",
-      "until": "R5.3"
-    },
-    {
       "symbol": "BatchIntegrationMerger",
       "path": "src/git/merger.ts",
       "until": "R5.3"
     },
     {
-      "symbol": "taskMerger",
+      "symbol": "TaskMerger",
       "path": "src/git/merger.ts",
       "until": "R5.3"
     },
     {
-      "symbol": "TaskMerger",
+      "symbol": "batchIntegrationMerger",
+      "path": "src/git/merger.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "taskMerger",
       "path": "src/git/merger.ts",
       "until": "R5.3"
     },
@@ -750,22 +662,22 @@
       "until": "R5.3"
     },
     {
-      "symbol": "createHookRunner",
-      "path": "src/hooks/runner.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "executeHookCommand",
-      "path": "src/hooks/runner.ts",
-      "until": "R5.3"
-    },
-    {
       "symbol": "HookRunner",
       "path": "src/hooks/runner.ts",
       "until": "R5.3"
     },
     {
       "symbol": "HookRunnerImpl",
+      "path": "src/hooks/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "createHookRunner",
+      "path": "src/hooks/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "executeHookCommand",
       "path": "src/hooks/runner.ts",
       "until": "R5.3"
     },

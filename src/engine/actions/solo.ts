@@ -18,6 +18,7 @@ export async function runSoloTask(
   const sessionId = crypto.randomUUID();
   emit("task.session.started", {
     task_id: "solo",
+    generation: 1,
     attempt: 1,
     session_id: sessionId,
   });
@@ -44,7 +45,13 @@ export async function runSoloTask(
   try {
     for await (const evt of handle.events) {
       if (evt.type === "usage" && (evt as any).record) {
-        emit("usage.recorded", { record: (evt as any).record, role: "worker" });
+        emit("usage.recorded", {
+          record: (evt as any).record,
+          role: "worker",
+          task_id: "solo",
+          generation: 1,
+          attempt: 1,
+        });
       }
     }
     res = await handle.result();

@@ -129,7 +129,6 @@ function isRunAlreadyFinished(eventsPath: string): boolean {
       try {
         const ev = JSON.parse(line);
         if (ev.type === "run.finished" || ev.data?.status === "finished") return true;
-        if (ev.type === "run.state" && (ev.data?.state === "finished" || ev.data?.state === "CANCELLED")) return true;
       } catch {
         // ignore malformed line
       }

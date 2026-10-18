@@ -12,7 +12,8 @@ import type {
 } from "../contracts/index.js";
 import { type EngineState, reduce } from "./reducer.js";
 import { log } from "../util/log.js";
-import { makeEmitter } from "./actions/shared.js";
+import { makeEmitter } from "./emit.js";
+import { parseEngineEvent } from "../contracts/events.js";
 import { runRouteAction } from "./actions/route.js";
 import { runPlanAction } from "./actions/plan.js";
 import { runSetupAction } from "./actions/setup.js";
@@ -225,6 +226,8 @@ export async function executeAction(
 }
 
 export function appendRunEvent(runDir: string, event: EngineEvent): void {
+  // Reject events that are not in the catalog; nothing is appended on failure.
+  parseEngineEvent(event);
   const eventsPath = path.join(runDir, "events.jsonl");
   fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
   fs.appendFileSync(eventsPath, JSON.stringify(event) + "\n", "utf8");

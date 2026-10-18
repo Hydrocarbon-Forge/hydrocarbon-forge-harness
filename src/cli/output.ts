@@ -23,12 +23,12 @@ class TextFormatter implements OutputFormatter {
   constructor(private readonly out: NodeJS.WriteStream) {}
 
   onEvent(event: EngineEvent): void {
-    if (event.type === "task.started") {
+    if (event.type === "task.session.started") {
       const data = (event.data ?? {}) as Record<string, any>;
-      this.out.write(`[Task ${data.task_id ?? ""}] started: ${data.title ?? ""}\n`);
-    } else if (event.type === "task.verified") {
+      this.out.write(`[Task ${data.task_id ?? ""}] started: ${data.session_id ?? ""}\n`);
+    } else if (event.type === "task.verify.finished") {
       const data = (event.data ?? {}) as Record<string, any>;
-      this.out.write(`[Task ${data.task_id ?? ""}] verified: ${data.verdict ?? "pass"}\n`);
+      this.out.write(`[Task ${data.task_id ?? ""}] verified: ${data.passed ? "pass" : "fail"}\n`);
     } else if (event.type === "batch.merged") {
       const data = (event.data ?? {}) as Record<string, any>;
       this.out.write(`[Batch ${data.batch_id ?? ""}] merged\n`);
