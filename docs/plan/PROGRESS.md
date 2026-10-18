@@ -2,14 +2,14 @@
 
 Update this file at the end of every work package: set the Status to DONE, write one line in Notes (what you ran to prove it), and commit it with the code. Statuses: TODO, DOING, DONE, BLOCKED. `scripts/check-*.mjs` read the Status column, so keep the table format exactly (five `|`-separated columns before Notes; do not put `|` inside a cell).
 
-Current WP: **R0.3**. Take the first TODO row whose dependencies are all DONE.
+Current WP: **R0.4**. Take the first TODO row whose dependencies are all DONE.
 
 | ID | Title | Size | Deps | Status | Notes |
 |---|---|---|---|---|---|
 | R0.1 | Tripwire scripts and npm run check | S | - | DONE | npm run check passed (purity, wired, events, settings, boundaries, docs: OK); allowlist entries: 18 purity, 19 wired, 21 events, 27 settings |
 | R0.7 | Remove the inert TUI scaffold | S | R0.1 | DONE | tests: 898 passed -> 822 passed (76 TUI tests removed); npm run check, typecheck, check:boundaries, test exit 0 |
 | R0.2 | Fake harness that edits files | M | R0.1 | DONE | vitest test/conformance test/integration/backends (91 passed); FAKE_SCENARIO_FILE=/nonexistent agy exit 3; typecheck, check, test all pass |
-| R0.3 | E2E driver and smoke test | M | R0.2 | TODO | |
+| R0.3 | E2E driver and smoke test | M | R0.2 | DONE | npx vitest run test/e2e passed (2 expected failures); failures on (a) expected 'one\n' to be 'one\ntwo\n', (b) expected 2 to be +0; bundle, typecheck, check, npm test exit 0 |
 | R0.4 | Split effects.ts | M | R0.1 | TODO | |
 | R0.5 | Remove fabrications and test hacks | M | R0.2 R0.4 | TODO | |
 | R0.6 | Dead-export analysis | M | R0.1 R0.7 | TODO | |
