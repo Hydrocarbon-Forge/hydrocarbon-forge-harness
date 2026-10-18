@@ -357,5 +357,522 @@
       "key": "sandbox.network",
       "until": "R1.6"
     }
+  ],
+  "dead": [
+    {
+      "symbol": "generateOpenCodeRunConfig",
+      "path": "src/backends/adapters/opencode.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "serializeNdjson",
+      "path": "src/backends/ndjson.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "normalizeAgyStream",
+      "path": "src/backends/normalize/agy.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "normalizeClaudeStream",
+      "path": "src/backends/normalize/claude.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "computeUsageRecord",
+      "path": "src/backends/pricing.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "terminateProcessGroup",
+      "path": "src/backends/process.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "agentsImportCommand",
+      "path": "src/cli/agents-import.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "runAgentsImport",
+      "path": "src/cli/agents-import.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "benchCommand",
+      "path": "src/cli/bench.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "agentsCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "backendsCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "CommandRegistry",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "configCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "costCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "createFormatter",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "discardCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "dispatchCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "doctorCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "initCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "mergeCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "modelsCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "parseCliArgs",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "planCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "readStdinIfAvailable",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "registry",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "reportCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "resumeCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "runCli",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "runCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "sessionsCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "statusCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "tasksCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "undoCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "verifyCommand",
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "dispatchCommand",
+      "path": "src/cli/registry.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "expandCommandTemplate",
+      "path": "src/config/commands.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "loadCommandDefinitions",
+      "path": "src/config/commands.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "resolveCommand",
+      "path": "src/config/commands.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "applyOverlay",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "discoverCommands",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "discoverSkills",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "evaluatePermission",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "evaluateWorkerPermission",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "matchPermissionRule",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "parsePermissionRule",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "formatSkillsForPlanner",
+      "path": "src/config/skills.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "loadSkillSummaries",
+      "path": "src/config/skills.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "readSkillBody",
+      "path": "src/config/skills.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "BackendEvent",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "Capabilities",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "Diagnostic",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "Engine",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "EngineEvent",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "EnvReport",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "HarnessAdapter",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "PauseReason",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "RunOptions",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "RunSummary",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "SessionHandle",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "SpawnRequest",
+      "path": "src/contracts/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "createEngine",
+      "path": "src/engine/engine.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "engine",
+      "path": "src/engine/engine.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "executeReplan",
+      "path": "src/engine/replan.ts",
+      "until": "R3.5"
+    },
+    {
+      "symbol": "resolveEscalationRoute",
+      "path": "src/engine/replan.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "detectOverlap",
+      "path": "src/engine/scheduler.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "scheduleNextTasks",
+      "path": "src/engine/scheduler.ts",
+      "until": "R3.2"
+    },
+    {
+      "symbol": "GitCommitter",
+      "path": "src/git/commit.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "batchIntegrationMerger",
+      "path": "src/git/merger.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "BatchIntegrationMerger",
+      "path": "src/git/merger.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "taskMerger",
+      "path": "src/git/merger.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "TaskMerger",
+      "path": "src/git/merger.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "GitScopeEnforcer",
+      "path": "src/git/scope.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "ScopeEnforcer",
+      "path": "src/git/scope.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "GitWorkspaceLifecycle",
+      "path": "src/git/workspace.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "GitWorkspaceManager",
+      "path": "src/git/workspace.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "WorkspaceLifecycle",
+      "path": "src/git/workspace.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "WorkspaceManager",
+      "path": "src/git/workspace.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "evaluateHookGate",
+      "path": "src/hooks/gate.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "createHookRunner",
+      "path": "src/hooks/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "executeHookCommand",
+      "path": "src/hooks/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "HookRunner",
+      "path": "src/hooks/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "HookRunnerImpl",
+      "path": "src/hooks/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "aggregateLedger",
+      "path": "src/ledger/index.ts",
+      "until": "R2.8"
+    },
+    {
+      "symbol": "validateGovernorTool",
+      "path": "src/roles/governor-tools.ts",
+      "until": "DEFERRED"
+    },
+    {
+      "symbol": "runGovernorSemanticLint",
+      "path": "src/roles/governor.ts",
+      "until": "DEFERRED"
+    },
+    {
+      "symbol": "runPlanner",
+      "path": "src/roles/planner.ts",
+      "until": "R3.1"
+    },
+    {
+      "symbol": "buildPlannerPrompt",
+      "path": "src/roles/prompts/planner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "buildReviewerPrompt",
+      "path": "src/roles/prompts/reviewer.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "buildTestWriterPrompt",
+      "path": "src/roles/prompts/test-writer.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "appendRouteOutcome",
+      "path": "src/roles/router.ts",
+      "until": "R2.9"
+    },
+    {
+      "symbol": "runWorker",
+      "path": "src/roles/worker.ts",
+      "until": "R3.3"
+    },
+    {
+      "symbol": "detectEcosystem",
+      "path": "src/spec/ecosystem.ts",
+      "until": "R3.8"
+    },
+    {
+      "symbol": "getDefaultVerify",
+      "path": "src/spec/ecosystem.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "loadPlan",
+      "path": "src/spec/parser.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "generateRepoMap",
+      "path": "src/spec/repomap.ts",
+      "until": "R3.1"
+    },
+    {
+      "symbol": "EventStoreImpl",
+      "path": "src/store/event-store.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "assertSafePath",
+      "path": "src/util/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "assertTaskId",
+      "path": "src/util/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "createRunId",
+      "path": "src/util/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "isRunId",
+      "path": "src/util/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "isTaskId",
+      "path": "src/util/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "verifyRunner",
+      "path": "src/verify/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "bwrapSandbox",
+      "path": "src/verify/sandbox.ts",
+      "until": "R5.3"
+    }
   ]
 }

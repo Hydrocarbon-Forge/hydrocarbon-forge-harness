@@ -16,6 +16,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "check:purity": "node scripts/check-purity.mjs",
     "check:wired": "node scripts/check-wired.mjs",
+    "check:dead": "node scripts/check-dead-exports.mjs",
     "check:events": "node scripts/check-events.mjs",
     "check:settings": "node scripts/check-settings.mjs",
     "check": "node scripts/check-all.mjs",

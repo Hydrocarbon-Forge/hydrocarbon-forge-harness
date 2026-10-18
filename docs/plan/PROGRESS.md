@@ -2,7 +2,7 @@
 
 Update this file at the end of every work package: set the Status to DONE, write one line in Notes (what you ran to prove it), and commit it with the code. Statuses: TODO, DOING, DONE, BLOCKED. `scripts/check-*.mjs` read the Status column, so keep the table format exactly (five `|`-separated columns before Notes; do not put `|` inside a cell).
 
-Current WP: **R0.6**. Take the first TODO row whose dependencies are all DONE.
+Current WP: **R1.1**. Take the first TODO row whose dependencies are all DONE.
 
 | ID | Title | Size | Deps | Status | Notes |
 |---|---|---|---|---|---|
@@ -12,7 +12,7 @@ Current WP: **R0.6**. Take the first TODO row whose dependencies are all DONE.
 | R0.3 | E2E driver and smoke test | M | R0.2 | DONE | npx vitest run test/e2e passed (2 expected failures); failures on (a) expected 'one\n' to be 'one\ntwo\n', (b) expected 2 to be +0; bundle, typecheck, check, npm test exit 0 |
 | R0.4 | Split effects.ts | M | R0.1 | DONE | SUBSTRATE_GOLDEN compare 18 passed; effects.ts 316 lines, max action 417 lines; 15 golden hashes matched; npm test, check, typecheck pass |
 | R0.5 | Remove fabrications and test hacks | M | R0.2 R0.4 | DONE | 15 scenario tests reworked to fakeClaudeAdapter; 4 it.fails markers (07: R3.4 budget, 08: R3.4 timeout, 10: R3.6 bisect, 14: R3.5 l2 amendment); golden files removed; typecheck, check, test exit 0 |
-| R0.6 | Dead-export analysis | M | R0.1 R0.7 | TODO | |
+| R0.6 | Dead-export analysis | M | R0.1 R0.7 | DONE | 103 dead symbols recorded (DEFERRED: 2, R2.8: 1, R2.9: 1, R3.1: 2, R3.2: 1, R3.3: 1, R3.5: 1, R3.8: 1, R5.3: 93); check:dead, check, typecheck, test/unit/scripts (31 passed) exit 0 |
 | R1.1 | Entry point, build and signals | M | R0.3 | TODO | |
 | R1.2 | Event catalog and typed emit | M | R0.4 R0.5 R0.6 | TODO | |
 | R1.3 | Status, tasks, report, summary and clean output | M | R1.2 | TODO | |

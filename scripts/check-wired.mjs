@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { findProjectRoot, listFiles, normalizeSlashes, importSpecifiers, resolveRelativeImport } from "./lib/scan.mjs";
 import { loadAllowlist, saveAllowlist, workPackageStatus, applyAllowlist } from "./lib/allowlist.mjs";
+import { analyzeDead } from "./check-dead-exports.mjs";
 
 /**
  * Builds the module-level import graph from src files and returns unreachable files.
@@ -122,7 +123,7 @@ function parseArgs(args) {
 export async function main() {
   try {
     const { root, allowlistFile, progressFile, entries, initAllowlist } = parseArgs(process.argv.slice(2));
-    const violations = scanWired(root, entries);
+    const wiredViolations = scanWired(root, entries);
 
     if (initAllowlist) {
       const data = loadAllowlist(allowlistFile);
@@ -132,7 +133,7 @@ export async function main() {
         entryMap.set(e.path, e);
       }
 
-      for (const v of violations) {
+      for (const v of wiredViolations) {
         const { path: allowPath, until } = assignUntil(v.path);
         if (!entryMap.has(allowPath)) {
           entryMap.set(allowPath, { path: allowPath, until });
@@ -147,10 +148,33 @@ export async function main() {
 
     const allowlist = loadAllowlist(allowlistFile);
     const status = workPackageStatus(progressFile);
-    const { remaining, problems } = applyAllowlist("wired", violations, allowlist, status);
+    const { remaining: remWired, problems: probWired } = applyAllowlist("wired", wiredViolations, allowlist, status);
+
+    let remDead = [];
+    let probDead = [];
+    if (allowlist.dead !== undefined) {
+      const deadSymbols = analyzeDead({ root, entries, excludeDirs: [] });
+      const deadViolations = deadSymbols.map((d) => ({
+        rule: "dead-export",
+        path: d.path,
+        line: d.line,
+        name: d.name,
+        symbol: d.name,
+      }));
+      const res = applyAllowlist("dead", deadViolations, allowlist, status);
+      remDead = res.remaining;
+      probDead = res.problems;
+    }
+
+    const remaining = [...remWired, ...remDead];
+    const problems = [...probWired, ...probDead];
 
     for (const v of remaining) {
-      console.log(`${v.rule} ${v.path}:${v.line} ${v.message}`);
+      if (v.rule === "UNREACHABLE") {
+        console.log(`${v.rule} ${v.path}:${v.line} ${v.message}`);
+      } else {
+        console.log(`${v.rule} ${v.path}:${v.line} ${v.name}`);
+      }
     }
     for (const p of problems) {
       const relAllow = normalizeSlashes(path.relative(root, allowlistFile));
