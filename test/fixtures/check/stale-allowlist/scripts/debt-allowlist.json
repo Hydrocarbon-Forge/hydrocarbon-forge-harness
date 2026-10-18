@@ -1,0 +1,29 @@
+{
+  "purity": [
+    {
+      "rule": "P1",
+      "path": "src/nonexistent.ts",
+      "until": "R2.2"
+    }
+  ],
+  "wired": [
+    {
+      "path": "src/nonexistent.ts",
+      "until": "R3.1"
+    }
+  ],
+  "events": [
+    {
+      "type": "nonexistent.event",
+      "kind": "consumed-not-emitted",
+      "until": "R1.2"
+    }
+  ],
+  "events_observe_only": [],
+  "settings": [
+    {
+      "key": "nonexistent.setting",
+      "until": "R1.6"
+    }
+  ]
+}

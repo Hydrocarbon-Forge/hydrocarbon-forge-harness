@@ -1,0 +1,390 @@
+{
+  "purity": [
+    {
+      "rule": "P8",
+      "path": "src/backends/adapters/agy.ts",
+      "until": "R2.5"
+    },
+    {
+      "rule": "P2",
+      "path": "src/backends/adapters/claude.ts",
+      "until": "R2.3"
+    },
+    {
+      "rule": "P9",
+      "path": "src/backends/adapters/opencode.ts",
+      "until": "R2.4"
+    },
+    {
+      "rule": "P2",
+      "path": "src/backends/normalize/opencode.ts",
+      "until": "R2.4"
+    },
+    {
+      "rule": "P1",
+      "path": "src/cli/commands/backends.ts",
+      "until": "R2.2"
+    },
+    {
+      "rule": "P8",
+      "path": "src/cli/commands/backends.ts",
+      "until": "R2.2"
+    },
+    {
+      "rule": "P2",
+      "path": "src/engine/effects.ts",
+      "until": "R0.5"
+    },
+    {
+      "rule": "P5",
+      "path": "src/engine/effects.ts",
+      "until": "R0.5"
+    },
+    {
+      "rule": "P7",
+      "path": "src/engine/effects.ts",
+      "until": "R0.5"
+    },
+    {
+      "rule": "P1",
+      "path": "src/engine/engine.ts",
+      "until": "R2.2"
+    },
+    {
+      "rule": "P2",
+      "path": "src/engine/engine.ts",
+      "until": "R0.5"
+    },
+    {
+      "rule": "P8",
+      "path": "src/engine/engine.ts",
+      "until": "R2.2"
+    },
+    {
+      "rule": "P6",
+      "path": "src/roles/governor.ts",
+      "until": "DEFERRED"
+    },
+    {
+      "rule": "P6",
+      "path": "src/roles/prompts/planner.ts",
+      "until": "R1.7"
+    },
+    {
+      "rule": "P6",
+      "path": "src/roles/prompts/replan.ts",
+      "until": "R1.7"
+    },
+    {
+      "rule": "P6",
+      "path": "src/roles/prompts/reviewer.ts",
+      "until": "R1.7"
+    },
+    {
+      "rule": "P6",
+      "path": "src/roles/prompts/test-writer.ts",
+      "until": "R1.7"
+    },
+    {
+      "rule": "P3",
+      "path": "src/spec/parser.ts",
+      "until": "R0.5"
+    }
+  ],
+  "wired": [
+    {
+      "path": "src/cli/agents-import.ts",
+      "until": "R1.8"
+    },
+    {
+      "path": "src/cli/bench.ts",
+      "until": "R1.8"
+    },
+    {
+      "path": "src/cli/flags.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/cli/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/config/commands.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/config/skills.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/engine/replan.ts",
+      "until": "R3.5"
+    },
+    {
+      "path": "src/engine/scheduler.ts",
+      "until": "R3.2"
+    },
+    {
+      "path": "src/hooks/gate.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/hooks/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/hooks/runner.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/hooks/types.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/roles/prompts/reviewer.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/roles/prompts/test-writer.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/roles/worker.ts",
+      "until": "R3.3"
+    },
+    {
+      "path": "src/store/event-store.ts",
+      "until": "R3.2"
+    },
+    {
+      "path": "src/store/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "path": "src/tui/**",
+      "until": "R0.7"
+    },
+    {
+      "path": "src/verify/index.ts",
+      "until": "R5.3"
+    }
+  ],
+  "events": [
+    {
+      "type": "batch.started",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "bisect.culprit",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "bisect.started",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "contracts.committed",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "governor.fallback",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "integration.failed",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "merge.conflict",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "plan.ready",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "plan.started",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "rate_limit.backoff",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "replan.l2",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "replan.started",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "run.budget.exceeded",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "run.budget.warning",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "run.state",
+      "kind": "consumed-not-emitted",
+      "until": "R1.2"
+    },
+    {
+      "type": "scope.checked",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "task.replanned",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "task.started",
+      "kind": "consumed-not-emitted",
+      "until": "R1.2"
+    },
+    {
+      "type": "task.verified",
+      "kind": "consumed-not-emitted",
+      "until": "R1.2"
+    },
+    {
+      "type": "tasks.invalidated",
+      "kind": "emitted-not-consumed",
+      "until": "R1.2"
+    },
+    {
+      "type": "usage",
+      "kind": "consumed-not-emitted",
+      "until": "R1.2"
+    }
+  ],
+  "events_observe_only": [],
+  "settings": [
+    {
+      "key": "backends.*.bin",
+      "until": "R2.2"
+    },
+    {
+      "key": "backends.*.extra",
+      "until": "R2.2"
+    },
+    {
+      "key": "backends.*.max_concurrency",
+      "until": "R2.2"
+    },
+    {
+      "key": "backends.*.version_pin",
+      "until": "R2.2"
+    },
+    {
+      "key": "budgets.run.max_tokens",
+      "until": "R1.6"
+    },
+    {
+      "key": "budgets.task.max_turns",
+      "until": "R1.6"
+    },
+    {
+      "key": "execution.strategy",
+      "until": "R1.6"
+    },
+    {
+      "key": "git.auto_merge",
+      "until": "R1.6"
+    },
+    {
+      "key": "git.branch_prefix",
+      "until": "R1.6"
+    },
+    {
+      "key": "instructions.workers",
+      "until": "R1.6"
+    },
+    {
+      "key": "permissions.ask",
+      "until": "R5.3"
+    },
+    {
+      "key": "pricing.asOf",
+      "until": "R5.3"
+    },
+    {
+      "key": "pricing.models.*.cache_read_per_mtok",
+      "until": "R5.3"
+    },
+    {
+      "key": "pricing.models.*.cache_write_per_mtok",
+      "until": "R5.3"
+    },
+    {
+      "key": "pricing.models.*.input_per_mtok",
+      "until": "R5.3"
+    },
+    {
+      "key": "pricing.models.*.output_per_mtok",
+      "until": "R5.3"
+    },
+    {
+      "key": "pricing.sources",
+      "until": "R5.3"
+    },
+    {
+      "key": "roles.governor.*",
+      "until": "DEFERRED"
+    },
+    {
+      "key": "roles.reviewer.backend",
+      "until": "R5.3"
+    },
+    {
+      "key": "roles.reviewer.effort",
+      "until": "R5.3"
+    },
+    {
+      "key": "roles.reviewer.enabled",
+      "until": "R5.3"
+    },
+    {
+      "key": "roles.reviewer.model",
+      "until": "R5.3"
+    },
+    {
+      "key": "routing.*.backend",
+      "until": "R5.3"
+    },
+    {
+      "key": "routing.*.budget.max_turns",
+      "until": "R5.3"
+    },
+    {
+      "key": "routing.*.effort",
+      "until": "R5.3"
+    },
+    {
+      "key": "routing.*.model",
+      "until": "R5.3"
+    },
+    {
+      "key": "sandbox.network",
+      "until": "R1.6"
+    }
+  ]
+}

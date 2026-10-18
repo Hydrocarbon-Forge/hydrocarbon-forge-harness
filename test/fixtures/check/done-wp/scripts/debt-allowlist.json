@@ -1,0 +1,29 @@
+{
+  "purity": [
+    {
+      "rule": "P2",
+      "path": "src/engine/engine.ts",
+      "until": "R0.1"
+    }
+  ],
+  "wired": [
+    {
+      "path": "src/unreachable.ts",
+      "until": "R0.1"
+    }
+  ],
+  "events": [
+    {
+      "type": "bad.consumed",
+      "kind": "consumed-not-emitted",
+      "until": "R0.1"
+    }
+  ],
+  "events_observe_only": [],
+  "settings": [
+    {
+      "key": "unread_setting",
+      "until": "R0.1"
+    }
+  ]
+}

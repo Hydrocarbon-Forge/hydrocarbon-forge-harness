@@ -2,11 +2,11 @@
 
 Update this file at the end of every work package: set the Status to DONE, write one line in Notes (what you ran to prove it), and commit it with the code. Statuses: TODO, DOING, DONE, BLOCKED. `scripts/check-*.mjs` read the Status column, so keep the table format exactly (five `|`-separated columns before Notes; do not put `|` inside a cell).
 
-Current WP: **R0.1** (first). Take the first TODO row whose dependencies are all DONE.
+Current WP: **R0.7** (first). Take the first TODO row whose dependencies are all DONE.
 
 | ID | Title | Size | Deps | Status | Notes |
 |---|---|---|---|---|---|
-| R0.1 | Tripwire scripts and npm run check | S | - | TODO | |
+| R0.1 | Tripwire scripts and npm run check | S | - | DONE | npm run check passed (purity, wired, events, settings, boundaries, docs: OK); allowlist entries: 18 purity, 19 wired, 21 events, 27 settings |
 | R0.7 | Remove the inert TUI scaffold | S | R0.1 | TODO | |
 | R0.2 | Fake harness that edits files | M | R0.1 | TODO | |
 | R0.3 | E2E driver and smoke test | M | R0.2 | TODO | |
