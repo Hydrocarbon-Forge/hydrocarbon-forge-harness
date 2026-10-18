@@ -8,7 +8,7 @@ import type { UsageTotals } from "../../ledger/usage.js";
 import { toDelta } from "../../ledger/usage.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { bindAbort } from "./shared.js";
+import { bindAbort, adapterFor } from "./shared.js";
 
 export async function runSoloTask(
   action: EngineAction,
@@ -17,7 +17,15 @@ export async function runSoloTask(
   emit: Emit
 ): Promise<void> {
   const worker = ctx.settings.roles.worker!;
+  const workerBackend = worker.backend;
   const workerModel = worker.model;
+
+  const adapter = adapterFor(ctx, workerBackend);
+  if (!adapter) {
+    emit("run.paused", { reason: "backend_unavailable" });
+    return;
+  }
+
   const sessionId = crypto.randomUUID();
   emit("task.session.started", {
     task_id: "solo",
@@ -42,7 +50,7 @@ export async function runSoloTask(
     },
   };
 
-  const handle = ctx.adapter.spawn(spawnReq);
+  const handle = adapter.spawn(spawnReq);
   const unbind = bindAbort(ctx, handle);
   let res: any;
   // Cumulative usage conversion per session (R1.4).

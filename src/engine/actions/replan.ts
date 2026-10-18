@@ -14,7 +14,7 @@ import type { EngineState } from "../reducer.js";
 import type { UsageTotals } from "../../ledger/usage.js";
 import { toDelta } from "../../ledger/usage.js";
 import type { Emit } from "./shared.js";
-import { safeParseManifest, bindAbort } from "./shared.js";
+import { safeParseManifest, bindAbort, adapterFor } from "./shared.js";
 import { evaluateEscalation } from "../ladder.js";
 import { buildFailurePacket } from "../packet.js";
 import { getRunBranch, workspaceLifecycle } from "../../git/index.js";
@@ -123,7 +123,14 @@ export async function runReplanAction(
       },
     };
 
-    const handle = ctx.adapter.spawn(spawnReq);
+    const route = escalation.route;
+    const adapter = adapterFor(ctx, route.backend);
+    if (!adapter) {
+      emit("run.paused", { reason: "backend_unavailable" });
+      return;
+    }
+
+    const handle = adapter.spawn(spawnReq);
     const unbind = bindAbort(ctx, handle);
     let res: any;
     // Cumulative usage conversion per planner session (R1.4).
@@ -216,7 +223,14 @@ export async function runReplanAction(
       },
     };
 
-    const handle = ctx.adapter.spawn(spawnReq);
+    const route = ctx.settings.roles.planner;
+    const adapter = adapterFor(ctx, route.backend);
+    if (!adapter) {
+      emit("run.paused", { reason: "backend_unavailable" });
+      return;
+    }
+
+    const handle = adapter.spawn(spawnReq);
     const unbind = bindAbort(ctx, handle);
     let res: any;
     // Cumulative usage conversion per planner session (R1.4).

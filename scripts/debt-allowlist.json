@@ -21,26 +21,6 @@
       "until": "R2.4"
     },
     {
-      "rule": "P1",
-      "path": "src/cli/commands/backends.ts",
-      "until": "R2.2"
-    },
-    {
-      "rule": "P8",
-      "path": "src/cli/commands/backends.ts",
-      "until": "R2.2"
-    },
-    {
-      "rule": "P1",
-      "path": "src/engine/engine.ts",
-      "until": "R2.2"
-    },
-    {
-      "rule": "P8",
-      "path": "src/engine/engine.ts",
-      "until": "R2.2"
-    },
-    {
       "rule": "P6",
       "path": "src/roles/governor.ts",
       "until": "DEFERRED"
@@ -134,22 +114,6 @@
   ],
   "settings": [
     {
-      "key": "backends.*.bin",
-      "until": "R2.2"
-    },
-    {
-      "key": "backends.*.extra",
-      "until": "R2.2"
-    },
-    {
-      "key": "backends.*.max_concurrency",
-      "until": "R2.2"
-    },
-    {
-      "key": "backends.*.version_pin",
-      "until": "R2.2"
-    },
-    {
       "key": "budgets.run.max_tokens",
       "until": "DEFERRED"
     },
@@ -214,10 +178,6 @@
       "until": "R5.3"
     },
     {
-      "key": "roles.worker.backend",
-      "until": "R2.2"
-    },
-    {
       "key": "roles.worker.effort",
       "until": "R5.3"
     },
@@ -267,11 +227,6 @@
       "symbol": "computeUsageRecord",
       "path": "src/backends/pricing.ts",
       "until": "R5.3"
-    },
-    {
-      "symbol": "pricingTableFor",
-      "path": "src/backends/pricing.ts",
-      "until": "R2.2"
     },
     {
       "symbol": "terminateProcessGroup",

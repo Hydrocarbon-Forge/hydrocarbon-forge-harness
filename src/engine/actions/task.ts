@@ -10,7 +10,7 @@ import type { UsageTotals } from "../../ledger/usage.js";
 import { toDelta } from "../../ledger/usage.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { safeParseManifest, bindAbort } from "./shared.js";
+import { safeParseManifest, bindAbort, adapterFor } from "./shared.js";
 import { runSoloTask } from "./solo.js";
 import { parseTaskSpec } from "../../spec/index.js";
 import { buildWorkerPrompt } from "../../roles/prompts/worker.js";
@@ -133,6 +133,12 @@ export async function runTaskAction(
     },
   };
 
+  const adapter = adapterFor(ctx, route.backend);
+  if (!adapter) {
+    emit("run.paused", { reason: "backend_unavailable" });
+    return;
+  }
+
   const effectiveSessionId = isHeal
     ? (taskState.session_id ?? sessionId)
     : sessionId;
@@ -144,7 +150,7 @@ export async function runTaskAction(
     session_id: effectiveSessionId,
   });
 
-  const handle = ctx.adapter.spawn(spawnReq);
+  const handle = adapter.spawn(spawnReq);
   const unbind = bindAbort(ctx, handle);
   let actualSessionId = effectiveSessionId;
 

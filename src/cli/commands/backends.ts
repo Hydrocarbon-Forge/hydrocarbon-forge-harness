@@ -1,9 +1,6 @@
 import type { Effort, Engine, EnvReport, HarnessAdapter, PermissionMode } from "../../contracts/index.js";
-import { ClaudeAdapter } from "../../backends/adapters/claude.js";
-import { OpenCodeAdapter } from "../../backends/adapters/opencode.js";
-import { AgyAdapter } from "../../backends/adapters/agy.js";
-import { FakeAdapter } from "../../../test/conformance/fake-adapter.js";
-import { DEFAULT_SETTINGS } from "../../config/index.js";
+import { createAdapters } from "../../backends/registry.js";
+import { loadSettings } from "../../config/index.js";
 import type { SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -56,11 +53,15 @@ export const backendsCommand: CliCommand = {
   name: "backends",
   description: "Display supported harness adapters, version pins, and environment status",
   async execute(ctx: CommandContext): Promise<number> {
+    const settings = await loadSettings({
+      projectDir: ctx.cwd,
+      settingsFile: ctx.flags.settings,
+    });
+    const created = createAdapters(settings);
     const adapters: Array<{ name: string; adapter: HarnessAdapter }> = [
-      { name: "claude", adapter: new ClaudeAdapter() },
-      { name: "opencode", adapter: new OpenCodeAdapter() },
-      { name: "agy", adapter: new AgyAdapter({ pricing: DEFAULT_SETTINGS.pricing }) },
-      { name: "fake", adapter: new FakeAdapter() },
+      { name: "claude", adapter: created.claude },
+      { name: "opencode", adapter: created.opencode },
+      { name: "agy", adapter: created.agy },
     ];
 
     const rows: Array<{

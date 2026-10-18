@@ -10,6 +10,7 @@ import type {
   Settings,
   TaskId,
 } from "../contracts/index.js";
+import type { AdapterMap } from "../backends/registry.js";
 import { type EngineState, reduce } from "./reducer.js";
 import { log } from "../util/log.js";
 import { makeEmitter } from "./emit.js";
@@ -54,7 +55,7 @@ export interface EffectContext {
   repoRoot: string;
   runDir: string;
   settings: Settings;
-  adapter: HarnessAdapter;
+  adapters: AdapterMap;
   signal?: AbortSignal;
   onEvent?: (event: EngineEvent) => void;
   prompt?: string;

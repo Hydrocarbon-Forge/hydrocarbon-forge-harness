@@ -16,8 +16,7 @@ import type {
   TaskId,
 } from "../contracts/index.js";
 import { DEFAULT_SETTINGS } from "../config/index.js";
-import { FakeAdapter } from "../../test/conformance/fake-adapter.js";
-import { ClaudeAdapter } from "../backends/adapters/claude.js";
+import { createAdapters, type AdapterMap } from "../backends/registry.js";
 import { type EngineState, reduce } from "./reducer.js";
 import {
   type EffectContext,
@@ -33,6 +32,7 @@ import { log } from "../util/log.js";
 export interface EngineOptions {
   settings?: Settings;
   adapter?: HarnessAdapter;
+  adapters?: AdapterMap;
 }
 
 function generateRunId(): RunId {
@@ -90,10 +90,18 @@ export class EngineImpl implements Engine {
       opts.overrides ?? {},
     );
 
-    const claudeBin = (settings.backends as any)?.claude?.bin;
-    const adapter: HarnessAdapter =
-      this.options.adapter ??
-      (claudeBin ? new ClaudeAdapter({ bin: claudeBin }) : new FakeAdapter());
+    const defaultAdapters = this.options.adapter
+      ? {
+          claude: this.options.adapter,
+          opencode: this.options.adapter,
+          agy: this.options.adapter,
+        }
+      : createAdapters(settings);
+
+    const adapters: AdapterMap = {
+      ...defaultAdapters,
+      ...this.options.adapters,
+    };
 
     const runsDir = path.join(repoRoot, ".substrate", "runs");
     const candidateId = findExistingUnstartedRun(runsDir);
@@ -119,7 +127,7 @@ export class EngineImpl implements Engine {
       repoRoot,
       runDir,
       settings,
-      adapter,
+      adapters,
       signal: opts.signal,
       onEvent: opts.onEvent,
       prompt: opts.prompt,
@@ -230,10 +238,18 @@ export class EngineImpl implements Engine {
       opts?.overrides ?? {},
     );
 
-    const claudeBin = (settings.backends as any)?.claude?.bin;
-    const adapter: HarnessAdapter =
-      this.options.adapter ??
-      (claudeBin ? new ClaudeAdapter({ bin: claudeBin }) : new FakeAdapter());
+    const defaultAdapters = this.options.adapter
+      ? {
+          claude: this.options.adapter,
+          opencode: this.options.adapter,
+          agy: this.options.adapter,
+        }
+      : createAdapters(settings);
+
+    const adapters: AdapterMap = {
+      ...defaultAdapters,
+      ...this.options.adapters,
+    };
 
     const lock = new RunLockImpl(runId, { baseDir: repoRoot });
     const acquired = await lock.acquire();
@@ -254,7 +270,7 @@ export class EngineImpl implements Engine {
       repoRoot,
       runDir,
       settings,
-      adapter,
+      adapters,
       signal: opts?.signal,
       onEvent: opts?.onEvent,
       prompt: opts?.prompt,

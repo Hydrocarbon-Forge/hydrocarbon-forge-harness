@@ -2,7 +2,7 @@
 
 Update this file at the end of every work package: set the Status to DONE, write one line in Notes (what you ran to prove it), and commit it with the code. Statuses: TODO, DOING, DONE, BLOCKED. `scripts/check-*.mjs` read the Status column, so keep the table format exactly (five `|`-separated columns before Notes; do not put `|` inside a cell).
 
-Current WP: **R2.2**. Take the first TODO row whose dependencies are all DONE.
+Current WP: **R2.3**. Take the first TODO row whose dependencies are all DONE.
 
 | ID | Title | Size | Deps | Status | Notes |
 |---|---|---|---|---|---|
@@ -22,7 +22,7 @@ Current WP: **R2.2**. Take the first TODO row whose dependencies are all DONE.
 | R1.7 | Prompt loader and renderer | M | R0.1 | DONE | npm test 1079 passed (1 live smoke skipped); grep "You are" src/roles/prompts prints nothing; npm run typecheck and npm run check exit 0; npm run bundle then node dist/substrate.mjs agents lists the 5 built-in roles (planner, worker, test-writer, reviewer, governor), exit 0. Deviations: test/integration/cli/commands.test.ts agents block updated to the new spec (five role files listed; project override wins) per the R1.2-R1.5 stale-test precedent; test/integration/roles/planner.test.ts omitted-skills case changed from section-omitted to section rendered as (none), same precedent; the four P6 debt-allowlist entries deleted per Done-when #5; dead allowlist entry added for loadAgentDefinitions (until R5.3) because the agents command now reads listAgents and the config export became test-only (check-wired flags dead symbols) |
 | R1.8 | Run-control flags and unregistered commands | M | R1.6 | DONE | node dist/substrate.mjs bench --help (exit 0) and agents import --help (exit 0) print usage; grep worktree in dispatcher and -w/--worktree in README/cli.md print nothing; flags and run-control tests (35 passed), npm test (1100 passed), typecheck and check exit 0 |
 | R2.1 | Price table and unknown-cost policy | M | R1.4 | DONE | test/unit/backends/pricing.test.ts, normalize-agy.test.ts, normalize-claude.test.ts, normalize-opencode.test.ts pass (96 tests in backends+ledger); typecheck, check, npm test (1110 passed, 1 skipped) exit 0 |
-| R2.2 | Adapter registry; FakeAdapter leaves src | M | R0.3 R1.5 | TODO | |
+| R2.2 | Adapter registry; FakeAdapter leaves src | M | R0.3 R1.5 | DONE | git grep fake-adapter src and git grep ctx.adapter src print nothing; vitest test/e2e/adapters.test.ts passed; typecheck, bundle, check, npm test (1111 passed) exit 0 |
 | R2.3 | Claude adapter correctness | M | R2.2 R1.7 | TODO | |
 | R2.4 | OpenCode adapter correctness | M | R2.2 R1.7 | TODO | |
 | R2.5 | agy adapter correctness | M | R2.2 R2.1 R1.7 | TODO | |

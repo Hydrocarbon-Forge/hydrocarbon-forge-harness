@@ -40,10 +40,12 @@ import type {
 } from "../../../src/engine/reducer.js";
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
 import { FakeAdapter } from "../../conformance/fake-adapter.js";
+import type { AdapterMap } from "../../../src/backends/registry.js";
 
 export interface EngineOptions {
   settings?: Settings;
   adapter?: HarnessAdapter;
+  adapters?: AdapterMap;
 }
 
 export type EngineActionType =
@@ -71,7 +73,7 @@ export interface EffectContext {
   repoRoot: string;
   runDir: string;
   settings: Settings;
-  adapter: HarnessAdapter;
+  adapters: AdapterMap;
   signal?: AbortSignal;
   onEvent?: (event: EngineEvent) => void;
 }

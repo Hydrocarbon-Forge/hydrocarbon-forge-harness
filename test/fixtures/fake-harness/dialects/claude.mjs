@@ -13,6 +13,11 @@ const UUID_REGEX =
  * @returns {Promise<number>}
  */
 export async function runDialect(argv, env) {
+  const argvLog = env.FAKE_ARGV_LOG || process.env.FAKE_ARGV_LOG;
+  if (argvLog) {
+    fs.appendFileSync(argvLog, JSON.stringify({ argv }) + "\n", "utf8");
+  }
+
   if (argv.includes("--version")) {
     process.stdout.write("2.1.301\n");
     return 0;

@@ -2,7 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 
-import type { EngineEvent, Manifest, SessionHandle, TaskId } from "../../contracts/index.js";
+import type {
+  BackendName,
+  EngineEvent,
+  HarnessAdapter,
+  Manifest,
+  SessionHandle,
+  TaskId,
+} from "../../contracts/index.js";
 import type { EngineState } from "../reducer.js";
 import { appendRunEvent, type EffectContext } from "../effects.js";
 import type { TypedEmit } from "../emit.js";
@@ -136,5 +143,13 @@ export function bindAbort(ctx: EffectContext, handle: SessionHandle): () => void
   return () => {
     ctx.signal?.removeEventListener("abort", onAbort);
   };
+}
+
+export function adapterFor(
+  ctx: EffectContext,
+  backend: BackendName
+): HarnessAdapter | null {
+  const { adapters } = ctx;
+  return (backend ? adapters[backend] : undefined) ?? null;
 }
 

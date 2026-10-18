@@ -17,6 +17,7 @@ import {
   safeLoadPlan,
   extractFencedFiles,
   bindAbort,
+  adapterFor,
   type Emit,
 } from "./shared.js";
 import { log } from "../../util/log.js";
@@ -177,7 +178,14 @@ export async function runPlanAction(
       },
     };
 
-    const handle = ctx.adapter.spawn(spawnReq);
+    const route = ctx.settings.roles.planner;
+    const adapter = adapterFor(ctx, route.backend);
+    if (!adapter) {
+      emit("run.paused", { reason: "backend_unavailable" });
+      return;
+    }
+
+    const handle = adapter.spawn(spawnReq);
     const unbind = bindAbort(ctx, handle);
     let res: any;
     // Cumulative usage conversion per planner session (R1.4).
