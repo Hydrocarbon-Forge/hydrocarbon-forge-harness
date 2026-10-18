@@ -141,7 +141,7 @@ describe("Planner Runner (src/roles/planner.ts)", () => {
       expect(result.plan.manifest.run_id).toBe(runId);
     });
 
-    it("includes skillsList in user prompt when provided, and omits skills section when omitted", async () => {
+    it("includes skillsList in user prompt when provided, and renders (none) when omitted", async () => {
       const runId = makeRunId();
       let promptWithSkills = "";
 
@@ -187,7 +187,8 @@ describe("Planner Runner (src/roles/planner.ts)", () => {
           adapter: adapterWithoutSkills,
         });
 
-        expect(promptWithoutSkills).not.toContain("## Skills");
+        // R1.7: the template always renders the section; absent values render as (none).
+        expect(promptWithoutSkills).toContain("## Skills\n(none)");
       } finally {
         rmSync(runDir2, { recursive: true, force: true });
       }

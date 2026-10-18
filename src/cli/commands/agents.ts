@@ -1,5 +1,5 @@
 import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
-import { loadAgentDefinitions } from "../../config/index.js";
+import { listAgents } from "../../prompts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -51,26 +51,12 @@ const { registry } = await import(`../registry.js`);
 
 export const agentsCommand: CliCommand = {
   name: "agents",
-  description: "Display defined agents and their configurations",
+  description: "List agent prompt sources (project, user, built-in)",
   async execute(ctx: CommandContext): Promise<number> {
-    const { agents, errors } = await loadAgentDefinitions({
-      projectDir: ctx.cwd,
-    });
-
-    if (errors.length > 0) {
-      for (const err of errors) {
-        ctx.stderr.write(`Warning in ${err.file ?? "agent"}: ${err.message}\n`);
-      }
-    }
-
-    ctx.stdout.write(`=== Configured Agents ===\n\n`);
-    ctx.stdout.write(`Name\t\tRole\tModel\t\tDescription\n`);
-    ctx.stdout.write(`----------------------------------------------------------------\n`);
-
+    const agents = listAgents({ projectRoot: ctx.cwd });
     for (const a of agents) {
-      ctx.stdout.write(`${a.name}\t${a.role}\t${a.model ?? "-"}\t${a.description}\n`);
+      ctx.stdout.write(`${a.role} ${a.source} ${a.path}\n`);
     }
-
     return 0;
   },
 };

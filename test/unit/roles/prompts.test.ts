@@ -1,162 +1,125 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import * as Contracts from "../../../src/contracts/index.js";
+import type * as Contracts from "../../../src/contracts/index.js";
+import {
+  buildPlannerPrompt,
+  type PlannerPromptOptions,
+} from "../../../src/roles/prompts/planner.js";
+import { buildWorkerPrompt } from "../../../src/roles/prompts/worker.js";
+import {
+  buildTestWriterPrompt,
+  type TestWriterPromptOptions,
+} from "../../../src/roles/prompts/test-writer.js";
+import { buildReplanPrompt } from "../../../src/roles/prompts/replan.js";
+import { buildReviewerPrompt } from "../../../src/roles/prompts/reviewer.js";
 
-// Import prompt builders using typed dynamic import for compilation safety
-export interface PlannerPromptOptions {
-  request: string;
-  repoMap: string;
-  instructionFiles?: string[];
-  skillsList?: Array<{ name: string; description: string }>;
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** Body of assets/agents/<file> with its leading YAML frontmatter removed. */
+function assetAgentBody(file: string): string {
+  const text = readFileSync(join(REPO_ROOT, "assets", "agents", file), "utf8");
+  const lines = text.split("\n");
+  if (lines[0] !== "---") {
+    return text.trim();
+  }
+  const end = lines.indexOf("---", 1);
+  return (end === -1 ? text : lines.slice(end + 1).join("\n")).trim();
 }
 
-export interface TestWriterPromptOptions {
-  specContent: string;
-  contractStubs: Array<{ path: string; content: string }>;
+function assetFirstLine(file: string): string {
+  return readFileSync(
+    join(REPO_ROOT, "assets", "prompts", file),
+    "utf8",
+  )
+    .split("\n")[0]
+    .trim();
 }
 
-const { buildPlannerPrompt } = (await import(
-  "../../../src/roles/prompts/planner.js" as any
-)) as {
-  buildPlannerPrompt: (opts: PlannerPromptOptions) => { system: string; user: string };
-};
+describe("Role prompt builders (src/roles/prompts/**)", () => {
+  describe("Worker prompt (buildWorkerPrompt)", () => {
+    it("renders the absolute spec path into the user prompt", () => {
+      const prompt = buildWorkerPrompt("/abs/spec.md");
+      expect(prompt.user).toContain("/abs/spec.md");
+      expect(prompt.user).not.toContain("{{");
+    });
 
-const { buildWorkerPrompt } = (await import(
-  "../../../src/roles/prompts/worker.js" as any
-)) as {
-  buildWorkerPrompt: (specAbsPath: string) => { system: string; user: string };
-};
+    it("assembles a system prompt from assets, not from code", () => {
+      const prompt = buildWorkerPrompt("/abs/spec.md");
+      expect(prompt.system.length).toBeGreaterThan(0);
+      expect(prompt.system).not.toContain("{{");
+      // The worker agent body never carries the "You are the Substrate ..."
+      // literal that the other role bodies do.
+      expect(prompt.system).not.toContain("You are the Substrate");
+      expect(prompt.system).toContain(assetAgentBody("worker.md").split("\n")[0]);
+    });
 
-const { buildTestWriterPrompt } = (await import(
-  "../../../src/roles/prompts/test-writer.js" as any
-)) as {
-  buildTestWriterPrompt: (opts: TestWriterPromptOptions) => { system: string; user: string };
-};
+    it("throws when the spec path is relative or empty", () => {
+      expect(() => buildWorkerPrompt("tasks/T1.md")).toThrow(/absolute/i);
+      expect(() => buildWorkerPrompt("./tasks/T1.md")).toThrow(/absolute/i);
+      expect(() => buildWorkerPrompt("../tasks/T1.md")).toThrow(/absolute/i);
+      expect(() => buildWorkerPrompt("")).toThrow(/absolute/i);
+    });
+  });
 
-const { buildReviewerPrompt } = (await import(
-  "../../../src/roles/prompts/reviewer.js" as any
-)) as {
-  buildReviewerPrompt: (diff: string, contracts: string[]) => { system: string; user: string };
-};
-
-const { buildReplanPrompt } = (await import(
-  "../../../src/roles/prompts/replan.js" as any
-)) as {
-  buildReplanPrompt: (
-    packet: Contracts.FailurePacket,
-    decisionsLog?: string,
-  ) => { system: string; user: string };
-};
-
-describe("Role Prompt Builders (src/roles/prompts/**)", () => {
-  describe("Planner Prompt (buildPlannerPrompt)", () => {
+  describe("Planner prompt (buildPlannerPrompt)", () => {
     const baseOpts: PlannerPromptOptions = {
       request: "Add user profile settings endpoint",
       repoMap: "src/\n  index.ts\n  users.ts",
     };
 
-    it("generates system and user prompts with request and structural repo map", () => {
+    it("renders the request and repo map into the user prompt", () => {
       const prompt = buildPlannerPrompt(baseOpts);
-
-      expect(prompt).toHaveProperty("system");
-      expect(prompt).toHaveProperty("user");
       expect(prompt.user).toContain(baseOpts.request);
       expect(prompt.user).toContain("src/\n  index.ts\n  users.ts");
+      expect(prompt.user).not.toContain("{{");
     });
 
-    it("enforces progressive disclosure of skills: discloses ONLY skill names and descriptions", () => {
-      const skills = [
-        { name: "git-commit-helper", description: "Formats git commits" },
-        { name: "test-runner", description: "Runs vitest suites" },
-      ];
-      const withSkills = buildPlannerPrompt({ ...baseOpts, skillsList: skills });
-
-      expect(withSkills.user).toContain("git-commit-helper");
-      expect(withSkills.user).toContain("Formats git commits");
-      expect(withSkills.user).toContain("test-runner");
-      expect(withSkills.user).toContain("Runs vitest suites");
-
-      const withoutSkills = buildPlannerPrompt({ ...baseOpts, skillsList: undefined });
-      expect(withoutSkills.user).not.toContain("git-commit-helper");
-      expect(withoutSkills.user).not.toContain("Skills:");
+    it("renders variables the caller does not have as (none)", () => {
+      const prompt = buildPlannerPrompt(baseOpts);
+      expect(prompt.user).toContain("- run_id: (none)");
+      expect(prompt.user).toContain("- base_ref: (none)");
     });
 
-    it("includes instruction files when provided, omits section when absent", () => {
-      const instructions = ["docs/architecture.md", ".substrate/instructions.md"];
+    it("renders instruction files as '- ' lines and omits them when absent", () => {
       const withInstructions = buildPlannerPrompt({
         ...baseOpts,
-        instructionFiles: instructions,
+        instructionFiles: ["docs/architecture.md", ".substrate/instructions.md"],
       });
-
-      expect(withInstructions.user).toContain("docs/architecture.md");
-      expect(withInstructions.user).toContain(".substrate/instructions.md");
+      expect(withInstructions.user).toContain("- docs/architecture.md");
+      expect(withInstructions.user).toContain("- .substrate/instructions.md");
 
       const withoutInstructions = buildPlannerPrompt(baseOpts);
       expect(withoutInstructions.user).not.toContain("docs/architecture.md");
     });
 
-    it("emits placeholder when repoMap is empty", () => {
-      const prompt = buildPlannerPrompt({ ...baseOpts, repoMap: "" });
-      expect(prompt.user).toMatch(/empty|no files/i);
+    it("renders skills as '- ' lines with name and description", () => {
+      const withSkills = buildPlannerPrompt({
+        ...baseOpts,
+        skillsList: [
+          { name: "git-commit-helper", description: "Formats git commits" },
+        ],
+      });
+      expect(withSkills.user).toContain("- git-commit-helper: Formats git commits");
+
+      const withoutSkills = buildPlannerPrompt(baseOpts);
+      expect(withoutSkills.user).not.toContain("git-commit-helper");
     });
 
-    it("body directs authoring manifest.yaml, task specs with required headings, and contract stubs", () => {
+    it("assembles the system prompt from the planner agent body and the format reference", () => {
       const prompt = buildPlannerPrompt(baseOpts);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toMatch(/manifest\.yaml/);
-      expect(combined).toMatch(/Objective/);
-      expect(combined).toMatch(/Interface/);
-      expect(combined).toMatch(/Behavior/);
-      expect(combined).toMatch(/Invariants/);
-      expect(combined).toMatch(/Edge cases/);
-      expect(combined).toMatch(/Guardrails/);
-      expect(combined).toMatch(/Out of scope/);
-    });
-
-    it("strictly forbids implementation bodies in planner output", () => {
-      const prompt = buildPlannerPrompt(baseOpts);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toMatch(/forbid(den)?.*implementation/i);
+      expect(prompt.system).not.toContain("{{");
+      expect(prompt.system).toContain("manifest.yaml");
+      expect(prompt.system).toContain(assetAgentBody("planner.md").split("\n")[0]);
+      expect(prompt.system).toContain(assetFirstLine("planner/format.md"));
     });
   });
 
-  describe("Worker Prompt (buildWorkerPrompt)", () => {
-    it("returns exact canonical one-sentence prompt (§7)", () => {
-      const absPath = "/home/user/project/.substrate/runs/r_234567890123/tasks/T1.md";
-      const expectedSentence = `Execute the task spec at ${absPath}. Work only in the current directory. Do not run git commit/push/checkout/reset. Reply with one line: DONE or BLOCKED: <reason>.`;
-
-      const prompt = buildWorkerPrompt(absPath);
-      expect(prompt.user.trim()).toBe(expectedSentence);
-    });
-
-    it("throws error when specAbsPath is relative or unsafe", () => {
-      expect(() => buildWorkerPrompt("tasks/T1.md")).toThrow(/absolute/i);
-      expect(() => buildWorkerPrompt("./tasks/T1.md")).toThrow(/absolute/i);
-      expect(() => buildWorkerPrompt("../tasks/T1.md")).toThrow(/absolute/i);
-      expect(() => buildWorkerPrompt("")).toThrow();
-    });
-  });
-
-  describe("Test-Writer Prompt (buildTestWriterPrompt)", () => {
+  describe("Test-writer prompt (buildTestWriterPrompt)", () => {
     const validOpts: TestWriterPromptOptions = {
-      specContent: `---
-id: T1
-title: Auth login
-class: feature
-depends_on: []
-read: []
-write: ["src/auth.ts"]
-create: ["test/auth.test.ts"]
-protected: []
-verify:
-  - run: "npm test -- test/auth.test.ts"
-    timeout_s: 30
----
-## Objective
-Implement auth login function.
-`,
+      specContent: "## Objective\nImplement auth login function.\n",
       contractStubs: [
         {
           path: "src/auth.ts",
@@ -165,64 +128,54 @@ Implement auth login function.
       ],
     };
 
-    it("formats prompt with acceptance criteria from verify section and stub declarations", () => {
+    it("renders the task template with no placeholders left and empty variables as (none)", () => {
       const prompt = buildTestWriterPrompt(validOpts);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toContain("npm test -- test/auth.test.ts");
-      expect(combined).toContain("export declare function login");
-      expect(combined).toContain("src/auth.ts");
+      expect(prompt.user).not.toContain("{{");
+      expect(prompt.user).toContain("(none)");
     });
 
-    it("instructs test-writer to create new test files only and forbids modifying application source code", () => {
+    it("assembles the system prompt from the worker and test-writer agent bodies", () => {
       const prompt = buildTestWriterPrompt(validOpts);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toMatch(/test files only|create tests/i);
-      expect(combined).toMatch(/forbid|never modify.*application|source code/i);
+      expect(prompt.system).not.toContain("{{");
+      expect(prompt.system).toContain(assetAgentBody("worker.md").split("\n")[0]);
+      expect(prompt.system).toContain(assetAgentBody("test-writer.md").split("\n")[0]);
     });
 
-    it("throws error when specContent or contractStubs are missing or empty", () => {
+    it("throws when specContent is missing or empty", () => {
       expect(() =>
         buildTestWriterPrompt({ ...validOpts, specContent: "" }),
       ).toThrow(/missing.*spec/i);
+      expect(() =>
+        buildTestWriterPrompt({ ...validOpts, specContent: "   " }),
+      ).toThrow(/missing.*spec/i);
+    });
 
+    it("throws when contractStubs are empty", () => {
       expect(() =>
         buildTestWriterPrompt({ ...validOpts, contractStubs: [] }),
       ).toThrow(/missing.*contract/i);
     });
   });
 
-  describe("Reviewer Prompt (buildReviewerPrompt)", () => {
-    it("constructs prompt containing diff statistics, patch lines, and contract expectations", () => {
-      const diff = `--- a/src/user.ts
-+++ b/src/user.ts
-@@ -1,2 +1,3 @@
- export function getUser() {
-+  return { id: 1, name: "Alice" };
- }`;
-      const contracts = ["src/contracts/user.ts"];
-
-      const prompt = buildReviewerPrompt(diff, contracts);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toContain(diff);
-      expect(combined).toContain("src/contracts/user.ts");
-      expect(combined).toMatch(/verify|review/i);
-      expect(combined).toMatch(/invariant|scope/i);
+  describe("Reviewer prompt (buildReviewerPrompt)", () => {
+    it("renders the diff and contract files into the user prompt", () => {
+      const prompt = buildReviewerPrompt("diff-text", ["contracts/a.ts"]);
+      expect(prompt.user).toContain("diff-text");
+      expect(prompt.user).toContain("- contracts/a.ts");
+      expect(prompt.user).not.toContain("{{");
+      expect(prompt.system).not.toContain("{{");
+      expect(prompt.system).toContain(assetAgentBody("reviewer.md").split("\n")[0]);
     });
 
-    it("instructs reviewer to emit structured review report and check scope isolation", () => {
-      const prompt = buildReviewerPrompt("empty diff", []);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toMatch(/report|verdict/i);
-      expect(combined).toMatch(/scope/i);
+    it("renders (none) for the sections the caller does not have", () => {
+      const prompt = buildReviewerPrompt("d", []);
+      expect(prompt.user).toContain("(none)");
+      expect(prompt.user).not.toContain("{{");
     });
   });
 
-  describe("Replan Prompt (buildReplanPrompt)", () => {
-    const baseFailurePacket: Contracts.FailurePacket = {
+  describe("Replan prompt (buildReplanPrompt)", () => {
+    const packet: Contracts.FailurePacket = {
       run_id: "r_ABCDEF234567",
       task_id: "T1",
       generation: 1,
@@ -251,75 +204,35 @@ Implement auth login function.
       dependents: ["T2"],
     };
 
-    it("formats verify_failed failure class with verify command tails, exit codes, and diff", () => {
-      const prompt = buildReplanPrompt(baseFailurePacket);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toContain("verify_failed");
-      expect(combined).toContain("AssertionError: expected false to be true");
-      expect(combined).toContain("npm test -- test/auth.test.ts");
-      expect(combined).toContain("exit_code: 1");
+    it("renders the failure packet into the user prompt", () => {
+      const prompt = buildReplanPrompt(packet);
+      expect(prompt.user).toContain("T1");
+      expect(prompt.user).toContain("verify_failed");
+      expect(prompt.user).toContain("npm test -- test/auth.test.ts");
+      expect(prompt.user).toContain("AssertionError: expected false to be true");
+      expect(prompt.user).not.toContain("{{");
+      expect(prompt.system).not.toContain("{{");
     });
 
-    it("formats scope_violation failure class by listing offending file paths and instructing scope narrowing", () => {
+    it("lists related contracts and dependents as '- ' lines", () => {
+      const user = buildReplanPrompt(packet).user;
+      expect(user).toContain("- src/contracts/auth.ts");
+      expect(user).toContain("- T2");
+    });
+
+    it("renders scope violations as '- scope violation: ' lines", () => {
       const scopePacket: Contracts.FailurePacket = {
-        ...baseFailurePacket,
-        failure_class: "scope_violation",
-        scope_violations: ["src/unauthorized.ts", "package.json"],
+        ...packet,
+        scope_violations: ["src/unauthorized.ts"],
       };
-
-      const prompt = buildReplanPrompt(scopePacket);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toContain("scope_violation");
-      expect(combined).toContain("src/unauthorized.ts");
-      expect(combined).toContain("package.json");
-      expect(combined).toMatch(/narrow.*scope|scope violation/i);
+      const user = buildReplanPrompt(scopePacket).user;
+      expect(user).toContain("- scope violation: src/unauthorized.ts");
     });
 
-    it("formats protected_modified failure class by instructing preserving files byte-identical", () => {
-      const protectedPacket: Contracts.FailurePacket = {
-        ...baseFailurePacket,
-        failure_class: "protected_modified",
-        scope_violations: ["test/unit/auth.test.ts"],
-      };
-
-      const prompt = buildReplanPrompt(protectedPacket);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toContain("protected_modified");
-      expect(combined).toMatch(/byte-identical|preserve.*protected/i);
-    });
-
-    it("handles truncated diff by formatting notice indicating diff truncation", () => {
-      const truncatedPacket: Contracts.FailurePacket = {
-        ...baseFailurePacket,
-        diff: {
-          ...baseFailurePacket.diff,
-          truncated: true,
-        },
-      };
-
-      const prompt = buildReplanPrompt(truncatedPacket);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toMatch(/diff.*truncated/i);
-    });
-
-    it("appends prior planner decisions when decisionsLog is provided", () => {
+    it("appends the decisions log when provided", () => {
       const decisionsLog = "Task T1 assigned to low tier haiku. Split into two submodules.";
-      const withLog = buildReplanPrompt(baseFailurePacket, decisionsLog);
-      expect(withLog.user).toContain(decisionsLog);
-
-      const withoutLog = buildReplanPrompt(baseFailurePacket);
-      expect(withoutLog.user).not.toContain("Split into two submodules");
-    });
-
-    it("flags worker_summary as untrusted capped context", () => {
-      const prompt = buildReplanPrompt(baseFailurePacket);
-      const combined = `${prompt.system}\n${prompt.user}`;
-
-      expect(combined).toMatch(/untrusted|worker summary/i);
+      expect(buildReplanPrompt(packet, decisionsLog).user).toContain(decisionsLog);
+      expect(buildReplanPrompt(packet).user).not.toContain("Split into two submodules");
     });
   });
 });

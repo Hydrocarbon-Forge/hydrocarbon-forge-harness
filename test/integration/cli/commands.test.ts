@@ -561,34 +561,62 @@ describe("cli: inspection and lifecycle commands", () => {
   });
 
   describe("agents command", () => {
-    it("scans agent definition paths and displays names, roles, and descriptions", async () => {
+    it("lists agent prompt sources: project override wins, built-ins fill the rest", async () => {
       const agentsCommand = await loadCommand("../../../src/cli/commands/agents.js", "agentsCommand");
 
-      const agentsDir = join(tmpDir, ".substrate", "agents");
-      mkdirSync(agentsDir, { recursive: true });
-      writeFileSync(
-        join(agentsDir, "custom-worker.md"),
-        `---\nname: custom-worker\ndescription: Custom specialized worker\nrole: worker\n---\nPrompt body\n`,
-        "utf8",
-      );
+      const configDir = mkdtempSync(join(tmpdir(), "substrate-cmds-config-"));
+      const prevConfigDir = process.env.SUBSTRATE_CONFIG_DIR;
+      process.env.SUBSTRATE_CONFIG_DIR = configDir;
+      try {
+        const agentsDir = join(tmpDir, ".substrate", "agents");
+        mkdirSync(agentsDir, { recursive: true });
+        writeFileSync(
+          join(agentsDir, "worker.md"),
+          `---\nname: worker\ndescription: Project worker override\nrole: worker\n---\nProject worker body\n`,
+          "utf8",
+        );
 
-      const stdout = createMockStream();
-      const stderr = createMockStream();
+        const stdout = createMockStream();
+        const stderr = createMockStream();
 
-      const ctx: CommandContext = {
-        cwd: tmpDir,
-        flags: {},
-        rawArgs: [],
-        stdout,
-        stderr,
-      };
+        const ctx: CommandContext = {
+          cwd: tmpDir,
+          flags: {},
+          rawArgs: [],
+          stdout,
+          stderr,
+        };
 
-      const exitCode = await agentsCommand.execute(ctx);
-      expect(exitCode).toBe(0);
+        const exitCode = await agentsCommand.execute(ctx);
+        expect(exitCode).toBe(0);
 
-      const output = stdout.getOutput();
-      expect(output).toContain("custom-worker");
-      expect(output).toContain("Custom specialized worker");
+        const lines = stdout.getLines();
+        expect(lines).toHaveLength(5);
+        const byRole: Record<string, string> = Object.fromEntries(
+          lines.map((line) => [line.split(" ")[0], line]),
+        );
+        expect(Object.keys(byRole).sort()).toEqual([
+          "governor",
+          "planner",
+          "reviewer",
+          "test-writer",
+          "worker",
+        ]);
+
+        expect(byRole["worker"]).toBe(
+          `worker project ${join(tmpDir, ".substrate", "agents", "worker.md")}`,
+        );
+        for (const role of ["planner", "test-writer", "reviewer", "governor"]) {
+          expect(byRole[role]).toMatch(new RegExp(`^${role} built-in .+/agents/${role}\.md$`));
+        }
+      } finally {
+        if (prevConfigDir === undefined) {
+          delete process.env.SUBSTRATE_CONFIG_DIR;
+        } else {
+          process.env.SUBSTRATE_CONFIG_DIR = prevConfigDir;
+        }
+        rmSync(configDir, { recursive: true, force: true });
+      }
     });
   });
 

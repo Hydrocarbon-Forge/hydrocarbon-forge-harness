@@ -44,26 +44,6 @@
       "rule": "P6",
       "path": "src/roles/governor.ts",
       "until": "DEFERRED"
-    },
-    {
-      "rule": "P6",
-      "path": "src/roles/prompts/planner.ts",
-      "until": "R1.7"
-    },
-    {
-      "rule": "P6",
-      "path": "src/roles/prompts/replan.ts",
-      "until": "R1.7"
-    },
-    {
-      "rule": "P6",
-      "path": "src/roles/prompts/reviewer.ts",
-      "until": "R1.7"
-    },
-    {
-      "rule": "P6",
-      "path": "src/roles/prompts/test-writer.ts",
-      "until": "R1.7"
     }
   ],
   "wired": [
@@ -491,6 +471,11 @@
     },
     {
       "symbol": "evaluateWorkerPermission",
+      "path": "src/config/index.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "loadAgentDefinitions",
       "path": "src/config/index.ts",
       "until": "R5.3"
     },

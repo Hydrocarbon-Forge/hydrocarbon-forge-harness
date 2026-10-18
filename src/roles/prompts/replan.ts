@@ -1,5 +1,25 @@
 import type { FailurePacket } from "../../contracts/index.js";
 
+import { assembleSystem, loadTemplate } from "../../prompts/index.js";
+import { render } from "../../prompts/render.js";
+
+function failureDetails(packet: FailurePacket): string {
+  const lines: string[] = [];
+  for (const v of packet.verify_output) {
+    lines.push(`- ${v.cmd} (exit ${v.exit_code})`);
+    if (v.stdout_tail) {
+      lines.push(`  stdout tail: ${v.stdout_tail}`);
+    }
+    if (v.stderr_tail) {
+      lines.push(`  stderr tail: ${v.stderr_tail}`);
+    }
+  }
+  for (const p of packet.scope_violations) {
+    lines.push(`- scope violation: ${p}`);
+  }
+  return lines.length > 0 ? lines.join("\n") : "";
+}
+
 export function buildReplanPrompt(
   packet: FailurePacket,
   decisionsLog?: string,
@@ -7,80 +27,30 @@ export function buildReplanPrompt(
   system: string;
   user: string;
 } {
-  const system = [
-    "You are the Substrate planner agent performing a failure replan.",
-    "A prior worker execution failed verification or violated execution constraints.",
-    "Analyze the failure packet and produce an amended plan, modified task specs, or adjusted contract stubs.",
-  ].join("\n");
+  const system = assembleSystem("planner", {});
 
-  const sections: string[] = [];
-
-  sections.push(`## Failure Details`);
-  sections.push(`- Task ID: ${packet.task_id}`);
-  sections.push(`- Generation: ${packet.generation}`);
-  sections.push(`- Failure Class: ${packet.failure_class}`);
-  sections.push(`- Spec Path: ${packet.spec_path}`);
-
-  if (packet.failure_class === "verify_failed") {
-    sections.push(`### Verification Failures (failure_class: verify_failed)`);
-    for (const v of packet.verify_output) {
-      sections.push(
-        [
-          `Command: ${v.cmd}`,
-          `exit_code: ${v.exit_code}`,
-          `Duration: ${v.duration_ms}ms`,
-          v.stdout_tail ? `Stdout Tail:\n${v.stdout_tail}` : "",
-          v.stderr_tail ? `Stderr Tail:\n${v.stderr_tail}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      );
-    }
-  } else if (packet.failure_class === "scope_violation") {
-    sections.push(`### Scope Violations (failure_class: scope_violation)`);
-    sections.push(
-      "The worker modified files outside its declared write/create scope. Narrow worker scope or update task specification accordingly.",
-    );
-    sections.push(
-      `Offending paths:\n${packet.scope_violations.map((f) => `- ${f}`).join("\n")}`,
-    );
-  } else if (packet.failure_class === "protected_modified") {
-    sections.push(`### Protected Files Modified (failure_class: protected_modified)`);
-    sections.push(
-      "The worker modified protected files. Protected files must remain strictly byte-identical and cannot be altered.",
-    );
-    if (packet.scope_violations.length > 0) {
-      sections.push(
-        `Modified protected paths:\n${packet.scope_violations.map((f) => `- ${f}`).join("\n")}`,
-      );
-    }
+  const diffSummary: string[] = [`Stat: ${packet.diff.stat}`];
+  if (packet.diff.truncated) {
+    diffSummary.push("Notice: truncated");
   }
 
-  if (packet.diff) {
-    sections.push(`### Patch Diff Summary`);
-    sections.push(`Stat: ${packet.diff.stat}`);
-    if (packet.diff.truncated) {
-      sections.push("Notice: The patch diff was truncated due to size limits.");
-    }
-  }
+  const user = render(loadTemplate("planner/replan-l1.md"), {
+    task_id: packet.task_id,
+    generation: String(packet.generation),
+    failure_class: packet.failure_class,
+    spec_path: packet.spec_path,
+    failure_details: failureDetails(packet),
+    diff_summary: diffSummary.join("\n"),
+    worker_summary: packet.worker_summary,
+    task_spec: "",
+    related_contracts: packet.related_contracts.length > 0
+      ? packet.related_contracts.map((c) => `- ${c}`).join("\n")
+      : "",
+    dependents: packet.dependents.length > 0
+      ? packet.dependents.map((d) => `- ${d}`).join("\n")
+      : "",
+    decisions: decisionsLog ?? "",
+  });
 
-  if (packet.worker_summary) {
-    sections.push(`### Worker Summary (Untrusted capped context)`);
-    sections.push(packet.worker_summary);
-  }
-
-  if (packet.related_contracts && packet.related_contracts.length > 0) {
-    sections.push(
-      `### Related Contracts\n${packet.related_contracts.map((c) => `- ${c}`).join("\n")}`,
-    );
-  }
-
-  if (decisionsLog) {
-    sections.push(`## Prior Planner Decisions Log\n${decisionsLog}`);
-  }
-
-  return {
-    system,
-    user: sections.join("\n\n"),
-  };
+  return { system, user };
 }
