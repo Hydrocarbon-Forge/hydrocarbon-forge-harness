@@ -14,6 +14,7 @@ const MAPPING_TABLE = {
   scheduleNextTasks: "R3.2",
   appendRouteOutcome: "R2.9",
   aggregateLedger: "R2.8",
+  rebuildFromEvents: "R2.8",
   detectEcosystem: "R3.8",
 };
 

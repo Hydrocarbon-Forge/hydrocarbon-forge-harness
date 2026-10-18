@@ -353,3 +353,18 @@ Lifecycle shell hooks triggered before and after orchestration phases.
 
 - Supported hook phases: `pre-plan`, `post-plan`, `pre-task`, `post-task`, `pre-merge`, `post-merge`.
 - Each hook entry defines a `command` string and an optional `timeout_s` execution limit.
+
+### `usage`
+
+Global usage mirror configuration.
+
+```json
+{
+  "usage": {
+    "global": true
+  }
+}
+```
+
+- `global` *(boolean, default `true`)*: When `true`, usage records are mirrored to the global user state ledger file (`$XDG_STATE_HOME/substrate/usage.jsonl` or `~/.local/state/substrate/usage.jsonl`). When `false`, usage is only written to the project ledger (`.substrate/ledger/usage.jsonl`).
+

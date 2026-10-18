@@ -13,7 +13,10 @@ import type {
 import { type EngineState, reduce } from "./reducer.js";
 import { log } from "../util/log.js";
 import { makeEmitter } from "./emit.js";
+import type { Emit } from "./actions/shared.js";
 import { parseEngineEvent } from "../contracts/events.js";
+import type { UsageLedgerEntry } from "../contracts/index.js";
+import { appendUsage, ledgerPaths } from "../ledger/usage.js";
 import { runRouteAction } from "./actions/route.js";
 import { runPlanAction } from "./actions/plan.js";
 import { runSetupAction } from "./actions/setup.js";
@@ -247,12 +250,74 @@ export function readAllRunEvents(runDir: string): EngineEvent[] {
   return events;
 }
 
+// Budget check per R1.4: after each usage.recorded the action compares the
+// running total with settings.budgets.run.max_usd. Emits the warning while
+// below the cap; emits exceeded+paused at or above it. Returns true when the
+// run must stop for budget.
+export function checkRunBudget(
+  ctx: EffectContext,
+  emit: Emit,
+  currentTotal: number
+): boolean {
+  const maxUsd = ctx.settings.budgets?.run?.max_usd;
+  if (maxUsd === undefined) return false;
+  if (currentTotal >= 0.8 * maxUsd && currentTotal < maxUsd) {
+    emit("run.budget.warning", { cost_usd: currentTotal, max_usd: maxUsd });
+  }
+  if (currentTotal >= maxUsd) {
+    emit("run.budget.exceeded", { cost_usd: currentTotal, max_usd: maxUsd });
+    emit("run.paused", { reason: "budget_exhausted" });
+    return true;
+  }
+  return false;
+}
+
+// Builds a ledger entry from a usage.recorded event (Behavior 11 of the
+// event catalog) and appends exactly one line to the project ledger and, when
+// enabled, to the global mirror.
+function appendUsageForEvent(ctx: EffectContext, evt: EngineEvent): void {
+  const data = (evt.data ?? {}) as Record<string, any>;
+  const record = data.record ?? {};
+  const entry: UsageLedgerEntry = {
+    v: 1,
+    ts: evt.ts,
+    project: ctx.repoRoot,
+    run_id: evt.run_id,
+    task_id: data.task_id,
+    generation: data.generation,
+    attempt: data.attempt,
+    role: data.role ?? "worker",
+    class: data.class,
+    backend: record.backend,
+    model: record.model,
+    effort: undefined,
+    input_tokens: record.input_tokens ?? 0,
+    output_tokens: record.output_tokens ?? 0,
+    cache_read_tokens: record.cache_read_tokens,
+    cache_write_tokens: record.cache_write_tokens,
+    reasoning_tokens: record.reasoning_tokens,
+    cost_usd: record.cost_usd ?? 0,
+    cost_source: record.cost_source ?? "unknown",
+  };
+  const paths = ledgerPaths({
+    projectRoot: ctx.repoRoot,
+    globalEnabled: ctx.settings.usage?.global ?? true,
+    env: process.env,
+  });
+  try {
+    appendUsage(entry, paths);
+  } catch (err: any) {
+    log.warn(`failed to append usage to project ledger: ${err?.message ?? String(err)}`);
+  }
+}
+
 export async function runEffectsLoop(
   ctx: EffectContext,
   initialState: EngineState
 ): Promise<EngineState> {
   const existingEvents = readAllRunEvents(ctx.runDir);
   let seq = existingEvents.length > 0 ? existingEvents[existingEvents.length - 1].seq : 0;
+  let persistedSeqs: Set<number> | undefined = undefined;
 
   let state = initialState;
   (state as any)._seq = seq;
@@ -286,7 +351,21 @@ export async function runEffectsLoop(
 
     for (const action of actions) {
       (state as any)._seq = seq;
+      const crashedBefore = Boolean((ctx as any)._observabilityCrashed);
       const actionEvents = await executeAction(action, ctx, state);
+
+      // Usage ledger: one line per persisted usage.recorded event. Events
+      // emitted after an observer crash are not in the log, so they must not
+      // reach the ledger either.
+      if ((ctx as any)._observabilityCrashed && !crashedBefore) {
+        persistedSeqs = new Set(readAllRunEvents(ctx.runDir).map((e) => e.seq));
+      }
+      for (const evt of actionEvents) {
+        if (evt.type === "usage.recorded") {
+          if (persistedSeqs && !persistedSeqs.has(evt.seq)) continue;
+          appendUsageForEvent(ctx, evt);
+        }
+      }
 
       for (const evt of actionEvents) {
         if (typeof evt.seq === "number") {

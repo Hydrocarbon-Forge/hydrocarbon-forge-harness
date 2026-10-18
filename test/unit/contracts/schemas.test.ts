@@ -43,6 +43,7 @@ const EXPECTED_DECLARATIONS = [
   "ExecutionStrategy",
   "GovernorTool",
   "RoutingDecision",
+  "UsageLedgerEntry",
 ] as const;
 
 function schema(name: string): z.ZodTypeAny {

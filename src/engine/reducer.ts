@@ -449,6 +449,8 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
     }
 
     case "usage.recorded": {
+      // Counted exactly once: the action emits only the per-report delta;
+      // budget decisions live in the actions, not here.
       const record = data.record;
       const cost = record?.cost_usd ?? 0;
       const role = data.role ?? "unknown";
@@ -458,18 +460,8 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         [role]: (state.usage.by_role[role] ?? 0) + cost,
       };
 
-      let nextRunState = state.state;
-      let nextPauseReason = state.pause_reason;
-
-      if (data.max_usd !== undefined && nextTotalUsd >= data.max_usd) {
-        nextRunState = "PAUSED";
-        nextPauseReason = "budget_exhausted";
-      }
-
       return {
         ...state,
-        state: nextRunState,
-        pause_reason: nextPauseReason,
         usage: {
           total_usd: nextTotalUsd,
           by_role: nextByRole,

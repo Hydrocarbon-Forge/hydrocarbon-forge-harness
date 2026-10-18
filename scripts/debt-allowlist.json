@@ -687,6 +687,11 @@
       "until": "R2.8"
     },
     {
+      "symbol": "rebuildFromEvents",
+      "path": "src/ledger/usage.ts",
+      "until": "R2.8"
+    },
+    {
       "symbol": "validateGovernorTool",
       "path": "src/roles/governor-tools.ts",
       "until": "DEFERRED"

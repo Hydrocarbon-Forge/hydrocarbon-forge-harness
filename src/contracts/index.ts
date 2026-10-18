@@ -128,10 +128,36 @@ export const UsageRecord = z.object({
   cache_write_tokens: z.number().optional(),
   reasoning_tokens: z.number().optional(),
   cost_usd: z.number(),
-  cost_source: z.enum(["reported", "computed"]),
+  cost_source: z.enum(["reported", "computed", "unknown"]),
   at: z.string(),
 }).strict();
 export type UsageRecord = z.infer<typeof UsageRecord>;
+
+// One append-only ledger line per usage.recorded event. Written by
+// src/ledger/usage.ts; the run's usage.total_usd must equal the sum of these
+// lines' cost_usd for the run.
+export const UsageLedgerEntry = z.object({
+  v: z.literal(1),
+  ts: z.string(),
+  project: z.string(),
+  run_id: z.string(),
+  task_id: TaskId.optional(),
+  generation: z.number().optional(),
+  attempt: z.number().optional(),
+  role: RoleName,
+  class: z.string().optional(),
+  backend: BackendName,
+  model: z.string(),
+  effort: Effort.optional(),
+  input_tokens: z.number(),
+  output_tokens: z.number(),
+  cache_read_tokens: z.number().optional(),
+  cache_write_tokens: z.number().optional(),
+  reasoning_tokens: z.number().optional(),
+  cost_usd: z.number(),
+  cost_source: z.enum(["reported", "computed", "unknown"]),
+}).strict();
+export type UsageLedgerEntry = z.infer<typeof UsageLedgerEntry>;
 
 export const WorkerReport = z.object({
   task_id: TaskId,
@@ -376,6 +402,9 @@ export const Settings = z.object({
   instructions: z.object({
     workers: z.enum(["none", "project"]),
   }).strict(),
+  usage: z.object({
+    global: z.boolean(),
+  }).strict().optional(),
   execution: z.object({
     strategy: ExecutionStrategy,
   }).strict(),

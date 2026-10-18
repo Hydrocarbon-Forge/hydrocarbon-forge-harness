@@ -3,7 +3,10 @@ import path from "node:path";
 
 import type { SpawnRequest, Manifest } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
+import { checkRunBudget } from "../effects.js";
 import type { EngineState } from "../reducer.js";
+import type { UsageTotals } from "../../ledger/usage.js";
+import { toDelta } from "../../ledger/usage.js";
 import type { ParsedPlan } from "../../spec/index.js";
 import { lintPlan } from "../../spec/index.js";
 import { commitContractStubs } from "../../roles/planner.js";
@@ -153,6 +156,7 @@ export async function runPlanAction(
   }
 
   let plannerAttempts = 0;
+  let plannerTotal = state.usage.total_usd;
   const maxRetries = ctx.settings.budgets?.planner_format_retries ?? 2;
   let lastPrompt = ctx.prompt ?? "Plan feature";
 
@@ -176,15 +180,39 @@ export async function runPlanAction(
     const handle = ctx.adapter.spawn(spawnReq);
     const unbind = bindAbort(ctx, handle);
     let res: any;
+    // Cumulative usage conversion per planner session (R1.4).
+    const prevUsageTotals = new Map<string, UsageTotals>();
+    let sawUsageEvents = false;
     try {
       for await (const evt of handle.events) {
         if (evt.type === "usage" && (evt as any).record) {
-          emit("usage.recorded", { record: (evt as any).record, role: "planner" });
+          sawUsageEvents = true;
+          const { delta, next } = toDelta(
+            prevUsageTotals.get("session"),
+            (evt as any).record,
+            Boolean((evt as any).cumulative)
+          );
+          prevUsageTotals.set("session", next);
+          emit("usage.recorded", { record: delta, role: "planner" });
+          plannerTotal = plannerTotal + (delta.cost_usd ?? 0);
+          if (checkRunBudget(ctx, emit, plannerTotal)) {
+            await handle.kill("budget");
+            return;
+          }
         }
       }
       res = await handle.result();
     } finally {
       unbind();
+    }
+
+    // Session-result usage for adapters that never stream usage reports.
+    if (!sawUsageEvents && res?.usage) {
+      emit("usage.recorded", { record: res.usage, role: "planner" });
+      plannerTotal = plannerTotal + (res.usage.cost_usd ?? 0);
+      if (checkRunBudget(ctx, emit, plannerTotal)) {
+        return;
+      }
     }
 
     if (ctx.signal?.aborted || res?.killed_for === "cancel") {

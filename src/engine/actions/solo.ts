@@ -3,6 +3,9 @@ import { execFileSync } from "node:child_process";
 
 import type { SpawnRequest } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
+import { checkRunBudget } from "../effects.js";
+import type { UsageTotals } from "../../ledger/usage.js";
+import { toDelta } from "../../ledger/usage.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { bindAbort } from "./shared.js";
@@ -42,21 +45,52 @@ export async function runSoloTask(
   const handle = ctx.adapter.spawn(spawnReq);
   const unbind = bindAbort(ctx, handle);
   let res: any;
+  // Cumulative usage conversion per session (R1.4).
+  const prevUsageTotals = new Map<string, UsageTotals>();
+  let localTotal = state.usage.total_usd;
+  let sawUsageEvents = false;
   try {
     for await (const evt of handle.events) {
       if (evt.type === "usage" && (evt as any).record) {
+        sawUsageEvents = true;
+        const { delta, next } = toDelta(
+          prevUsageTotals.get(sessionId),
+          (evt as any).record,
+          Boolean((evt as any).cumulative)
+        );
+        prevUsageTotals.set(sessionId, next);
         emit("usage.recorded", {
-          record: (evt as any).record,
+          record: delta,
           role: "worker",
           task_id: "solo",
           generation: 1,
           attempt: 1,
         });
+        localTotal = localTotal + (delta.cost_usd ?? 0);
+        if (checkRunBudget(ctx, emit, localTotal)) {
+          await handle.kill("budget");
+          return;
+        }
       }
     }
     res = await handle.result();
   } finally {
     unbind();
+  }
+
+  // Session-result usage for adapters that never stream usage reports.
+  if (!sawUsageEvents && res?.usage) {
+    emit("usage.recorded", {
+      record: res.usage,
+      role: "worker",
+      task_id: "solo",
+      generation: 1,
+      attempt: 1,
+    });
+    localTotal = localTotal + (res.usage.cost_usd ?? 0);
+    if (checkRunBudget(ctx, emit, localTotal)) {
+      return;
+    }
   }
 
   if (ctx.signal?.aborted || res?.killed_for === "cancel") {

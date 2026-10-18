@@ -140,6 +140,7 @@ export const DEFAULT_SETTINGS: Contracts.Settings = {
   sandbox: { enabled: true, network: "deny" },
   git: { on_scope_violation: "revert", branch_prefix: "substrate/", auto_merge: false },
   instructions: { workers: "none" },
+  usage: { global: true },
   execution: { strategy: "direct" },
 };
 

@@ -5,6 +5,9 @@ import { execFileSync } from "node:child_process";
 
 import type { SpawnRequest, Manifest, UsageRecord } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
+import { checkRunBudget } from "../effects.js";
+import type { UsageTotals } from "../../ledger/usage.js";
+import { toDelta } from "../../ledger/usage.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { safeParseManifest, bindAbort } from "./shared.js";
@@ -161,6 +164,13 @@ export async function runTaskAction(
   let permissionDeniedOccurred = false;
   let budgetExceededOccurred = false;
 
+  // Cumulative usage reports are converted per session id (R1.4): each
+  // usage.recorded event carries the delta over that session's previous
+  // report, so the reducer adds every dollar exactly once.
+  const prevUsageTotals = new Map<string, UsageTotals>();
+  let localTotal = state.usage.total_usd;
+  let sawUsageEvents = false;
+
   let res: any;
   try {
     for await (const evt of handle.events) {
@@ -169,9 +179,16 @@ export async function runTaskAction(
       }
 
       if (evt.type === "usage" && (evt as any).record) {
+        sawUsageEvents = true;
         const u = (evt as any).record as UsageRecord;
+        const { delta, next } = toDelta(
+          prevUsageTotals.get(actualSessionId),
+          u,
+          Boolean((evt as any).cumulative)
+        );
+        prevUsageTotals.set(actualSessionId, next);
         emit("usage.recorded", {
-          record: u,
+          record: delta,
           role: "worker",
           task_id: taskId,
           generation,
@@ -179,25 +196,11 @@ export async function runTaskAction(
           class: parsedSpec.frontmatter.class,
         });
 
-        const isCumulative = Boolean((evt as any).cumulative);
-        const currentTotal = isCumulative
-          ? (u.cost_usd ?? 0)
-          : state.usage.total_usd + (u.cost_usd ?? 0);
-        state.usage.total_usd = currentTotal;
-
-        const maxUsdBudget = ctx.settings.budgets?.run?.max_usd;
-
-        if (maxUsdBudget !== undefined) {
-          if (currentTotal >= 0.8 * maxUsdBudget && currentTotal < maxUsdBudget) {
-            emit("run.budget.warning", { cost_usd: currentTotal, max_usd: maxUsdBudget });
-          }
-          if (currentTotal >= maxUsdBudget) {
-            budgetExceededOccurred = true;
-            await handle.kill("budget");
-            emit("run.budget.exceeded", { cost_usd: currentTotal, max_usd: maxUsdBudget });
-            emit("run.paused", { reason: "budget_exhausted" });
-            return;
-          }
+        localTotal = localTotal + (delta.cost_usd ?? 0);
+        if (checkRunBudget(ctx, emit, localTotal)) {
+          budgetExceededOccurred = true;
+          await handle.kill("budget");
+          return;
         }
       }
 
@@ -222,6 +225,24 @@ export async function runTaskAction(
 
   if (res?.session_id) {
     actualSessionId = res.session_id;
+  }
+
+  // Adapters that never stream usage reports still report usage on the
+  // session result: emit it once so the session's spend reaches the ledger.
+  if (!sawUsageEvents && res?.usage) {
+    emit("usage.recorded", {
+      record: res.usage,
+      role: "worker",
+      task_id: taskId,
+      generation,
+      attempt,
+      class: parsedSpec.frontmatter.class,
+    });
+    localTotal = localTotal + (res.usage.cost_usd ?? 0);
+    if (checkRunBudget(ctx, emit, localTotal)) {
+      budgetExceededOccurred = true;
+      return;
+    }
   }
 
   if (ctx.signal?.aborted || res?.killed_for === "cancel") {

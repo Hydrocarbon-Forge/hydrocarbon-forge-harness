@@ -362,14 +362,13 @@ describe("engine: reducer usage and budget enforcement", () => {
     expect(state.usage.by_role["planner"]).toBeCloseTo(1.50, 4);
   });
 
-  it("transitions run to PAUSED(budget_exhausted) when accumulated cost exceeds max_usd", () => {
+  it("does not transition run to PAUSED on usage.recorded (actions handle budget pauses)", () => {
     const runId = createRunId();
     let state = createBlankState(runId);
     state.state = "EXECUTING";
 
     state = reduce(state, makeEvent(runId, 1, "usage.recorded", {
       role: "worker",
-      max_usd: 5.0,
       record: {
         backend: "claude",
         model: "claude-opus-5-5",
@@ -381,8 +380,8 @@ describe("engine: reducer usage and budget enforcement", () => {
       },
     }));
 
-    expect(state.state).toBe("PAUSED");
-    expect(state.pause_reason).toBe("budget_exhausted");
+    expect(state.state).toBe("EXECUTING");
+    expect(state.pause_reason).toBeUndefined();
   });
 });
 
