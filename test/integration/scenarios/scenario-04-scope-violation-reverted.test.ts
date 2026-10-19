@@ -21,6 +21,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 04: Scope Violation Reverted (§14.5 #4)", () => {
@@ -35,6 +36,7 @@ describe("Scenario 04: Scope Violation Reverted (§14.5 #4)", () => {
 
   beforeEach(async () => {
     env = await setupScenarioEnv("04-scope-violation");
+    env.testRepo.commitFile("src/allowed.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -52,6 +54,7 @@ describe("Scenario 04: Scope Violation Reverted (§14.5 #4)", () => {
     );
 
     const fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: {
           "src/allowed.ts": "// allowed\n",
@@ -86,7 +89,7 @@ describe("Scenario 04: Scope Violation Reverted (§14.5 #4)", () => {
         },
       });
 
-      writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+      writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
       const engine = engineMod.createEngine({
         settings: {
@@ -120,7 +123,7 @@ describe("Scenario 04: Scope Violation Reverted (§14.5 #4)", () => {
   });
 
   it("marks task failed with scope_violation when on_scope_violation is fail", async () => {
-    const runId: RunId = "r_444444FAIL00";
+    const runId: RunId = "r_444444FAILAA";
 
     env.testRepo.commitFile(
       "src/unrelated.ts",
@@ -128,6 +131,7 @@ describe("Scenario 04: Scope Violation Reverted (§14.5 #4)", () => {
     );
 
     const fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: {
           "src/allowed.ts": "// allowed\n",
@@ -153,7 +157,7 @@ describe("Scenario 04: Scope Violation Reverted (§14.5 #4)", () => {
         },
       });
 
-      writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+      writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
       const engine = engineMod.createEngine({
         settings: {

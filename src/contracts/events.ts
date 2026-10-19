@@ -50,7 +50,13 @@ export const RunRoutedEvent = member(
 
 export const RunPausedEvent = member(
   "run.paused",
-  z.object({ reason: PauseReason }).strict()
+  z
+    .object({
+      reason: PauseReason,
+      questions_path: z.string().optional(),
+      session_id: z.string().optional(),
+    })
+    .strict()
 );
 
 export const RunResumedEvent = member("run.resumed", z.object({}).strict());
@@ -90,6 +96,7 @@ export const PlanProducedEvent = member(
     .object({
       manifest: z.unknown().optional(),
       tasks: z.array(z.unknown()).optional(),
+      commit_sha: z.string().optional(),
     })
     .strict()
 );

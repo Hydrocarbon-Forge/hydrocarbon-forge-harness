@@ -19,6 +19,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
@@ -34,6 +35,7 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
 
   beforeEach(async () => {
     env = await setupScenarioEnv("09-merge-conflict");
+    env.testRepo.commitFile("src/shared.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -42,7 +44,7 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
   });
 
   it("detects conflict via git merge-tree preflight and triggers L1 replan", async () => {
-    const runId: RunId = "r_999999ABCDEF";
+    const runId: RunId = "r_IIIIIIABCDEF";
 
     // Create shared file in base repository
     env.testRepo.commitFile(
@@ -54,6 +56,7 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
     let t2ReplanOccurred = false;
 
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: { "src/shared.ts": "export const sharedValue = 1;\n" },
         reply: "T1 edited shared",
@@ -103,7 +106,7 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
     writePlanFiles(env.repoRoot, runId, manifest, {
       "tasks/T1.md": t1Spec,
       "tasks/T2.md": t2Spec,
-    });
+    }, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: env.settings,

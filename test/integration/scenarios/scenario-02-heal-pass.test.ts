@@ -23,6 +23,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
@@ -38,6 +39,7 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
 
   beforeEach(async () => {
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: {
           "src/feature.ts": "// attempt 1\n",
@@ -54,6 +56,7 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
       },
     ]);
     env = await setupScenarioEnv("02-heal-pass", { adapter: fakeClaude.adapter });
+    env.testRepo.commitFile("src/feature.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -99,7 +102,7 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
       },
     });
 
-    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: env.settings,
@@ -120,8 +123,10 @@ describe("Scenario 02: Fail -> Heal -> Pass (L0 Healing) (§14.5 #2)", () => {
     expect(summary.tasks.T1?.generation).toBe(1);
 
     // Verify L0 resume invariants
-    expect(spawnedRequests.length).toBe(2);
-    expect(spawnedRequests[1]?.session?.resume).toBe(spawnedRequests[0]?.session?.id);
+    const workerRequests = spawnedRequests.filter((r) => r.role === "worker");
+    expect(spawnedRequests[0]?.role).toBe("planner");
+    expect(workerRequests.length).toBe(2);
+    expect(workerRequests[1]?.session?.resume).toBe(workerRequests[0]?.session?.id);
 
     // Verify failure output tail is capped at <= 8192 bytes
     if (resumedPrompts.length > 0) {

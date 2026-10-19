@@ -114,10 +114,6 @@
       "until": "DEFERRED"
     },
     {
-      "key": "instructions.workers",
-      "until": "DEFERRED"
-    },
-    {
       "key": "permissions.ask",
       "until": "R5.3"
     },
@@ -609,16 +605,6 @@
       "until": "DEFERRED"
     },
     {
-      "symbol": "runPlanner",
-      "path": "src/roles/planner.ts",
-      "until": "R3.1"
-    },
-    {
-      "symbol": "buildPlannerPrompt",
-      "path": "src/roles/prompts/planner.ts",
-      "until": "R5.3"
-    },
-    {
       "symbol": "buildReviewerPrompt",
       "path": "src/roles/prompts/reviewer.ts",
       "until": "R5.3"
@@ -634,19 +620,9 @@
       "until": "DEFERRED"
     },
     {
-      "symbol": "resolvePlannerRoute",
-      "path": "src/roles/router.ts",
-      "until": "R3.1"
-    },
-    {
       "symbol": "runWorker",
       "path": "src/roles/worker.ts",
       "until": "R3.3"
-    },
-    {
-      "symbol": "detectEcosystem",
-      "path": "src/spec/ecosystem.ts",
-      "until": "R3.8"
     },
     {
       "symbol": "getDefaultVerify",
@@ -657,11 +633,6 @@
       "symbol": "loadPlan",
       "path": "src/spec/parser.ts",
       "until": "R5.3"
-    },
-    {
-      "symbol": "generateRepoMap",
-      "path": "src/spec/repomap.ts",
-      "until": "R3.1"
     },
     {
       "symbol": "EventStoreImpl",

@@ -41,6 +41,9 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
   beforeEach(async () => {
     fakeClaude = fakeClaudeAdapter([
       {
+        reply: "wrote the plan files\nPLAN READY",
+      },
+      {
         edits: {
           "src/t1.ts": "export const t1 = 1;\n",
           "test/t1.test.ts": "export const testT1 = true;\n",
@@ -64,7 +67,7 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
   });
 
   it("executes independent tasks to clean merge and integration verification pass", async () => {
-    const runId: RunId = "r_111111ABCDEF";
+    const runId: RunId = "r_BBBBBBABCDEF";
     const runBranch = `substrate/runs/${runId}`;
 
     // Manifest with two independent tasks T1, T2
@@ -84,8 +87,7 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
         id: "T1",
         title: "Task 1 Implementation",
         depends_on: [],
-        write: ["src/t1.ts"],
-        create: ["test/t1.test.ts"],
+        create: ["src/t1.ts", "test/t1.test.ts"],
         verify: [{ run: "echo verify T1", timeout_s: 30 }],
       },
     });
@@ -95,8 +97,7 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
         id: "T2",
         title: "Task 2 Implementation",
         depends_on: [],
-        write: ["src/t2.ts"],
-        create: ["test/t2.test.ts"],
+        create: ["src/t2.ts", "test/t2.test.ts"],
         verify: [{ run: "echo verify T2", timeout_s: 30 }],
       },
     });
@@ -164,7 +165,7 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
   });
 
   it("effects runner nextActions schedules workers then merge then integration", async () => {
-    const runId: RunId = "r_111111ABCDEF";
+    const runId: RunId = "r_BBBBBBABCDEF";
     const initialState: EngineState = {
       run_id: runId,
       state: "EXECUTING",
@@ -199,13 +200,13 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
   });
 
   it("handles zero-task plan by exiting 0 with finished status (edge case)", async () => {
-    const runId: RunId = "r_111111ZERO00";
+    const runId: RunId = "r_BBBBBBZEROAA";
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
       tasks: [],
     };
 
-    writePlanFiles(env.repoRoot, runId, manifest, {});
+    writePlanFiles(env.repoRoot, runId, manifest, {}, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: env.settings,
@@ -225,7 +226,7 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
   });
 
   it("recovers from stale run lock when previous PID is inactive (edge case)", async () => {
-    const runId: RunId = "r_111111STALE0";
+    const runId: RunId = "r_BBBBBBSTALEA";
     const lockPath = join(env.repoRoot, ".substrate", "state", `${runId}.lock`);
 
     // Write a stale lock with dead PID 999999
@@ -239,9 +240,13 @@ describe("Scenario 01: All-pass batch (§14.5 #1)", () => {
       ...sampleValidManifest(runId),
       tasks: [{ id: "T1", spec: "tasks/T1.md" }],
     };
-    writePlanFiles(env.repoRoot, runId, manifest, {
-      "tasks/T1.md": sampleValidTaskSpecMarkdown(),
-    });
+    writePlanFiles(
+      env.repoRoot,
+      runId,
+      manifest,
+      { "tasks/T1.md": sampleValidTaskSpecMarkdown() },
+      { "contracts/types.ts": sampleValidContractStub() }
+    );
 
     const engine = engineMod.createEngine({
       settings: env.settings,

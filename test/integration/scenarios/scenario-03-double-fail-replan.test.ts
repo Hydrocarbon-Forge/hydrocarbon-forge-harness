@@ -23,6 +23,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass (§14.5 #3)", () => {
@@ -50,6 +51,7 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
         },
       },
     });
+    env.testRepo.commitFile("src/replan.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -62,6 +64,7 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
     const spawnedModels: string[] = [];
 
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: {
           "src/replan.ts": "// attempt 1\n",
@@ -77,7 +80,7 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
         reply: "Attempt 2",
       },
       {
-        reply: "Planner revised spec for generation 2",
+        reply: "Planner revised spec for generation 2\nPLAN READY",
       },
       {
         edits: {
@@ -115,7 +118,7 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
       },
     });
 
-    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: env.settings,

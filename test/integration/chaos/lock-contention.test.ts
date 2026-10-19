@@ -6,6 +6,7 @@ import type { Manifest, RunId } from "../../../src/contracts/index.js";
 import { RunLockImpl } from "../../../src/store/run-lock.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   writePlanFiles,
   type ScenarioEnv,
 } from "../scenarios/helpers.js";
@@ -19,13 +20,29 @@ import { createSimulatedLock } from "./helpers.js";
 
 describe("Double lock contention (§14.5 #11 lock semantics)", () => {
   let env: ScenarioEnv;
+  let fakeClaude: ReturnType<typeof fakeClaudeAdapter>;
 
   beforeEach(async () => {
-    env = await setupScenarioEnv("lock-contention");
+    fakeClaude = fakeClaudeAdapter([
+      { reply: "wrote manifest.yaml and the task specs\nPLAN READY" },
+      {
+        edits: {
+          "src/t1.ts": "export const t1 = 1;\n",
+          "test/t1.test.ts": "export const testT1 = true;\n",
+        },
+        reply: "Worker passed verify",
+      },
+    ]);
+    env = await setupScenarioEnv("lock-contention", {
+      customAdapter: fakeClaude.adapter,
+    });
+    // L007 needs a write pattern to match a file that exists at the base commit.
+    env.testRepo.commitFile("src/t1.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
     await env.cleanup();
+    fakeClaude.cleanup();
   });
 
   it("rejects concurrent acquisition when lock is actively held (active lock rejection)", async () => {

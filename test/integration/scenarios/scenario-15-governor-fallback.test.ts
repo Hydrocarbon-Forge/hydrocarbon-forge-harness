@@ -19,6 +19,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", () => {
@@ -36,7 +37,9 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
     env = await setupScenarioEnv("15-governor-fallback", {
       customSettings: {
         roles: {
-          planner: { backend: "fake", model: "claude-haiku-5-5" },
+          // The run uses the fake claude harness, so the planner route must name the
+          // backend the adapter reports.
+          planner: { backend: "claude", model: "claude-haiku-5-5" },
           governor: {
             enabled: true,
             // Point to a dead / non-existent local port
@@ -55,9 +58,12 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
   });
 
   it("gracefully catches governor failure, logs warning event, and falls back to rules router", async () => {
-    const runId: RunId = "r_151515ABCDEF";
+    const runId: RunId = "r_B5B5B5ABCDEF";
 
     fakeClaude = fakeClaudeAdapter([
+      {
+        reply: "wrote manifest.yaml and the task specs\nPLAN READY",
+      },
       {
         reply: "Worker passed",
       },
@@ -69,7 +75,13 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
     };
 
     const t1Spec = sampleValidTaskSpecMarkdown();
-    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+    writePlanFiles(
+      env.repoRoot,
+      runId,
+      manifest,
+      { "tasks/T1.md": t1Spec },
+      { "contracts/types.ts": sampleValidContractStub() }
+    );
 
     const engine = engineMod.createEngine({
       settings: env.settings,

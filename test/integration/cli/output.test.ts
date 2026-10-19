@@ -19,6 +19,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 function createMockStream(): NodeJS.WriteStream & {
@@ -47,6 +48,7 @@ describe("cli: output formatters driven by real engine runs", () => {
 
   beforeEach(async () => {
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: {
           "src/t1.ts": "export const t1 = 1;\n",
@@ -63,6 +65,9 @@ describe("cli: output formatters driven by real engine runs", () => {
       },
     ]);
     env = await setupScenarioEnv("cli-output", { adapter: fakeClaude.adapter });
+    env.testRepo.commitFile("src/feature.ts", "// existing file declared as write\n");
+    env.testRepo.commitFile("src/t1.ts", "// existing file declared as write\n");
+    env.testRepo.commitFile("src/t2.ts", "// existing file declared as write\n");
 
     const engineMod = await loadEngine();
     engine = engineMod.createEngine({
@@ -110,7 +115,7 @@ describe("cli: output formatters driven by real engine runs", () => {
         },
       }),
     };
-    writePlanFiles(env.repoRoot, runId, manifest, specs);
+    writePlanFiles(env.repoRoot, runId, manifest, specs, { "contracts/types.ts": sampleValidContractStub() });
     return runId;
   }
 
@@ -253,6 +258,7 @@ describe("cli: output formatters driven by real engine runs", () => {
   it("stream-json includes run.paused with its reason field", async () => {
     fakeClaude?.cleanup();
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       { failure: "permission_denial", reply: "Denied by policy" },
     ]);
     const engineMod = await loadEngine();
@@ -280,7 +286,7 @@ describe("cli: output formatters driven by real engine runs", () => {
           verify: [{ run: "echo verify", timeout_s: 30 }],
         },
       }),
-    });
+    }, { "contracts/types.ts": sampleValidContractStub() });
 
     const summary = await engine.run({
       prompt: "Execute task triggering tool denial",

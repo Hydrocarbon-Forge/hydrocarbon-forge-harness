@@ -36,6 +36,7 @@ describe("Scenario 05: Protected File Modified (§14.5 #5)", () => {
 
   beforeEach(async () => {
     env = await setupScenarioEnv("05-protected-modified");
+    env.testRepo.commitFile("src/feature.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -54,6 +55,7 @@ describe("Scenario 05: Protected File Modified (§14.5 #5)", () => {
     );
 
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: {
           "src/feature.ts": "// feature edit\n",

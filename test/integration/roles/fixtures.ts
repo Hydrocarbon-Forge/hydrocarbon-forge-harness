@@ -203,11 +203,12 @@ export function sampleValidTaskSpecFrontmatter(overrides: Partial<TaskSpecFrontm
     class: "feature",
     depends_on: [],
     read: ["contracts/types.ts"],
-    write: ["src/feature.ts"],
-    create: ["test/feature.test.ts"],
+    write: [],
+    create: ["src/feature.ts", "test/feature.test.ts"],
     protected: ["contracts/types.ts"],
     verify: [{ run: "echo verify task", timeout_s: 30 }],
     effort: "medium",
+    budget: { max_usd: 0.5, max_turns: 12 },
     ...overrides,
   };
 }

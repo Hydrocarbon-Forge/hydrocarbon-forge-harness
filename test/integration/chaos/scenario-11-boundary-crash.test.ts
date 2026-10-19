@@ -9,8 +9,10 @@ import type {
   RunSummary,
 } from "../../../src/contracts/index.js";
 import { reduce, type EngineState } from "../../../src/engine/reducer.js";
+import { createRunId } from "../../../src/util/index.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   writePlanFiles,
   readEventLog,
   type ScenarioEnv,
@@ -30,6 +32,9 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
 
   beforeEach(async () => {
     env = await setupScenarioEnv("chaos-boundary");
+    // L007 needs write patterns to match files that exist at the base commit.
+    env.testRepo.commitFile("src/t1.ts", "// existing file declared as write\n");
+    env.testRepo.commitFile("src/t2.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -37,7 +42,7 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
   });
 
   it("discovers total event count in a clean multi-task run, then kills and resumes at each boundary", async () => {
-    const baselineRunId: RunId = "r_CHAOS00BASE1";
+    const baselineRunId: RunId = createRunId();
 
     const manifest: Manifest = {
       ...sampleValidManifest(baselineRunId),
@@ -80,13 +85,28 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
       { "contracts/types.ts": sampleValidContractStub() }
     );
 
+    const baselineClaude = fakeClaudeAdapter([
+      {
+        reply: "wrote manifest.yaml and the task specs\nPLAN READY",
+        edits: { "src/t1.ts": "// t1\n", "test/t1.test.ts": "// test\n" },
+      },
+      {
+        reply: "Worker passed verify",
+        edits: { "src/t1.ts": "// t1\n", "test/t1.test.ts": "// test\n" },
+      },
+      {
+        reply: "Worker passed verify",
+        edits: { "src/t2.ts": "// t2\n", "test/t2.test.ts": "// test\n" },
+      },
+    ]);
+
     // 1. Run baseline to get the sequence of events
     const baselineResult = await resumeAfterCrash(baselineRunId, {
       cwd: env.repoRoot,
       prompt: "Execute chaos test baseline",
       mode: "plan",
       permission_mode: "bypassPermissions",
-      adapter: env.adapter,
+      adapter: baselineClaude.adapter,
     });
 
     expect(baselineResult.status).toBe("finished");
@@ -98,7 +118,7 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
 
     // 2. For each sequence boundary k in 1..N, execute fresh run, crash after event k, then resume to completion
     for (let k = 1; k <= N; k++) {
-      const runId: RunId = `r_CHAOS${String(k).padStart(4, "0")}TEST` as RunId;
+      const runId: RunId = createRunId();
       writePlanFiles(
         env.repoRoot,
         runId,
@@ -107,6 +127,28 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
         { "contracts/types.ts": sampleValidContractStub() }
       );
 
+      // Each iteration can consume up to one planner call in the crashed run plus one in
+      // the resumed run and one call per task; the calls are interchangeable because the
+      // finish line and the file writes are what the engine checks.
+      const claude = fakeClaudeAdapter([
+        {
+          reply: "wrote manifest.yaml and the task specs\nPLAN READY",
+          edits: { "src/t1.ts": "// t1\n", "test/t1.test.ts": "// test\n" },
+        },
+        {
+          reply: "wrote the corrected plan\nPLAN READY",
+          edits: { "src/t2.ts": "// t2\n", "test/t2.test.ts": "// test\n" },
+        },
+        {
+          reply: "Worker passed verify",
+          edits: { "src/t1.ts": "// t1\n", "test/t1.test.ts": "// test\n" },
+        },
+        {
+          reply: "Worker passed verify",
+          edits: { "src/t2.ts": "// t2\n", "test/t2.test.ts": "// test\n" },
+        },
+      ]);
+
       // Run until event k and crash
       const crashInfo = await runUntilBoundaryAndCrash(
         {
@@ -114,7 +156,7 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
           prompt: "Execute chaos crash test",
           mode: "plan",
           permission_mode: "bypassPermissions",
-          adapter: env.adapter,
+          adapter: claude.adapter,
         },
         k
       );
@@ -142,7 +184,7 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
       // Resume from crash to final finish
       const resumedSummary = await resumeAfterCrash(runId, {
         cwd: env.repoRoot,
-        adapter: env.adapter,
+        adapter: claude.adapter,
       });
 
       expect(resumedSummary.status).toBe("finished");
@@ -156,6 +198,10 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
       for (let i = 0; i < eventsAfterResume.length; i++) {
         expect(eventsAfterResume[i].seq).toBe(i + 1);
       }
+
+      claude.cleanup();
     }
+
+    baselineClaude.cleanup();
   }, 120000);
 });

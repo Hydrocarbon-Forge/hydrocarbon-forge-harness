@@ -1,29 +1,19 @@
-import fs from "node:fs";
-import path from "node:path";
-import crypto from "node:crypto";
-
-import type { SpawnRequest, Manifest } from "../../contracts/index.js";
-import { assembleSystem } from "../../prompts/index.js";
+import type { EventData, EventType } from "../../contracts/events.js";
+import { PlannerFailure, runPlanner, type PlannerEmit } from "../../roles/planner.js";
+import { resolvePlannerRoute } from "../../roles/router.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import { checkRunBudget } from "../effects.js";
 import type { EngineState } from "../reducer.js";
-import type { UsageTotals } from "../../ledger/usage.js";
-import { toDelta } from "../../ledger/usage.js";
-import type { ParsedPlan } from "../../spec/index.js";
-import { lintPlan } from "../../spec/index.js";
-import { commitContractStubs } from "../../roles/planner.js";
-import { getRunBranch } from "../../git/index.js";
-import { estimateRunCost } from "../../ledger/index.js";
-import {
-  safeParseManifest,
-  safeLoadPlan,
-  extractFencedFiles,
-  bindAbort,
-  adapterFor,
-  type Emit,
-} from "./shared.js";
+import type { Emit } from "./shared.js";
+import { adapterFor } from "./shared.js";
+import { runLintAction } from "./approve.js";
 import { log } from "../../util/log.js";
 
+/**
+ * The `plan` action: resolve the planner route, hand the planner the emitter so
+ * its usage events are recorded while the session runs, and turn the planner's
+ * outcome into events. The `lint` action belongs to approve.ts.
+ */
 export async function runPlanAction(
   action: EngineAction,
   ctx: EffectContext,
@@ -31,247 +21,78 @@ export async function runPlanAction(
   emit: Emit
 ): Promise<void> {
   if (action.type === "lint") {
-    const manifestPath = path.join(ctx.runDir, "manifest.yaml");
-    if (!fs.existsSync(manifestPath)) {
-      emit("plan.approved", {});
-      return;
-    }
-
-    let parsedPlan: ParsedPlan;
-    try {
-      parsedPlan = await safeLoadPlan(manifestPath, ctx.repoRoot);
-    } catch {
-      emit("plan.rejected", { reason: "Failed to parse plan files" });
-      return;
-    }
-
-    let lintRes: any;
-    try {
-      lintRes = await lintPlan(parsedPlan, ctx.repoRoot, ctx.settings);
-    } finally {
-      (parsedPlan as any).cleanup?.();
-    }
-    lintRes.diagnostics = lintRes.diagnostics.filter(
-      (d: any) => !(d.code === "L001" && d.message.includes("run_id"))
-    );
-    const errors = lintRes.diagnostics.filter((d: any) => d.severity === "error");
-    if (errors.length > 0) {
-      log.debug("[DEBUG] lint errors:", JSON.stringify(errors, null, 2));
-    }
-
-    if (errors.length > 0) {
-      emit("plan.lint", { valid: false, diagnostics: lintRes.diagnostics });
-      emit("plan.rejected", { diagnostics: errors });
-      return;
-    }
-
-    emit("plan.lint", { valid: true, diagnostics: lintRes.diagnostics });
-
-    const settingsWithDefaults = {
-      ...ctx.settings,
-      budgets: {
-        ...ctx.settings.budgets,
-        task: {
-          max_usd: 0.5,
-          ...(ctx.settings.budgets?.task ?? {}),
-        },
-      },
-    };
-    const { estimated_usd } = estimateRunCost(parsedPlan.manifest, [], settingsWithDefaults);
-    const approvalThreshold = ctx.settings.budgets?.approval_threshold_usd ?? 2.0;
-    const requiresApproval =
-      ctx.permission_mode === "default" ||
-      estimated_usd > approvalThreshold;
-
-    if (requiresApproval) {
-      if (ctx.permission_mode === "dontAsk") {
-        emit("run.paused", { reason: "needs_approval" });
-        return;
-      } else if (ctx.permission_mode === "plan") {
-        emit("plan.ready", {});
-        emit("run.finished", { exit_code: 0 });
-        return;
-      } else if (ctx.permission_mode === "bypassPermissions") {
-        emit("plan.approved", {});
-        return;
-      } else {
-        emit("run.paused", { reason: "needs_approval" });
-        return;
-      }
-    } else {
-      if (ctx.permission_mode === "plan") {
-        emit("plan.ready", {});
-        emit("run.finished", { exit_code: 0 });
-        return;
-      }
-      emit("plan.approved", {});
-      return;
-    }
+    await runLintAction(action, ctx, state, emit);
+    return;
   }
 
-  // case "plan"
   emit("plan.started", {});
-  const manifestPath = path.join(ctx.runDir, "manifest.yaml");
 
-  if (fs.existsSync(manifestPath)) {
-    try {
-      const raw = fs.readFileSync(manifestPath, "utf8");
-      const manifest = safeParseManifest(raw, manifestPath);
-      const runBranch = getRunBranch(ctx.runId);
-
-      if (manifest.contracts?.files && manifest.contracts.files.length > 0) {
-        const createdRepoFiles: string[] = [];
-        for (const file of manifest.contracts.files) {
-          const runFile = path.resolve(ctx.runDir, file);
-          const repoFile = path.resolve(ctx.repoRoot, file);
-          if (!fs.existsSync(repoFile) && !fs.existsSync(runFile)) {
-            fs.mkdirSync(path.dirname(repoFile), { recursive: true });
-            fs.writeFileSync(repoFile, "export {};\n", "utf8");
-            createdRepoFiles.push(repoFile);
-          }
-          if (!fs.existsSync(runFile) && fs.existsSync(repoFile)) {
-            fs.mkdirSync(path.dirname(runFile), { recursive: true });
-            fs.copyFileSync(repoFile, runFile);
-          }
-        }
-        try {
-          const commitSha = await commitContractStubs(
-            ctx.repoRoot,
-            ctx.runId,
-            manifest.base_ref ?? "HEAD",
-            manifest.contracts,
-            ctx.runDir
-          );
-          emit("contracts.committed", { commit_sha: commitSha });
-        } catch {}
-        for (const f of createdRepoFiles) {
-          try {
-            if (fs.existsSync(f)) fs.rmSync(f, { force: true });
-          } catch {}
-        }
-      }
-
-      emit("plan.produced", { manifest, tasks: manifest.tasks });
-      return;
-    } catch (err: any) {
-      log.debug("[DEBUG] plan manifest read error:", err?.message);
-    }
+  const route = resolvePlannerRoute(ctx.settings);
+  const adapter = adapterFor(ctx, route.backend);
+  if (!adapter) {
+    emit("run.paused", { reason: "backend_unavailable" });
+    return;
   }
 
-  let plannerAttempts = 0;
-  let plannerTotal = state.usage.total_usd;
-  const maxRetries = ctx.settings.budgets?.planner_format_retries ?? 2;
-  let lastPrompt = ctx.prompt ?? "Plan feature";
+  let totalUsd = state.usage.total_usd;
+  let stoppedForBudget = false;
 
-  while (plannerAttempts <= maxRetries) {
-    plannerAttempts++;
-    const sessionId = crypto.randomUUID();
-    const spawnReq: SpawnRequest = {
-      role: "planner",
-      cwd: ctx.runDir,
-      prompt: lastPrompt,
-      system_append: assembleSystem("planner", { projectRoot: ctx.repoRoot }),
-      raw_dir: ctx.runDir,
-      session: { id: sessionId },
-      model: ctx.settings.roles?.planner?.model ?? "claude-haiku-5-5",
-      permission: {
-        allow: [ctx.runDir],
-        deny: ["git commit", "git push", "git checkout", "git reset", "subagents"],
-      },
-      budget: {
-        max_usd: ctx.settings.budgets?.task?.max_usd ?? 5.0,
-        timeout_ms: 1800000,
-      },
-    };
+  const plannerEmit: PlannerEmit = <T extends EventType>(
+    type: T,
+    data: EventData<T>
+  ) => {
+    const evt = emit(type, data);
+    if (type === "usage.recorded") {
+      const record = (data as { record?: { cost_usd?: number } })?.record;
+      totalUsd += record?.cost_usd ?? 0;
+      log.debug(`[DEBUG] plan action: planner usage ${totalUsd.toFixed(2)}`);
+      if (checkRunBudget(ctx, emit, totalUsd)) {
+        // The run is paused for the budget; do not report a plan outcome for it.
+        stoppedForBudget = true;
+      }
+    }
+    return evt;
+  };
 
-    const route = ctx.settings.roles.planner;
-    const adapter = adapterFor(ctx, route.backend);
-    if (!adapter) {
-      emit("run.paused", { reason: "backend_unavailable" });
+  let outcome;
+  try {
+    outcome = await runPlanner({
+      runId: ctx.runId,
+      repoRoot: ctx.repoRoot,
+      runDir: ctx.runDir,
+      request: ctx.prompt ?? "",
+      settings: ctx.settings,
+      adapter,
+      route,
+      onEvent: plannerEmit,
+    });
+  } catch (err) {
+    if (stoppedForBudget) return;
+
+    if (err instanceof PlannerFailure) {
+      const failureClass = err.reason === "session" ? "worker_crashed" : "spec_invalid";
+      emit("task.failed", { failure_class: failureClass });
+      emit("run.finished", { exit_code: 1, status: "failed" });
       return;
     }
-
-    const handle = adapter.spawn(spawnReq);
-    const unbind = bindAbort(ctx, handle);
-    let res: any;
-    // Cumulative usage conversion per planner session (R1.4).
-    const prevUsageTotals = new Map<string, UsageTotals>();
-    let sawUsageEvents = false;
-    try {
-      for await (const evt of handle.events) {
-        if (evt.type === "usage" && (evt as any).record) {
-          sawUsageEvents = true;
-          const { delta, next } = toDelta(
-            prevUsageTotals.get("session"),
-            (evt as any).record,
-            Boolean((evt as any).cumulative)
-          );
-          prevUsageTotals.set("session", next);
-          emit("usage.recorded", { record: delta, role: "planner" });
-          plannerTotal = plannerTotal + (delta.cost_usd ?? 0);
-          if (checkRunBudget(ctx, emit, plannerTotal)) {
-            await handle.kill("budget");
-            return;
-          }
-        }
-      }
-      res = await handle.result();
-    } finally {
-      unbind();
-    }
-
-    // Session-result usage for adapters that never stream usage reports.
-    if (!sawUsageEvents && res?.usage) {
-      emit("usage.recorded", { record: res.usage, role: "planner" });
-      plannerTotal = plannerTotal + (res.usage.cost_usd ?? 0);
-      if (checkRunBudget(ctx, emit, plannerTotal)) {
-        return;
-      }
-    }
-
-    if (ctx.signal?.aborted || res?.killed_for === "cancel") {
-      return;
-    }
-
-    if (res.final_text) {
-      const files = extractFencedFiles(res.final_text);
-      const manifestContent = files.get("manifest.yaml");
-      if (manifestContent) {
-        try {
-          fs.writeFileSync(manifestPath, manifestContent, "utf8");
-          for (const [relPath, content] of files.entries()) {
-            if (relPath !== "manifest.yaml") {
-              const fullPath = path.resolve(ctx.runDir, relPath);
-              fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-              fs.writeFileSync(fullPath, content, "utf8");
-            }
-          }
-          const manifest = safeParseManifest(manifestContent, manifestPath);
-          if (manifest.contracts?.files && manifest.contracts.files.length > 0) {
-            try {
-              const commitSha = await commitContractStubs(
-                ctx.repoRoot,
-                ctx.runId,
-                manifest.base_ref ?? "HEAD",
-                manifest.contracts,
-                ctx.runDir
-              );
-              emit("contracts.committed", { commit_sha: commitSha });
-            } catch {}
-          }
-          emit("plan.produced", { manifest, tasks: manifest.tasks });
-          return;
-        } catch (err: any) {
-          log.debug("[DEBUG] plan parse error:", err?.message);
-        }
-      }
-    }
-
-    if (plannerAttempts <= maxRetries) {
-      lastPrompt = `Please correct the output format. You must provide valid YAML format for manifest.yaml.`;
-    }
+    throw err;
   }
 
-  emit("task.failed", { failure_class: "spec_invalid" });
-  emit("run.finished", { exit_code: 1, status: "failed" });
+  if (stoppedForBudget) return;
+
+  if (outcome.kind === "needs_input") {
+    emit("run.paused", {
+      reason: "needs_human",
+      questions_path: outcome.questionsPath,
+      session_id: outcome.sessionId,
+    });
+    return;
+  }
+
+  emit("contracts.committed", { commit_sha: outcome.commitSha });
+  emit("plan.produced", {
+    manifest: outcome.plan.manifest,
+    tasks: outcome.plan.manifest.tasks,
+    commit_sha: outcome.commitSha,
+  });
 }

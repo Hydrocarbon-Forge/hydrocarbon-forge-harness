@@ -21,6 +21,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 06: Permission Denial -> Pause (Exit 3) (§14.5 #6)", () => {
@@ -36,12 +37,14 @@ describe("Scenario 06: Permission Denial -> Pause (Exit 3) (§14.5 #6)", () => {
 
   beforeEach(async () => {
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         failure: "permission_denial",
         reply: "Denied by policy",
       },
     ]);
     env = await setupScenarioEnv("06-permission-denied", { adapter: fakeClaude.adapter });
+    env.testRepo.commitFile("src/feature.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -67,7 +70,7 @@ describe("Scenario 06: Permission Denial -> Pause (Exit 3) (§14.5 #6)", () => {
       },
     });
 
-    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: env.settings,

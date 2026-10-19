@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
 
 import type {
   BackendName,
@@ -24,38 +23,8 @@ export type Emit = TypedEmit;
 
 export { makeEmitter } from "../emit.js";
 
-export function extractFencedFiles(text: string): Map<string, string> {
-  const files = new Map<string, string>();
-  const headerRegex = /```(?:[a-zA-Z0-9_-]+):([^\n\r]+)/g;
-  const matches: Array<{ file: string; start: number; headerIndex: number }> = [];
-  let match;
-  while ((match = headerRegex.exec(text)) !== null) {
-    matches.push({
-      file: match[1].trim(),
-      start: match.index + match[0].length,
-      headerIndex: match.index,
-    });
-  }
-  for (let i = 0; i < matches.length; i++) {
-    const cur = matches[i];
-    let endIdx: number;
-    if (i + 1 < matches.length) {
-      endIdx = text.lastIndexOf("```", matches[i + 1].headerIndex - 1);
-    } else {
-      endIdx = text.lastIndexOf("```");
-    }
-    const content = (endIdx > cur.start ? text.slice(cur.start, endIdx) : text.slice(cur.start)).trim();
-    files.set(cur.file, content);
-  }
-  return files;
-}
-
 export function safeParseManifest(raw: string, filePath?: string): Manifest {
-  try {
-    return parseManifest(raw, filePath);
-  } catch {
-    return YAML.parse(raw) as Manifest;
-  }
+  return parseManifest(raw, filePath);
 }
 
 export async function safeLoadPlan(

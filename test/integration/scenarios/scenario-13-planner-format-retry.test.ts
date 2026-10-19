@@ -18,6 +18,7 @@ import {
 import {
   sampleValidManifestYaml,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 13: Planner Format Retry (§14.5 #13)", () => {
@@ -47,7 +48,10 @@ describe("Scenario 13: Planner Format Retry (§14.5 #13)", () => {
         reply: "INVALID YAML: { unclosed bracket: [",
       },
       {
-        reply: `\`\`\`yaml:manifest.yaml\n${sampleValidManifestYaml()}\n\`\`\`\n\n\`\`\`markdown:tasks/T1.md\n${sampleValidTaskSpecMarkdown()}\n\`\`\``,
+        reply:
+          `\`\`\`yaml:manifest.yaml\n${sampleValidManifestYaml()}\n\`\`\`\n\n` +
+          `\`\`\`markdown:tasks/T1.md\n${sampleValidTaskSpecMarkdown()}\n\`\`\`\n\n` +
+          `\`\`\`typescript:contracts/types.ts\n${sampleValidContractStub()}\n\`\`\`\nPLAN READY`,
       },
     ]);
 
@@ -86,8 +90,12 @@ describe("Scenario 13: Planner Format Retry (§14.5 #13)", () => {
       // Planner retried once
       expect(plannerAttempts).toBe(2);
 
-      // Prompt in second planner attempt must include format retry hint
-      expect(spawnedRequests[1]?.prompt).toContain("format");
+      // Prompt in the second planner attempt is the correction prompt listing the checks
+      // that failed.
+      const correction = spawnedRequests[1]?.prompt ?? "";
+      expect(correction).toContain("attempt 2 of 3");
+      expect(correction).toContain("Problems");
+      expect(correction).toContain("deterministic checks");
     } finally {
       fakeClaude.cleanup();
     }

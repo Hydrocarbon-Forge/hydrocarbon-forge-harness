@@ -22,6 +22,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 import type { CommandContext, CliCommand } from "./execution.test.js";
 
@@ -65,6 +66,7 @@ describe("cli: inspection and lifecycle commands", () => {
   // command in a temp repo, used by the inspection commands below.
   async function runTwoTaskRun(): Promise<ScenarioEnv> {
     const fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: {
           "src/t1.ts": "export const t1 = 1;\n",
@@ -81,6 +83,8 @@ describe("cli: inspection and lifecycle commands", () => {
       },
     ]);
     const env = await setupScenarioEnv("cli-cmds", { adapter: fakeClaude.adapter });
+    env.testRepo.commitFile("src/t1.ts", "// existing file declared as write\n");
+    env.testRepo.commitFile("src/t2.ts", "// existing file declared as write\n");
     const cleanup = env.cleanup.bind(env);
     env.cleanup = async () => {
       await cleanup();
@@ -125,7 +129,7 @@ describe("cli: inspection and lifecycle commands", () => {
           verify: [{ run: "echo verify T2", timeout_s: 30 }],
         },
       }),
-    });
+    }, { "contracts/types.ts": sampleValidContractStub() });
 
     const runCommand = await loadCommand("../../../src/cli/commands/run.js", "runCommand");
     const stdout = createMockStream();
@@ -924,7 +928,7 @@ describe("cli: inspection and lifecycle commands", () => {
         updatedAt: nowIsoTimestamp(),
         mode: "auto",
         prompts: [{ prompt: "Initial build goal", timestamp: nowIsoTimestamp() }],
-        runs: ["r_111111111111"],
+        runs: ["r_BBBBBBBBBBBB"],
       };
       writeFileSync(join(sessionsDir, "sess_table_test_1.json"), JSON.stringify(sessionRecord), "utf8");
 

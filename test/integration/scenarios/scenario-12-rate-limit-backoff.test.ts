@@ -19,6 +19,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
@@ -34,6 +35,7 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
 
   beforeEach(async () => {
     env = await setupScenarioEnv("12-rate-limit");
+    env.testRepo.commitFile("src/feature.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -42,10 +44,11 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
   });
 
   it("backs off, halves concurrency (floor 1), avoids replanning, and resumes when limit clears", async () => {
-    const runId: RunId = "r_121212ABCDEF";
+    const runId: RunId = "r_B2B2B2ABCDEF";
     let attemptsCount = 0;
 
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         failure: "rate_limit",
         reply: "Rate limit error",
@@ -71,7 +74,7 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
       },
     });
 
-    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: {
@@ -102,9 +105,10 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
   });
 
   it("pauses run with rate_limited when limit persists at concurrency floor 1", async () => {
-    const runId: RunId = "r_121212PERSIST";
+    const runId: RunId = "r_B2B2B2PERSIS";
 
     const fakeClaude2 = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         failure: "rate_limit",
         reply: "Rate limit",
@@ -118,7 +122,7 @@ describe("Scenario 12: Rate-Limit Backoff (§14.5 #12)", () => {
       };
 
       const t1Spec = sampleValidTaskSpecMarkdown();
-      writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+      writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
       const engine = engineMod.createEngine({
         settings: {

@@ -6,6 +6,7 @@ import type { Manifest, RunId } from "../../../src/contracts/index.js";
 import { EventStoreImpl } from "../../../src/store/event-store.js";
 import {
   setupScenarioEnv,
+  fakeClaudeAdapter,
   writePlanFiles,
   readEventLog,
   type ScenarioEnv,
@@ -26,6 +27,8 @@ describe("Torn-tail event log recovery (§14.5 #11 edge case)", () => {
 
   beforeEach(async () => {
     env = await setupScenarioEnv("torn-tail");
+    // L007 needs a write pattern to match a file that exists at the base commit.
+    env.testRepo.commitFile("src/t1.ts", "// existing file declared as write\n");
   });
 
   afterEach(async () => {
@@ -61,21 +64,34 @@ describe("Torn-tail event log recovery (§14.5 #11 edge case)", () => {
     );
 
     // Run until event 5 (plan.produced) and crash
+    const fakeClaude = fakeClaudeAdapter([
+      { reply: "wrote manifest.yaml and the task specs\nPLAN READY" },
+      {
+        edits: {
+          "src/t1.ts": "// t1\n",
+          "test/t1.test.ts": "// test\n",
+        },
+        reply: "Worker passed verify",
+      },
+    ]);
+
+    // Event 3 is plan.started, 4 is usage.recorded, 5 is contracts.committed and 6 is
+    // plan.produced; crash at plan.produced like the original scenario.
     const crashInfo = await runUntilBoundaryAndCrash(
       {
         cwd: env.repoRoot,
         prompt: "Execute torn tail test",
         mode: "plan",
         permission_mode: "bypassPermissions",
-        adapter: env.adapter,
+        adapter: fakeClaude.adapter,
       },
-      5
+      6
     );
 
-    expect(crashInfo.crashedSeq).toBe(5);
+    expect(crashInfo.crashedSeq).toBe(6);
 
     const eventsBefore = readEventLog(env.runDir, runId);
-    expect(eventsBefore.length).toBe(5);
+    expect(eventsBefore.length).toBe(6);
 
     // Simulate torn-tail: append truncated JSON line
     corruptEventLogTail(crashInfo.runDir, "truncated_json");
@@ -83,13 +99,14 @@ describe("Torn-tail event log recovery (§14.5 #11 edge case)", () => {
     // EventStoreImpl.readAll drops the trailing truncated line and recovers valid prefix
     const store = new EventStoreImpl(runId, { baseDir: env.repoRoot });
     const recoveredEvents = await store.readAll();
-    expect(recoveredEvents.length).toBe(5);
-    expect(recoveredEvents[recoveredEvents.length - 1].seq).toBe(5);
+    expect(recoveredEvents.length).toBe(6);
+    expect(recoveredEvents[recoveredEvents.length - 1].seq).toBe(6);
 
-    // Resume execution to completion
+    // Resume execution to completion; the plan stage is already recorded so only the
+    // worker session runs.
     const summary = await resumeAfterCrash(runId, {
       cwd: env.repoRoot,
-      adapter: env.adapter,
+      adapter: fakeClaude.adapter,
     });
 
     expect(summary.status).toBe("finished");
@@ -98,10 +115,11 @@ describe("Torn-tail event log recovery (§14.5 #11 edge case)", () => {
 
     // Verify final event log sequence monotonicity without syntax errors
     const finalEvents = readEventLog(env.runDir, runId);
-    expect(finalEvents.length).toBeGreaterThan(5);
+    expect(finalEvents.length).toBeGreaterThan(6);
     for (let i = 0; i < finalEvents.length; i++) {
       expect(finalEvents[i].seq).toBe(i + 1);
     }
+    fakeClaude.cleanup();
   });
 
   it("recovers from garbage bytes at event log tail and completes run", async () => {
@@ -132,13 +150,25 @@ describe("Torn-tail event log recovery (§14.5 #11 edge case)", () => {
       { "contracts/types.ts": sampleValidContractStub() }
     );
 
+    const fakeClaude = fakeClaudeAdapter([
+      { reply: "wrote manifest.yaml and the task specs\nPLAN READY" },
+      { reply: "wrote the corrected plan\nPLAN READY" },
+      {
+        edits: {
+          "src/t1.ts": "// t1\n",
+          "test/t1.test.ts": "// test\n",
+        },
+        reply: "Worker passed verify",
+      },
+    ]);
+
     const crashInfo = await runUntilBoundaryAndCrash(
       {
         cwd: env.repoRoot,
         prompt: "Execute garbage bytes test",
         mode: "plan",
         permission_mode: "bypassPermissions",
-        adapter: env.adapter,
+        adapter: fakeClaude.adapter,
       },
       4
     );
@@ -154,7 +184,7 @@ describe("Torn-tail event log recovery (§14.5 #11 edge case)", () => {
 
     const summary = await resumeAfterCrash(runId, {
       cwd: env.repoRoot,
-      adapter: env.adapter,
+      adapter: fakeClaude.adapter,
     });
 
     expect(summary.status).toBe("finished");
@@ -164,6 +194,7 @@ describe("Torn-tail event log recovery (§14.5 #11 edge case)", () => {
     for (let i = 0; i < finalEvents.length; i++) {
       expect(finalEvents[i].seq).toBe(i + 1);
     }
+    fakeClaude.cleanup();
   });
 
   it("throws fatal corruption error when non-terminal line is corrupted", async () => {
