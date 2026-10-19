@@ -464,6 +464,13 @@ export const Settings = z.object({
 export type Settings = z.infer<typeof Settings>;
 
 // ===== engine API =====
+const QuestionSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  default: z.string().optional(),
+}).strict();
+export type Question = z.infer<typeof QuestionSchema>;
+
 export const RunOptions = z.object({
   prompt: z.string(),
   cwd: z.string(),
@@ -489,6 +496,7 @@ export const RunSummary = z.object({
   run_id: RunId,
   status: z.enum(["finished", "failed", "paused", "cancelled"]),
   pause_reason: PauseReason.optional(),
+  questions: z.array(QuestionSchema).optional(),
   tasks: z.record(TaskId, z.object({
     state: z.string(),
     generation: z.number(),

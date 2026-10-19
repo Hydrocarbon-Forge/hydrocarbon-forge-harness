@@ -17,6 +17,7 @@ assets/
       format.md          exact plan format + worked example + pre-flight checklist (appended to the planner system prompt)
       request.md         first user turn of a planning session
       correction.md      user turn when the linter rejects the plan (resumed planner session)
+      answers.md         user turn when the caller answers questions (resumed planner session)
       replan-l1.md       user turn: rewrite ONE failed task's spec (fresh planner session)
       replan-l2.md       user turn: amend contracts/manifest/specs (fresh planner session)
     worker/
@@ -32,6 +33,7 @@ assets/
 |---|---|---|
 | Planner, first turn | `agents/planner.md` body + `prompts/planner/format.md` | `prompts/planner/request.md` |
 | Planner, format retry | (same session, resumed) | `prompts/planner/correction.md` |
+| Planner, resume with answers | (same session, resumed) | `prompts/planner/answers.md` |
 | Planner, L1 replan | `agents/planner.md` body + `prompts/planner/format.md` | `prompts/planner/replan-l1.md` |
 | Planner, L2 amendment | `agents/planner.md` body + `prompts/planner/format.md` | `prompts/planner/replan-l2.md` |
 | Worker | `agents/worker.md` body + `prompts/worker/class/<class>.md` (if it exists) | `prompts/worker/task.md` |
@@ -48,6 +50,7 @@ Syntax is `{{name}}` only: no logic, no loops, no conditionals. Code builds ever
 |---|---|
 | `planner/request.md` | `request`, `run_id`, `base_ref`, `repo_root`, `classes`, `task_budget`, `run_budget`, `max_tasks`, `charter`, `history`, `instruction_files`, `skills`, `repo_map` |
 | `planner/correction.md` | `attempt`, `max_attempts`, `diagnostics` |
+| `planner/answers.md` | `answers` |
 | `planner/replan-l1.md` | `task_id`, `generation`, `failure_class`, `spec_path`, `failure_details`, `diff_summary`, `worker_summary`, `task_spec`, `related_contracts`, `dependents`, `decisions` |
 | `planner/replan-l2.md` | `task_id`, `failure_class`, `escalation_reason`, `failure_details`, `worker_summary`, `manifest`, `task_states`, `contracts`, `decisions` |
 | `worker/task.md`, `test-writer/task.md` | `spec_path` (absolute) |

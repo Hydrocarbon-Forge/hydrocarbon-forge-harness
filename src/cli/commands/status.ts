@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Effort, Engine, PermissionMode, RunId } from "../../contracts/index.js";
+import type { Effort, Engine, PermissionMode, Question, RunId } from "../../contracts/index.js";
 import { parseEngineEvent } from "../../contracts/events.js";
 import { reduce, type EngineState } from "../../engine/reducer.js";
 import type { SessionStore } from "../../store/sessions.js";
@@ -150,7 +150,20 @@ export const statusCommand: CliCommand = {
       return 2;
     }
 
-    const { state } = reduceRunEvents(eventsFile, ctx.stderr);
+    const { state, events } = reduceRunEvents(eventsFile, ctx.stderr);
+
+    let pendingQuestions: Question[] | undefined;
+    const questionsFile = path.join(runDir, "QUESTIONS.md");
+    if (state.state === "PAUSED" && state.pause_reason === "needs_human" && fs.existsSync(questionsFile)) {
+      const lastPausedIdx = events.map((e) => e.type).lastIndexOf("run.paused");
+      const resumedAfterWithAnswers = events
+        .slice(lastPausedIdx + 1)
+        .some((e) => e.type === "run.resumed" && (e.data as any)?.answers !== undefined);
+      if (!resumedAfterWithAnswers) {
+        const { parseQuestions } = await import(`../questions.js`);
+        pendingQuestions = parseQuestions(fs.readFileSync(questionsFile, "utf8"));
+      }
+    }
 
     const taskEntries = Object.entries(state.tasks);
     const taskCount = taskEntries.length;
@@ -161,6 +174,7 @@ export const statusCommand: CliCommand = {
         run_id: state.run_id || targetRunId,
         state: state.state,
         pause_reason: state.pause_reason,
+        ...(pendingQuestions ? { questions: pendingQuestions } : {}),
         passed: passedCount,
         total: taskCount,
         tasks: Object.fromEntries(
@@ -188,6 +202,14 @@ export const statusCommand: CliCommand = {
     }
     ctx.stdout.write(`Tasks:       ${passedCount}/${taskCount} passed\n`);
     ctx.stdout.write(`Total Cost:  $${state.usage.total_usd.toFixed(2)}\n`);
+
+    if (pendingQuestions && pendingQuestions.length > 0) {
+      ctx.stdout.write(`\nPending Questions:\n`);
+      for (const q of pendingQuestions) {
+        const defStr = q.default !== undefined ? ` (default: ${q.default})` : "";
+        ctx.stdout.write(`  [${q.id}] ${q.text}${defStr}\n`);
+      }
+    }
 
     if (taskCount > 0) {
       ctx.stdout.write(`\nID\tState\tGen\tAtt\tFailure\n`);

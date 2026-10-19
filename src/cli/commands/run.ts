@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, RunId, RunOptions, Settings } from "../../contracts/index.js";
@@ -292,6 +293,13 @@ export const runCommand: CliCommand = {
 
     try {
       const summary = await engine.run(runOpts);
+      if (summary.pause_reason === "needs_human" && summary.questions === undefined) {
+        const qPath = path.join(ctx.cwd, ".substrate", "runs", summary.run_id, "QUESTIONS.md");
+        if (fs.existsSync(qPath)) {
+          const { parseQuestions } = await import(`../questions.js`);
+          summary.questions = parseQuestions(fs.readFileSync(qPath, "utf8"));
+        }
+      }
       if (sessionStore && session) {
         await sessionStore.addRun(session.sessionId, summary.run_id, prompt);
       }

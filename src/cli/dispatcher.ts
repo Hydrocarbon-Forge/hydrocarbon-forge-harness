@@ -36,6 +36,7 @@ export interface CliGlobalFlags {
   hard?: boolean;
   verify?: string[];
   request?: string;
+  answers?: string;
 }
 
 export interface CliGovernanceFlags {
@@ -124,6 +125,7 @@ const CLI_OPTIONS = {
   "abort-on-conflict": { type: "boolean" },
   hard: { type: "boolean" },
   request: { type: "string" },
+  answers: { type: "string" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -210,6 +212,9 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   }
   if (parsedValues.request !== undefined) {
     flags.request = parsedValues.request as string;
+  }
+  if (parsedValues.answers !== undefined) {
+    flags.answers = parsedValues.answers as string;
   }
 
   let commandName: string | undefined;
@@ -367,6 +372,10 @@ export async function runCli(
         positional.push(stdinContent.trim());
         stdinData = stdinContent;
       }
+    }
+  } else if (cmd.name === "resume") {
+    if (flags.answers === "-") {
+      stdinData = await readStdinIfAvailable(stdin);
     }
   }
 

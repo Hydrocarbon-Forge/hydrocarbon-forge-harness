@@ -1,10 +1,10 @@
-import type { EngineEvent, RunId, RunSummary } from "../contracts/index.js";
+import type { EngineEvent, Question, RunId, RunSummary } from "../contracts/index.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
 
 export interface StreamResultEvent {
   type: "result";
-  subtype: "success" | "error_failed" | "error_budget" | "error_needs_human";
+  subtype: "success" | "error_failed" | "error_budget" | "error_needs_human" | "needs_input";
   is_error: boolean;
   session_id: string;
   run_id: RunId;
@@ -12,6 +12,7 @@ export interface StreamResultEvent {
   total_cost_usd: number;
   usage: { by_role: Record<string, number> };
   duration_ms: number;
+  questions?: Question[];
 }
 
 export interface OutputFormatter {
@@ -31,6 +32,8 @@ function countPassed(summary: RunSummary): number {
 }
 
 class TextFormatter implements OutputFormatter {
+  private lastPausedQuestions?: Question[];
+
   constructor(
     private readonly out: NodeJS.WriteStream,
     private readonly err: NodeJS.WriteStream
@@ -51,11 +54,24 @@ class TextFormatter implements OutputFormatter {
     } else if (event.type === "task.failed") {
       this.err.write(`[task ${data.task_id ?? ""}] failed: ${data.failure_class ?? "-"}\n`);
     } else if (event.type === "run.paused") {
+      if (Array.isArray(data.questions)) {
+        this.lastPausedQuestions = data.questions;
+      }
       this.err.write(`run paused: ${data.reason ?? "unknown"}\n`);
     }
   }
 
   onSummary(summary: RunSummary, sessionId: string): void {
+    const questions = summary.questions ?? this.lastPausedQuestions;
+    if (summary.pause_reason === "needs_human" && questions !== undefined) {
+      this.out.write(`\nRun paused: needs input\n\n`);
+      for (const q of questions) {
+        const defStr = q.default !== undefined ? ` (default: ${q.default})` : "";
+        this.out.write(`  [${q.id}] ${q.text}${defStr}\n`);
+      }
+      this.out.write(`\nsubstrate resume ${summary.run_id} --answers <file>\n`);
+    }
+
     const totalCost = summary.usage?.total_usd !== undefined
       ? summary.usage.total_usd.toFixed(2)
       : "0.00";
@@ -94,8 +110,12 @@ class JsonFormatter implements OutputFormatter {
 
   // JSON mode: exactly one JSON object on stdout, nothing else.
   onSummary(summary: RunSummary, sessionId: string): void {
+    const lastPaused = [...this.events].reverse().find((e) => e.type === "run.paused");
+    const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
+    const isNeedsInput = summary.pause_reason === "needs_human" && questions !== undefined;
     const payload = {
       ...summary,
+      ...(isNeedsInput ? { subtype: "needs_input", run_id: summary.run_id, questions } : {}),
       session_id: sessionId,
       events: this.events,
     };
@@ -114,10 +134,13 @@ class JsonFormatter implements OutputFormatter {
 
 class StreamJsonFormatter implements OutputFormatter {
   private readonly startTime = Date.now();
+  private readonly events: EngineEvent[] = [];
 
   constructor(private readonly out: NodeJS.WriteStream) {}
 
   onEvent(event: EngineEvent): void {
+    this.events.push(event);
+
     const data = (event.data && typeof event.data === "object")
       ? (event.data as Record<string, any>)
       : {};
@@ -134,7 +157,10 @@ class StreamJsonFormatter implements OutputFormatter {
   }
 
   onSummary(summary: RunSummary, sessionId: string): void {
-    let subtype: "success" | "error_failed" | "error_budget" | "error_needs_human" = "success";
+    const lastPaused = [...this.events].reverse().find((e) => e.type === "run.paused");
+    const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
+
+    let subtype: "success" | "error_failed" | "error_budget" | "error_needs_human" | "needs_input" = "success";
     let is_error = false;
 
     if (summary.status === "finished") {
@@ -154,6 +180,9 @@ class StreamJsonFormatter implements OutputFormatter {
     ) {
       subtype = "error_budget";
       is_error = true;
+    } else if (summary.pause_reason === "needs_human" && questions !== undefined) {
+      subtype = "needs_input";
+      is_error = false;
     } else if (
       summary.pause_reason === "needs_human" ||
       summary.pause_reason === "needs_approval" ||
@@ -182,6 +211,7 @@ class StreamJsonFormatter implements OutputFormatter {
       total_cost_usd,
       usage,
       duration_ms,
+      ...(questions !== undefined ? { questions } : {}),
     };
 
     this.out.write(JSON.stringify(resultEvent) + "\n");

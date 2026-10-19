@@ -17,6 +17,7 @@ const TABLE: Record<string, string[]> = {
     "skills", "repo_map",
   ],
   "planner/correction.md": ["attempt", "max_attempts", "diagnostics"],
+  "planner/answers.md": ["answers"],
   "planner/replan-l1.md": [
     "task_id", "generation", "failure_class", "spec_path", "failure_details",
     "diff_summary", "worker_summary", "task_spec", "related_contracts",

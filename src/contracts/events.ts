@@ -6,6 +6,7 @@ import {
   UsageRecord,
   RoleName,
 } from "./index.js";
+import type { Question } from "./index.js";
 
 /**
  * The engine event catalog. Every engine event is defined exactly once here as a
@@ -48,6 +49,12 @@ export const RunRoutedEvent = member(
   z.object({ mode: z.enum(["solo", "plan"]) }).strict()
 );
 
+const QuestionSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  default: z.string().optional(),
+}).strict();
+
 export const RunPausedEvent = member(
   "run.paused",
   z
@@ -55,11 +62,28 @@ export const RunPausedEvent = member(
       reason: PauseReason,
       questions_path: z.string().optional(),
       session_id: z.string().optional(),
+      questions: z.array(QuestionSchema).optional(),
     })
     .strict()
 );
 
-export const RunResumedEvent = member("run.resumed", z.object({}).strict());
+export const RunResumedEvent = member(
+  "run.resumed",
+  z
+    .object({
+      answers: z
+        .array(
+          z
+            .object({
+              id: z.string(),
+              text: z.string(),
+            })
+            .strict()
+        )
+        .optional(),
+    })
+    .strict()
+);
 
 export const RunFinishedEvent = member(
   "run.finished",
