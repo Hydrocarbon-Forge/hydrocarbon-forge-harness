@@ -335,7 +335,28 @@ export const TasksInvalidatedEvent = member(
 
 export const ReplanStartedEvent = member(
   "replan.started",
-  z.object({ task_id: z.string().optional() }).strict()
+  z
+    .object({
+      task_id: z.string().optional(),
+      // Generation the replan produces, the model tier the ladder routed to, and the
+      // reason this replan was entered (first time, or the L1 output that escalated).
+      generation: z.number().int().optional(),
+      target_tier: z.string().optional(),
+      reason: z.string().optional(),
+    })
+    .strict()
+);
+
+export const ReplanL2Event = member(
+  "replan.l2",
+  z
+    .object({
+      task_id: z.string().optional(),
+      generation: z.number().int().optional(),
+      // Tasks the amendment invalidated; already-merged tasks are never in it.
+      invalidated: z.array(z.string()).optional(),
+    })
+    .strict()
 );
 
 export const ReplanFinishedEvent = member(
@@ -433,6 +454,7 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   TaskReplannedEvent,
   TasksInvalidatedEvent,
   ReplanStartedEvent,
+  ReplanL2Event,
   ReplanFinishedEvent,
   IntegrationStartedEvent,
   IntegrationFinishedEvent,
@@ -480,6 +502,7 @@ export const EVENT_TYPES = [
   "tasks.invalidated",
   "replan.started",
   "replan.finished",
+  "replan.l2",
   "integration.started",
   "integration.finished",
   "integration.failed",

@@ -96,7 +96,7 @@ function taskSpec(options: {
   ].join("\n");
 }
 
-function planCall(manifest: string, spec: string): Record<string, unknown> {
+function planCall(manifest: string, spec: string, finishLine = "PLAN READY"): Record<string, unknown> {
   return {
     plan: {
       files: {
@@ -105,7 +105,7 @@ function planCall(manifest: string, spec: string): Record<string, unknown> {
         "contracts/types.ts": CONTRACT_STUB,
       },
     },
-    reply: "wrote the plan for the heal and budget case\nPLAN READY",
+    reply: `wrote the plan for the heal and budget case\n${finishLine}`,
   };
 }
 
@@ -203,7 +203,7 @@ describe("E2E heal, budgets, timeouts, rate limits (R3.4)", () => {
             reply: "overshooting the task budget\nDONE",
           },
           // The ladder replans: the run is not paused by a per-task budget.
-          planCall(manifest, spec),
+          planCall(manifest, spec, "REVISED T1"),
           {
             edits: { "src/feature.txt": "seed\nmarker\n" },
             reply: "generation 2 passes\nDONE",
@@ -242,7 +242,7 @@ describe("E2E heal, budgets, timeouts, rate limits (R3.4)", () => {
         calls: [
           planCall(manifest, spec),
           { failure: "hang", reply: "never returns" },
-          planCall(manifest, spec),
+          planCall(manifest, spec, "REVISED T1"),
           {
             edits: { "src/feature.txt": "seed\nmarker\n" },
             reply: "generation 2 passes after the timeout\nDONE",

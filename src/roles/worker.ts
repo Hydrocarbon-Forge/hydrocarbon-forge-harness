@@ -105,6 +105,12 @@ export interface WorkerRunOptions {
   signal?: AbortSignal;
   runPolicy?: WorkerRunPolicy;
   onEvent?: WorkerEmit;
+  /**
+   * Each attempt's report is handed to the action as soon as that attempt finishes, so
+   * the action can record it (R3.5 rule 2). The role does not write files, so the
+   * per-attempt report files are the action's.
+   */
+  onReport?: (report: WorkerReport) => void;
 }
 
 /** Cap for the failures text in the heal prompt (R1.6, R3.4). */
@@ -422,12 +428,13 @@ async function runAttempt(
     opts.onEvent?.("scope.checked", scopeData);
 
     if (scopeRes.protectedModified.length > 0) {
+      // The role reports what it observed; which tier handles it is the engine ladder
+      // (R3.5 rule 1), so replannability is not decided here.
       opts.onEvent?.("task.failed", {
         task_id: opts.taskId,
         generation: opts.generation,
         attempt,
         failure_class: "protected_modified",
-        can_replan: false,
       });
       return {
         report: buildReport("failed", "protected_modified"),
@@ -634,6 +641,7 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
       usage,
       taskTotals
     );
+    opts.onReport?.(outcome.report);
 
     // A rate limit backoff retries the same attempt and does not consume the attempt
     // number (R3.4). The worktree and the session are reused, as in a heal.
@@ -651,6 +659,7 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
         usage,
         taskTotals
       );
+      opts.onReport?.(outcome.report);
     }
 
     return outcome;

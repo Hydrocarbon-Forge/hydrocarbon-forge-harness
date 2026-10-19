@@ -39,6 +39,7 @@ export const STREAM_TYPE: Record<EventType, string> = {
   "tasks.invalidated": "tasks.invalidated",
   "replan.started": "replan.started",
   "replan.finished": "replan.finished",
+  "replan.l2": "replan.l2",
   "integration.started": "integration.started",
   "integration.finished": "integration.finished",
   "integration.failed": "integration.failed",

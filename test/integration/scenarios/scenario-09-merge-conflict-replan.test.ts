@@ -66,7 +66,7 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
         reply: "T2 edited shared",
       },
       {
-        reply: "Planner produced revised spec resolving conflict",
+        reply: "Planner produced revised spec resolving conflict\nREVISED T2",
       },
       {
         edits: { "src/shared.ts": "export const sharedValue = 3;\n" },

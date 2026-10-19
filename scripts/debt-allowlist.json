@@ -24,10 +24,6 @@
       "until": "R5.3"
     },
     {
-      "path": "src/engine/replan.ts",
-      "until": "R3.5"
-    },
-    {
       "path": "src/hooks/gate.ts",
       "until": "R5.3"
     },
@@ -480,11 +476,6 @@
       "symbol": "engine",
       "path": "src/engine/engine.ts",
       "until": "R5.3"
-    },
-    {
-      "symbol": "executeReplan",
-      "path": "src/engine/replan.ts",
-      "until": "R3.5"
     },
     {
       "symbol": "resolveEscalationRoute",

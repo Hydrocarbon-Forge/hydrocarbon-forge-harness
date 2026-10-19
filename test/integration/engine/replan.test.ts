@@ -417,12 +417,22 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
       });
 
       const adapter = createMockAdapter({
-        onSpawn: (req) => {
-          // Planner writes revised task spec
-          mkdirSync(join(req.cwd, "tasks"), { recursive: true });
-          writeFileSync(join(req.cwd, "tasks", "T1.md"), revisedSpecMarkdown, "utf8");
-        },
+        nextSession: () => ({
+          // R3.5 rule 4: an L1 output is accepted only when the finish line names this task.
+          result: { final_text: "REVISED T1" },
+          onSpawn: (req) => {
+            // Planner writes revised task spec
+            mkdirSync(join(req.cwd, "tasks"), { recursive: true });
+            writeFileSync(join(req.cwd, "tasks", "T1.md"), revisedSpecMarkdown, "utf8");
+          },
+        }),
       });
+
+      // The revised spec is linted in the context of the current plan (R3.5 rule 4), so the
+      // plan and its contract stub have to be in the run directory.
+      writeFileSync(join(runDir, "manifest.yaml"), sampleValidManifestYaml(runId), "utf8");
+      mkdirSync(join(runDir, "contracts"), { recursive: true });
+      writeFileSync(join(runDir, "contracts", "types.ts"), sampleValidContractStub(), "utf8");
 
       const result = await executeReplan({
         runId,
@@ -488,26 +498,30 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
       };
 
       const adapter = createMockAdapter({
-        onSpawn: (req) => {
-          // Planner amends contracts and manifest
-          mkdirSync(join(req.cwd, "contracts"), { recursive: true });
-          mkdirSync(join(req.cwd, "tasks"), { recursive: true });
-          writeFileSync(
-            join(req.cwd, "manifest.yaml"),
-            sampleValidManifestYaml(runId),
-            "utf8",
-          );
-          writeFileSync(
-            join(req.cwd, "contracts", "types.ts"),
-            sampleValidContractStub(),
-            "utf8",
-          );
-          writeFileSync(
-            join(req.cwd, "tasks", "T1.md"),
-            sampleValidTaskSpecMarkdown(),
-            "utf8",
-          );
-        },
+        nextSession: () => ({
+          // R3.5 rule 6: the L2 output is accepted only with the AMENDED finish line.
+          result: { final_text: "AMENDED" },
+          onSpawn: (req) => {
+            // Planner amends contracts and manifest
+            mkdirSync(join(req.cwd, "contracts"), { recursive: true });
+            mkdirSync(join(req.cwd, "tasks"), { recursive: true });
+            writeFileSync(
+              join(req.cwd, "manifest.yaml"),
+              sampleValidManifestYaml(runId),
+              "utf8",
+            );
+            writeFileSync(
+              join(req.cwd, "contracts", "types.ts"),
+              sampleValidContractStub(),
+              "utf8",
+            );
+            writeFileSync(
+              join(req.cwd, "tasks", "T1.md"),
+              sampleValidTaskSpecMarkdown(),
+              "utf8",
+            );
+          },
+        }),
       });
 
       const result = await executeReplan({

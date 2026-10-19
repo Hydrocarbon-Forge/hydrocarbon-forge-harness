@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-import type { BackendEvent, Manifest, UsageRecord } from "../../contracts/index.js";
+import type { BackendEvent, Manifest, UsageRecord, WorkerReport } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import { checkRunBudget } from "../effects.js";
 import type { EngineState } from "../reducer.js";
@@ -229,9 +229,21 @@ export async function runTaskAction(
         signal: ctx.signal,
         runPolicy,
         onEvent: emit,
+        onReport: (report) => writeAttemptReport(ctx, report),
       });
+
+      // R3.5 rule 2: each attempt is recorded as it finishes, so the failure packet for
+      // the next generation is built from the files, not from memory. `onReport` above
+      // records every attempt, including the one returned here.
 
       return;
     }
   }
+}
+
+function writeAttemptReport(ctx: EffectContext, report: WorkerReport): void {
+  const packetsDir = path.join(ctx.runDir, "packets");
+  fs.mkdirSync(packetsDir, { recursive: true });
+  const name = `${report.task_id}-g${report.generation}-attempt${report.attempt}.json`;
+  fs.writeFileSync(path.join(packetsDir, name), JSON.stringify(report, null, 2), "utf8");
 }

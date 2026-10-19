@@ -75,7 +75,7 @@ export function evaluateEscalation(
   }
 
   // L2 contract defect check
-  const l2Count = (state as any).l2_count ?? 0;
+  const l2Count = state.l2_count ?? 0;
   const maxL2 = settings.budgets.l2_per_run ?? 2;
   if (l2Count < maxL2) {
     return {

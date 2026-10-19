@@ -101,6 +101,13 @@ export interface EngineState {
   tasks: Record<TaskId, TaskRuntimeState>;
   usage: { total_usd: number; by_role: Record<string, number> };
   checkpoints: string[];
+  /**
+   * L2 counter for the escalation ladder (R3.5): how many L2 amendments the run has
+   * taken, and whether one has completed. Optional because the reducer builds state
+   * from the event log and callers construct states directly.
+   */
+  l2_count?: number;
+  l2_done?: boolean;
 }
 
 export function reduce(state: EngineState, event: EngineEvent): EngineState {
@@ -114,6 +121,8 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         tasks: {},
         usage: { total_usd: 0, by_role: {} },
         checkpoints: [],
+        l2_count: 0,
+        l2_done: false,
       };
     }
 
@@ -156,14 +165,27 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
     }
 
     case "tasks.invalidated": {
+      // R3.5: an invalidated task goes back to PENDING, not straight to READY. It is
+      // promoted by the scheduler only when the tasks it depends on are merged, which
+      // is what makes an L2 amendment rebuild only the work downstream of the change.
       const ids = Array.isArray(data.task_ids) ? data.task_ids : [];
       const nextTasks = { ...state.tasks };
       for (const id of ids) {
-        if (nextTasks[id]) {
-          nextTasks[id] = { ...nextTasks[id], state: "READY" };
+        // A task that has already merged is never undone by an amendment, so an
+        // invalidated name that is MERGED is left as it is.
+        if (nextTasks[id] && nextTasks[id].state !== "MERGED") {
+          nextTasks[id] = { ...nextTasks[id], state: "PENDING" };
         }
       }
       return { ...state, tasks: nextTasks };
+    }
+
+    case "replan.l2": {
+      return {
+        ...state,
+        l2_count: (state.l2_count ?? 0) + 1,
+        l2_done: true,
+      };
     }
 
     case "integration.failed": {

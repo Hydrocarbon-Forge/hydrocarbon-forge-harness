@@ -60,6 +60,7 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "tasks.invalidated": { task_ids: ["T1"] },
   "replan.started": {},
   "replan.finished": { task_id: "T1", generation: 2 },
+  "replan.l2": {},
   "integration.started": {},
   "integration.finished": { passed: true },
   "integration.failed": {},

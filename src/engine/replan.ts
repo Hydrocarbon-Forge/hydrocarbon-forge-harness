@@ -1,30 +1,58 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 import type {
+  BackendName,
   Diagnostic,
   EngineEvent,
+  FailurePacket,
   HarnessAdapter,
+  Manifest,
   PauseReason,
   Route,
   RunId,
+  SessionHandle,
+  SessionResult,
   Settings,
   SpawnRequest,
+  TaskClass,
   TaskId,
+  UsageRecord,
 } from "../contracts/index.js";
-import type { FailurePacket } from "../contracts/index.js";
 import {
-  loadPlan,
+  parseEngineEvent,
+  type EventData,
+  type EventType,
+} from "../contracts/events.js";
+import {
+  lintPlan,
+  parseManifest,
   parseTaskSpec,
   typecheckContracts,
   type ParsedPlan,
   type ParsedTaskSpec,
 } from "../spec/index.js";
+import { toDelta, type UsageTotals } from "../ledger/usage.js";
+import { commitContractStubs, finishLine, REQUIRED_HEADINGS } from "../roles/planner.js";
+import { resolveTaskRoute } from "../roles/router.js";
+import { buildReplanL2Prompt, buildReplanPrompt } from "../roles/prompts/replan.js";
 import { evaluateEscalation, type EscalationAction } from "./ladder.js";
 import type { EngineState } from "./reducer.js";
-import { buildReplanPrompt } from "../roles/prompts/replan.js";
-import { resolveTaskRoute } from "../roles/router.js";
-import { commitContractStubs } from "../roles/planner.js";
+import type { TypedEmit } from "./emit.js";
+
+/**
+ * The finish lines the planner templates (assets/prompts/planner/replan-l1.md and
+ * replan-l2.md) tell the planner to end with. The wording of the prompts lives in the
+ * templates; only the tokens the engine has to read to know which path the planner took
+ * are here.
+ */
+const L1_FINISH = "REVISED";
+const L2_FINISH = "AMENDED";
+const NEEDS_INPUT = "NEEDS INPUT";
+const ESCALATE_PREFIX = "ESCALATE:";
+
+const MANIFEST_FILE = "manifest.yaml";
 
 export interface ReplanExecutionOptions {
   runId: RunId;
@@ -32,12 +60,31 @@ export interface ReplanExecutionOptions {
   packet: FailurePacket;
   state: EngineState;
   settings: Settings;
-  adapter: HarnessAdapter;
+  /**
+   * Adapter for runs that resolve a single backend. A run with an adapter map passes
+   * `resolveAdapter` instead, so the backend the ladder routed to is the one used.
+   */
+  adapter?: HarnessAdapter;
+  resolveAdapter?: (backend: BackendName) => HarnessAdapter | undefined;
   runDir: string;
   repoRoot: string;
   baseRef: string;
   decisionsLog?: string;
+  /** Task class from the failed task's spec; the ladder default is "feature". */
+  taskClass?: TaskClass;
+  /** Prompt variables the engine supplies as data: the spec, the manifest, task states. */
+  vars?: Record<string, string>;
+  /** Emitter from the effects loop. Without it events are validated and observed. */
+  emit?: TypedEmit;
   onEvent?: (event: EngineEvent) => void;
+  /**
+   * Called with each per-session usage delta and returns true when the caller has
+   * stopped the run, so no further planner work is done. The run budget stays the
+   * caller's decision: it never triggers replanning itself.
+   */
+  onUsage?: (delta: UsageRecord) => boolean;
+  /** Run cancellation: the planner session is killed when this signal aborts. */
+  signal?: AbortSignal;
 }
 
 export interface ReplanResult {
@@ -59,48 +106,73 @@ export function resolveEscalationRoute(
   return resolveTaskRoute(taskClass as any, generation, settings);
 }
 
+/**
+ * Emitter for one replan. When the effects loop gives one, it is used; otherwise events
+ * are validated against the catalog here, because nothing is recorded unless it is emitted.
+ */
+function makeEmit(opts: ReplanExecutionOptions): TypedEmit {
+  let seq = 0;
+
+  return <T extends EventType>(type: T, data: EventData<T>): EngineEvent => {
+    if (opts.emit) {
+      return opts.emit(type, data);
+    }
+
+    const evt = {
+      v: 1,
+      seq: seq + 1,
+      ts: new Date().toISOString(),
+      run_id: opts.runId,
+      type,
+      data,
+    } as EngineEvent;
+    seq += 1;
+
+    parseEngineEvent(evt);
+    opts.onEvent?.(evt);
+    return evt;
+  };
+}
+
+function pause(
+  opts: ReplanExecutionOptions,
+  emit: TypedEmit,
+  reason: PauseReason,
+  action: EscalationAction,
+  questionsPath?: string,
+): ReplanResult {
+  // A task that can only continue with a human decision is BLOCKED (SUBSTRATE-PLAN
+  // §Task states: "BLOCKED (upstream failed or needs human)"), so the failed task is
+  // recorded as blocked before the run pauses. The reducer reaches BLOCKED only through
+  // `task.blocked`, so the pause has to emit it rather than set the state directly.
+  emit("task.blocked", { task_id: opts.taskId });
+  emit("run.paused", { reason, ...(questionsPath ? { questions_path: questionsPath } : {}) });
+  return { level: action.level, status: "paused", action, packet: opts.packet, pauseReason: reason };
+}
+
 export async function executeReplan(
   opts: ReplanExecutionOptions,
 ): Promise<ReplanResult> {
-  // Invariant: permission_denied and rate_limited never trigger replanning
-  if (opts.packet.failure_class === "permission_denied") {
-    opts.onEvent?.({
-      type: "run.paused",
-      run_id: opts.runId,
-      reason: "permission_denied",
-    } as any);
+  const taskClass = opts.taskClass ?? "feature";
+  const emit = makeEmit(opts);
 
-    return {
-      level: "L3",
-      status: "paused",
-      action: {
-        level: "L3",
-        action: "pause",
-        reason: "permission_denied",
-      },
-      packet: opts.packet,
-      pauseReason: "permission_denied",
-    };
+  // Invariant: permission_denied and rate_limited never trigger replanning.
+  if (opts.packet.failure_class === "permission_denied") {
+    return pause(
+      opts,
+      emit,
+      "permission_denied",
+      { level: "L3", action: "pause", reason: "permission_denied" },
+    );
   }
 
   if (opts.packet.failure_class === "rate_limited") {
-    opts.onEvent?.({
-      type: "run.paused",
-      run_id: opts.runId,
-      reason: "rate_limited",
-    } as any);
-
-    return {
-      level: "L3",
-      status: "paused",
-      action: {
-        level: "L3",
-        action: "pause",
-        reason: "rate_limited",
-      },
-      packet: opts.packet,
-      pauseReason: "rate_limited",
-    };
+    return pause(
+      opts,
+      emit,
+      "rate_limited",
+      { level: "L3", action: "pause", reason: "rate_limited" },
+    );
   }
 
   const action = evaluateEscalation(
@@ -108,173 +180,504 @@ export async function executeReplan(
     opts.taskId,
     opts.packet.failure_class,
     opts.settings,
+    taskClass,
   );
 
   if (action.level === "L0") {
-    return {
-      level: "L0",
-      status: "healed",
-      action,
-      packet: opts.packet,
-    };
+    return { level: "L0", status: "healed", action, packet: opts.packet };
+  }
+
+  if (action.level === "L3") {
+    return pause(opts, emit, action.reason, action);
   }
 
   if (action.level === "L1") {
-    opts.onEvent?.({
-      type: "replan.started",
-      run_id: opts.runId,
-      task_id: opts.taskId,
-      generation: opts.packet.generation,
-      next_generation: action.generation,
-      target_tier: action.route.model,
-    } as any);
-
-    const promptData = buildReplanPrompt(opts.packet, opts.decisionsLog);
-
-    const spawnReq: SpawnRequest = {
-      role: "planner",
-      cwd: opts.runDir,
-      prompt: promptData.user,
-      system_append: promptData.system,
-      model: action.route.model,
-      effort: action.route.effort,
-      permission: {
-        allow: [opts.runDir],
-        deny: [
-          "git commit",
-          "git push",
-          "git checkout",
-          "git reset",
-          "subagents",
-        ],
-      },
-      budget: {
-        max_usd: opts.settings.budgets?.task?.max_usd ?? 5.0,
-        timeout_ms:
-          (opts.settings.budgets?.task?.timeout_min ?? 30) * 60 * 1000,
-        ...(opts.settings.budgets?.task?.max_tokens
-          ? { max_tokens: opts.settings.budgets.task.max_tokens }
-          : {}),
-      },
-    };
-
-    const handle = opts.adapter.spawn(spawnReq);
-    for await (const evt of handle.events) {
-      opts.onEvent?.(evt as any);
-    }
-    await handle.result();
-
-    // Collect revised spec
-    let specPath = path.join(opts.runDir, "tasks", `${opts.taskId}.md`);
-    if (!fs.existsSync(specPath) && opts.packet.spec_path && fs.existsSync(opts.packet.spec_path)) {
-      specPath = opts.packet.spec_path;
-    }
-
-    let revisedSpec: ParsedTaskSpec | undefined;
-    if (fs.existsSync(specPath)) {
-      const raw = fs.readFileSync(specPath, "utf8");
-      revisedSpec = parseTaskSpec(raw, specPath);
-    }
-
-    opts.onEvent?.({
-      type: "replan.finished",
-      run_id: opts.runId,
-      task_id: opts.taskId,
-      generation: action.generation,
-    } as any);
-
-    return {
-      level: "L1",
-      status: "replan_ready",
-      action,
-      revisedSpec,
-      packet: opts.packet,
-    };
+    return runL1(opts, emit, action);
   }
 
-  if (action.level === "L2") {
-    const promptData = buildReplanPrompt(opts.packet, opts.decisionsLog);
-    promptData.user += "\n\nAmend contracts and manifest to resolve contract defect.";
+  return runL2(opts, emit, "", action, opts.packet.generation + 1);
+}
 
-    const spawnReq: SpawnRequest = {
-      role: "planner",
-      cwd: opts.runDir,
-      prompt: promptData.user,
-      system_append: promptData.system,
-      model: opts.settings.roles.planner.model,
-      effort: opts.settings.roles.planner.effort,
-      permission: {
-        allow: [opts.runDir],
-        deny: [
-          "git commit",
-          "git push",
-          "git checkout",
-          "git reset",
-          "subagents",
-        ],
-      },
-      budget: {
-        max_usd: opts.settings.budgets?.task?.max_usd ?? 5.0,
-        timeout_ms:
-          (opts.settings.budgets?.task?.timeout_min ?? 30) * 60 * 1000,
-      },
-    };
+/**
+ * L1: the planner gets the complete packet and writes back the replacement spec. The
+ * output is accepted only when the finish line names this task and the file it wrote
+ * parses and lints in the context of the current plan (rule 4). Anything else — an
+ * `ESCALATE:` line, a missing spec, a spec that does not lint, any other final line —
+ * is taken as an escalation to L2 (rule 5).
+ */
+async function runL1(
+  opts: ReplanExecutionOptions,
+  emit: TypedEmit,
+  action: EscalationAction & { level: "L1" },
+): Promise<ReplanResult> {
+  emit("replan.started", {
+    task_id: opts.taskId,
+    generation: action.generation,
+    target_tier: action.route.model,
+    reason: opts.vars?.escalation_reason ?? "",
+  });
 
-    const handle = opts.adapter.spawn(spawnReq);
-    for await (const evt of handle.events) {
-      opts.onEvent?.(evt as any);
-    }
-    await handle.result();
+  const prompt = buildReplanPrompt(opts.packet, opts.decisionsLog, {
+    task_spec: readRunFile(opts.runDir, `tasks/${opts.taskId}.md`),
+    ...opts.vars,
+  });
 
-    const manifestPath = path.join(opts.runDir, "manifest.yaml");
-    let revisedPlan: ParsedPlan | undefined;
-    if (fs.existsSync(manifestPath)) {
-      try {
-        revisedPlan = await loadPlan(manifestPath);
-      } catch {}
-    }
+  const outcome = await runPlannerSession(opts, emit, action.route, prompt);
+  if (outcome.cancelled) {
+    return { level: "L1", status: "paused", action, packet: opts.packet, pauseReason: "user_cancel" };
+  }
+  if (outcome.unavailable) {
+    return pause(opts, emit, "backend_unavailable", action);
+  }
+  if (outcome.stopped) {
+    return pause(opts, emit, "budget_exhausted", action);
+  }
 
-    if (revisedPlan?.manifest.contracts) {
-      try {
-        await typecheckContracts(
-          opts.runDir,
-          revisedPlan.manifest.contracts,
-          { cwd: opts.runDir },
-        );
-      } catch {}
-
-      try {
-        await commitContractStubs(
-          opts.repoRoot,
-          opts.runId,
-          opts.baseRef,
-          revisedPlan.manifest.contracts,
-          opts.runDir,
-        );
-      } catch {}
+  const line = finishLine(outcome.result.final_text);
+  if (line === `${L1_FINISH} ${opts.taskId}`) {
+    const spec = readRevisedSpec(opts);
+    const diagnostics = await lintRunPlan(opts);
+    if (spec && diagnostics.length === 0) {
+      finishTask(opts, emit, action.generation);
+      return {
+        level: "L1",
+        status: "replan_ready",
+        action,
+        revisedSpec: spec,
+        revisedPlan: currentPlan(opts),
+        packet: opts.packet,
+      };
     }
 
+    const reason =
+      diagnostics.length > 0
+        ? diagnostics.map((d) => `[${d.code}] ${d.message}`).join("; ")
+        : "L1 wrote no readable spec";
+    return escalateToL2(opts, emit, reason, action.generation);
+  }
+
+  const reason = line.startsWith(ESCALATE_PREFIX)
+    ? line.slice(ESCALATE_PREFIX.length).trim()
+    : line;
+  return escalateToL2(opts, emit, reason, action.generation);
+}
+
+/** Records the reason in `replan.started`, then takes L2 when the cap still allows it. */
+function escalateToL2(
+  opts: ReplanExecutionOptions,
+  emit: TypedEmit,
+  reason: string,
+  nextGeneration: number,
+): Promise<ReplanResult> {
+  const action: EscalationAction =
+    (opts.state.l2_count ?? 0) < opts.settings.budgets.l2_per_run
+      ? { level: "L2", action: "contract_defect" }
+      : { level: "L3", action: "pause", reason: "needs_human" };
+
+  if (action.level === "L3") {
+    return Promise.resolve(pause(opts, emit, "needs_human", action));
+  }
+
+  // Rule 5: the escalation from L1 is recorded with the reason it happened, so the run
+  // log shows which L1 output forced the amendment.
+  emit("replan.started", {
+    task_id: opts.taskId,
+    generation: nextGeneration,
+    target_tier: opts.settings.roles.planner.model,
+    reason,
+  });
+
+  return runL2(opts, emit, reason, action, nextGeneration);
+}
+
+/**
+ * L2: the planner amends contracts, the manifest and the affected specs. The counter is
+ * recorded by the `replan.l2` event itself, so nothing is counted unless it is emitted.
+ * Only dependents that have not merged are invalidated: merged work is never touched.
+ */
+async function runL2(
+  opts: ReplanExecutionOptions,
+  emit: TypedEmit,
+  reason: string,
+  action: EscalationAction,
+  nextGeneration: number,
+): Promise<ReplanResult> {
+  const planner = opts.settings.roles.planner;
+  const route: Route = {
+    backend: planner.backend,
+    model: planner.model,
+    ...(planner.effort !== undefined ? { effort: planner.effort } : {}),
+  };
+
+  emit("replan.l2", {
+    task_id: opts.taskId,
+    generation: nextGeneration,
+    invalidated: notMergedDependents(opts),
+  });
+
+  const prompt = buildReplanL2Prompt(opts.packet, {
+    escalation_reason: reason,
+    manifest: readRunFile(opts.runDir, MANIFEST_FILE),
+    task_states: taskStates(opts.state),
+    contracts: contractsText(opts),
+    ...opts.vars,
+  });
+
+  const outcome = await runPlannerSession(opts, emit, route, prompt);
+  if (outcome.cancelled) {
+    return { level: "L2", status: "paused", action, packet: opts.packet, pauseReason: "user_cancel" };
+  }
+  if (outcome.unavailable) {
+    return pause(opts, emit, "backend_unavailable", action);
+  }
+  if (outcome.stopped) {
+    return pause(opts, emit, "budget_exhausted", action);
+  }
+
+  const line = finishLine(outcome.result.final_text);
+
+  if (line === NEEDS_INPUT) {
+    const questionsPath = path.join(opts.runDir, "QUESTIONS.md");
+    return pause(
+      opts,
+      emit,
+      "needs_human",
+      action,
+      fs.existsSync(questionsPath) ? questionsPath : undefined,
+    );
+  }
+
+  if (line !== L2_FINISH) {
     return {
       level: "L2",
-      status: "replan_ready",
+      status: "paused",
       action,
-      revisedPlan,
       packet: opts.packet,
+      pauseReason: "needs_human",
+      diagnostics: [{ code: "REPLAN", severity: "error", message: `Invalid L2 finish line: ${line}` }],
     };
   }
 
-  // Level L3: Pause run
-  opts.onEvent?.({
-    type: "run.paused",
-    run_id: opts.runId,
-    reason: action.reason,
-  } as any);
+  const plan = currentPlan(opts);
+  const diagnostics = await lintRunPlan(opts);
+  if (plan && diagnostics.length > 0) {
+    return {
+      level: "L2",
+      status: "paused",
+      action,
+      packet: opts.packet,
+      pauseReason: "needs_human",
+      revisedPlan: plan,
+      diagnostics,
+    };
+  }
+
+  if (plan) {
+    const typecheck = await typecheckContracts(opts.runDir, plan.manifest.contracts, {
+      cwd: opts.runDir,
+    });
+    if (!typecheck.ok) {
+      return {
+        level: "L2",
+        status: "paused",
+        action,
+        packet: opts.packet,
+        pauseReason: "needs_human",
+        revisedPlan: plan,
+        diagnostics: typecheck.diagnostics,
+      };
+    }
+
+    const commitSha = await commitContractStubs(
+      opts.repoRoot,
+      opts.runId,
+      opts.baseRef,
+      plan.manifest.contracts,
+      opts.runDir,
+    );
+    emit("contracts.committed", { commit_sha: commitSha });
+  }
+
+  const invalidated = notMergedDependents(opts);
+  if (invalidated.length > 0) {
+    emit("tasks.invalidated", { task_ids: invalidated });
+  }
+
+  finishTask(opts, emit, nextGeneration);
 
   return {
-    level: "L3",
-    status: "paused",
+    level: "L2",
+    status: "replan_ready",
     action,
-    pauseReason: action.reason,
+    revisedPlan: plan,
     packet: opts.packet,
+  };
+}
+
+/**
+ * The end of a replan: the task moves to the next generation, and `task.ready` is emitted
+ * only when the tasks it depends on have merged, because a dependent worktree is built
+ * from the run branch and can only see work that is already merged.
+ */
+function finishTask(opts: ReplanExecutionOptions, emit: TypedEmit, generation: number): void {
+  emit("task.replanned", { task_id: opts.taskId, generation });
+  emit("replan.finished", { task_id: opts.taskId, generation });
+
+  const deps = opts.state.tasks[opts.taskId]?.depends_on ?? [];
+  if (deps.every((dep) => opts.state.tasks[dep]?.state === "MERGED")) {
+    emit("task.ready", { task_id: opts.taskId });
+  }
+}
+
+/**
+ * The plan's transitive dependents of the failed task that are not merged, in id order
+ * (R3.5 rule 7). The failed task itself is not in the list: rule 7 moves it to the next
+ * generation instead, and walking `depends_on` would go upstream, not downstream. The
+ * state is what is true now, so a dependent that merged in the meantime is never
+ * invalidated.
+ */
+function notMergedDependents(opts: ReplanExecutionOptions): string[] {
+  return opts.packet.dependents
+    .filter((id) => id !== opts.taskId)
+    .filter((id) => {
+      const task = opts.state.tasks[id];
+      return task !== undefined && task.state !== "MERGED";
+    })
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function readRunFile(runDir: string, relPath: string): string {
+  try {
+    return fs.readFileSync(path.resolve(runDir, relPath), "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function taskStates(state: EngineState): string {
+  return Object.values(state.tasks)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((t) => `${t.id}: ${t.state} (generation ${t.generation}, attempt ${t.attempt})`)
+    .join("\n");
+}
+
+function contractsText(opts: ReplanExecutionOptions): string {
+  const plan = currentPlan(opts);
+  if (!plan) return "";
+  return plan.manifest.contracts.files
+    .map((file) => `${file}\n${readRunFile(opts.runDir, file)}`)
+    .join("\n\n");
+}
+
+/** The plan as it stands in the run directory, read back from what was written. */
+function currentPlan(opts: ReplanExecutionOptions): ParsedPlan | undefined {
+  const manifestPath = path.join(opts.runDir, MANIFEST_FILE);
+  if (!fs.existsSync(manifestPath)) return undefined;
+
+  const rawManifest = readRunFile(opts.runDir, MANIFEST_FILE);
+  let manifest: Manifest;
+  try {
+    manifest = parseManifest(rawManifest, manifestPath);
+  } catch {
+    return undefined;
+  }
+
+  const specs = new Map<TaskId, ParsedTaskSpec>();
+  for (const task of manifest.tasks) {
+    if (!isSafeRelativePath(task.spec)) continue;
+    const specPath = path.resolve(opts.runDir, task.spec);
+    if (!fs.existsSync(specPath)) continue;
+    try {
+      specs.set(task.id, parseTaskSpec(fs.readFileSync(specPath, "utf8"), task.spec));
+    } catch {
+      // A spec that does not parse is reported by lintRunPlan; nothing is invented for it.
+    }
+  }
+
+  return { manifest, specs, rawManifest, manifestPath };
+}
+
+/**
+ * Validation for the L1 and L2 outputs: the required headings (the same list the planner
+ * checks, src/roles/planner.ts) and the lint rules, with the run-directory suppression of
+ * R3.1 rule 7 because the revised spec and the amended manifest live in runDir before
+ * they are committed.
+ */
+async function lintRunPlan(opts: ReplanExecutionOptions): Promise<Diagnostic[]> {
+  const plan = currentPlan(opts);
+  if (!plan) {
+    return [{ code: "REPLAN", severity: "error", message: "No plan in the run directory" }];
+  }
+
+  const diagnostics: Diagnostic[] = [];
+  for (const task of plan.manifest.tasks) {
+    const spec = plan.specs.get(task.id);
+    if (!spec) continue;
+    for (const heading of REQUIRED_HEADINGS) {
+      if (!spec.sections.has(heading)) {
+        diagnostics.push({
+          code: "REPLAN",
+          severity: "error",
+          path: task.spec,
+          message: `Task spec ${task.spec} missing required heading: ## ${heading}`,
+        });
+      }
+    }
+  }
+
+  const result = await lintPlan(plan, opts.repoRoot, opts.settings);
+  for (const diag of result.diagnostics) {
+    if (diag.severity === "error" && !isSuppressedForRunDir(opts.runDir, diag)) {
+      diagnostics.push(diag);
+    }
+  }
+
+  return diagnostics;
+}
+
+function isSuppressedForRunDir(runDir: string, diag: Diagnostic): boolean {
+  if (diag.code !== "L003" && diag.code !== "L019" && diag.code !== "L027") return false;
+  if (!diag.path) return false;
+  if (!isSafeRelativePath(diag.path)) return false;
+  return fs.existsSync(path.resolve(runDir, diag.path));
+}
+
+function isSafeRelativePath(relPath: string): boolean {
+  return !path.isAbsolute(relPath) && !relPath.startsWith("..");
+}
+
+function readRevisedSpec(opts: ReplanExecutionOptions): ParsedTaskSpec | undefined {
+  const specRel = `tasks/${opts.taskId}.md`;
+  const specPath = path.resolve(opts.runDir, specRel);
+  if (!fs.existsSync(specPath)) return undefined;
+  try {
+    return parseTaskSpec(fs.readFileSync(specPath, "utf8"), specRel);
+  } catch {
+    return undefined;
+  }
+}
+
+interface SessionOutcome {
+  result: SessionResult;
+  /** True when the caller stopped the session (run budget), so no output is read. */
+  stopped: boolean;
+  /** True when no adapter answers for the backend the ladder routed to. */
+  unavailable: boolean;
+  /** True when the run was cancelled, so nothing is recorded for this replan. */
+  cancelled: boolean;
+}
+
+async function runPlannerSession(
+  opts: ReplanExecutionOptions,
+  emit: TypedEmit,
+  route: Route,
+  prompt: { system: string; user: string },
+): Promise<SessionOutcome> {
+  const adapter = opts.resolveAdapter?.(route.backend) ?? opts.adapter;
+  if (!adapter) {
+    return { result: emptyResult(), stopped: false, unavailable: true, cancelled: false };
+  }
+
+  const request: SpawnRequest = {
+    role: "planner",
+    cwd: opts.runDir,
+    prompt: prompt.user,
+    system_append: prompt.system,
+    model: route.model,
+    ...(route.effort !== undefined ? { effort: route.effort } : {}),
+    permission: {
+      allow: [opts.runDir],
+      deny: ["git commit", "git push", "git checkout", "git reset", "subagents"],
+    },
+    budget: {
+      max_usd: opts.settings.budgets.task.max_usd,
+      timeout_ms: (opts.settings.budgets.task.timeout_min ?? 30) * 60 * 1000,
+      ...(opts.settings.budgets.task.max_tokens
+        ? { max_tokens: opts.settings.budgets.task.max_tokens }
+        : {}),
+    },
+    raw_dir: opts.runDir,
+    session: { id: crypto.randomUUID() },
+  };
+
+  const handle = adapter.spawn(request);
+  const unbind = bindSignal(opts.signal, handle);
+  let totals: UsageTotals = { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
+  let sawUsage = false;
+
+  try {
+    for await (const evt of handle.events) {
+      if (evt.type !== "usage") continue;
+      sawUsage = true;
+      const { delta, next } = toDelta(totals, evt.record, evt.cumulative);
+      totals = next;
+      emit("usage.recorded", {
+        record: delta,
+        role: "planner",
+        task_id: opts.taskId,
+        generation: opts.packet.generation,
+      });
+      if (opts.onUsage?.(delta)) {
+        await handle.kill("budget");
+        return { result: emptyResult(), stopped: true, unavailable: false, cancelled: false };
+      }
+    }
+
+    const result = await handle.result();
+
+    // Session-result usage for adapters that never stream usage reports (R1.4).
+    if (!sawUsage && result.usage) {
+      emit("usage.recorded", {
+        record: result.usage,
+        role: "planner",
+        task_id: opts.taskId,
+        generation: opts.packet.generation,
+      });
+      if (opts.onUsage?.(result.usage)) {
+        return { result, stopped: true, unavailable: false, cancelled: false };
+      }
+    }
+
+    if (opts.signal?.aborted || result.killed_for === "cancel") {
+      return { result, stopped: true, unavailable: false, cancelled: true };
+    }
+
+    return { result, stopped: false, unavailable: false, cancelled: false };
+  } finally {
+    unbind();
+  }
+}
+
+function bindSignal(signal: AbortSignal | undefined, handle: SessionHandle): () => void {
+  if (!signal) return () => {};
+  if (signal.aborted) {
+    handle.kill("cancel");
+    return () => {};
+  }
+  const onAbort = () => {
+    handle.kill("cancel");
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  return () => {
+    signal.removeEventListener("abort", onAbort);
+  };
+}
+
+function emptyResult(): SessionResult {
+  return {
+    ok: false,
+    session_id: "",
+    final_text: "",
+    usage: {
+      backend: "fake",
+      model: "",
+      input_tokens: 0,
+      output_tokens: 0,
+      cost_usd: 0,
+      cost_source: "unknown",
+      at: new Date().toISOString(),
+    },
+    exit_code: null,
+    denials: [],
   };
 }

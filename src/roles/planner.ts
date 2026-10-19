@@ -88,7 +88,7 @@ const QUESTIONS_FILE = "QUESTIONS.md";
 const MANIFEST_FILE = "manifest.yaml";
 const ZERO_OID = "0000000000000000000000000000000000000000";
 
-const REQUIRED_HEADINGS = [
+export const REQUIRED_HEADINGS = [
   "Objective",
   "Interface",
   "Behavior",

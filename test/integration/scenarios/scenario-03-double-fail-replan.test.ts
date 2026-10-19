@@ -80,7 +80,7 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
         reply: "Attempt 2",
       },
       {
-        reply: "Planner revised spec for generation 2\nPLAN READY",
+        reply: "Planner revised spec for generation 2\nREVISED T1",
       },
       {
         edits: {
