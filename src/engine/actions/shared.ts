@@ -10,7 +10,7 @@ import type {
   TaskId,
 } from "../../contracts/index.js";
 import type { EngineState } from "../reducer.js";
-import { appendRunEvent, type EffectContext } from "../effects.js";
+import type { EffectContext } from "../effects.js";
 import type { TypedEmit } from "../emit.js";
 import {
   parseManifest,

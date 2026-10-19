@@ -74,7 +74,7 @@ describe("Double lock contention (§14.5 #11 lock semantics)", () => {
         mode: "plan",
         permission_mode: "bypassPermissions",
       })
-    ).rejects.toThrow(/active lock exists/);
+    ).rejects.toThrow(/locked by pid/);
 
     // Lock file remains untouched with original holder's PID
     const lockData = JSON.parse(readFileSync(lockPath, "utf8"));

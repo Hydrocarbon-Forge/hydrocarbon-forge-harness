@@ -44,6 +44,9 @@ export interface TaskRuntimeState {
   attempt: number;
   session_id?: SessionId;
   failure_class?: FailureClass;
+  depends_on?: TaskId[];
+  write?: string[];
+  create?: string[];
 }
 
 declare module "../contracts/index.js" {
@@ -84,6 +87,9 @@ declare module "../contracts/index.js" {
     attempt: number;
     session_id?: SessionId;
     failure_class?: FailureClass;
+    depends_on?: TaskId[];
+    write?: string[];
+    create?: string[];
   }
 }
 
@@ -201,9 +207,24 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
     }
 
     case "setup.done": {
+      const nextTasks = { ...state.tasks };
+      const taskList = Array.isArray(data.tasks) ? data.tasks : [];
+      for (const t of taskList) {
+        if (!t?.id) continue;
+        const current =
+          nextTasks[t.id] ?? { id: t.id, state: "PENDING", generation: 1, attempt: 1 };
+        nextTasks[t.id] = {
+          ...current,
+          depends_on: Array.isArray(t.depends_on) ? t.depends_on : [],
+          write: Array.isArray(t.write) ? t.write : [],
+          create: Array.isArray(t.create) ? t.create : [],
+        };
+      }
+
       return {
         ...state,
         state: "EXECUTING",
+        tasks: nextTasks,
       };
     }
 

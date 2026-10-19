@@ -7,6 +7,33 @@ export interface RunLock {
   heartbeat(): Promise<void>;
   release(): Promise<void>;
   isStale(): Promise<boolean>;
+  holderPid(): number | undefined;
+}
+
+function readLockData(lockPath: string): Record<string, any> | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(lockPath, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Raised when a live lock is held by another process. The command reports it as
+ * exit 2 with `run <id> is locked by pid <pid>`.
+ */
+export class RunLockError extends Error {
+  constructor(
+    public readonly runId: RunId,
+    public readonly holderPid: number | undefined
+  ) {
+    super(
+      holderPid !== undefined
+        ? `run ${runId} is locked by pid ${holderPid}`
+        : `run ${runId} is locked by another process`
+    );
+    this.name = "RunLockError";
+  }
 }
 
 function isPidAlive(pid: number): boolean {
@@ -51,6 +78,11 @@ export class RunLockImpl implements RunLock {
     } catch {
       return true;
     }
+  }
+
+  holderPid(): number | undefined {
+    const data = readLockData(this.lockPath);
+    return typeof data?.pid === "number" ? data.pid : undefined;
   }
 
   async acquire(): Promise<boolean> {

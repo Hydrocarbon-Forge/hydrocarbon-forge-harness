@@ -80,10 +80,14 @@ function baseEvent(type: EventType, data: Record<string, unknown>) {
 }
 
 function makeTestEmitter() {
+  // A fresh directory per call: the store now validates sequence numbering
+  // against what is already in the log, so a shared directory would carry state
+  // from the previous call.
+  const base = mkdtempSync(join(tmpdir(), "sub-events-"));
   const ctx = {
     runId: "r_TESTABCDEFGH",
-    repoRoot: mkdtempSync(join(tmpdir(), "sub-events-")),
-    runDir: join(tmpdir(), "sub-events-", "run"),
+    repoRoot: base,
+    runDir: join(base, "run"),
     settings: {},
     adapter: new FakeAdapter(),
   } as unknown as EffectContext;

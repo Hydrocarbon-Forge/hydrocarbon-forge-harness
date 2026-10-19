@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import type {
   EngineEvent,
   HarnessAdapter,
@@ -10,14 +7,16 @@ import type {
   Settings,
   TaskId,
 } from "../contracts/index.js";
+import { type EventType, type EventData, parseEngineEvent } from "../contracts/events.js";
 import type { AdapterMap } from "../backends/registry.js";
-import { type EngineState, reduce } from "./reducer.js";
+import { type EngineState, reduce, type TaskRuntimeState } from "./reducer.js";
 import { log } from "../util/log.js";
 import { makeEmitter } from "./emit.js";
 import type { Emit } from "./actions/shared.js";
-import { parseEngineEvent } from "../contracts/events.js";
+import { blockedPendingTasks, promoteReadyTasks, scheduleNextTasks } from "./scheduler.js";
 import type { UsageLedgerEntry } from "../contracts/index.js";
 import { appendUsage, ledgerPaths } from "../ledger/usage.js";
+import { EventStoreImpl } from "../store/event-store.js";
 import { runRouteAction } from "./actions/route.js";
 import { runPlanAction } from "./actions/plan.js";
 import { runSetupAction } from "./actions/setup.js";
@@ -63,18 +62,55 @@ export interface EffectContext {
   permission_mode?: PermissionMode;
   preBatchCheckpoint?: string;
   baseChecked?: boolean;
+  store?: EventStoreImpl;
+}
+
+function isTerminal(state: EngineState): boolean {
+  return (
+    state.state === "FINISHED" ||
+    state.state === "FAILED" ||
+    state.state === "CANCELLED" ||
+    state.state === "PAUSED"
+  );
+}
+
+/**
+ * Tasks ordered topologically (dependencies first) then by task id. Cycles are
+ * rejected by `setup`, so the depth walk only has to be defensive.
+ */
+function topologicalOrder(tasks: TaskRuntimeState[]): TaskId[] {
+  const byId = new Map<TaskId, TaskRuntimeState>(tasks.map((t) => [t.id, t]));
+  const depth = new Map<TaskId, number>();
+
+  function depthOf(id: TaskId, path: Set<TaskId>): number {
+    const cached = depth.get(id);
+    if (cached !== undefined) return cached;
+    if (path.has(id)) return 0;
+    path.add(id);
+    let d = 0;
+    for (const dep of byId.get(id)?.depends_on ?? []) {
+      if (byId.has(dep)) d = Math.max(d, depthOf(dep, path) + 1);
+    }
+    path.delete(id);
+    depth.set(id, d);
+    return d;
+  }
+
+  return tasks
+    .slice()
+    .sort(
+      (a, b) =>
+        depthOf(a.id, new Set<TaskId>()) - depthOf(b.id, new Set<TaskId>()) ||
+        a.id.localeCompare(b.id)
+    )
+    .map((t) => t.id);
 }
 
 export function nextActions(
   state: EngineState,
   settings: Settings
 ): EngineAction[] {
-  if (
-    state.state === "PAUSED" ||
-    state.state === "FINISHED" ||
-    state.state === "FAILED" ||
-    state.state === "CANCELLED"
-  ) {
+  if (isTerminal(state)) {
     return [];
   }
 
@@ -106,7 +142,9 @@ export function nextActions(
     case "EXECUTING": {
       const tasks = Object.values(state.tasks);
       if (tasks.length === 0) {
-        return [];
+        // Nothing was planned: integration verifies the base checkpoint and is
+        // the only action that may report the run as finished.
+        return [{ type: "integration" }];
       }
 
       const healingTasks = tasks.filter((t) => t.state === "HEALING");
@@ -125,55 +163,33 @@ export function nextActions(
         return replanTasks.map((t) => ({ type: "replan", taskId: t.id }));
       }
 
-      const readyTasks = tasks
-        .filter((t) => t.state === "READY")
-        .sort((a, b) => a.id.localeCompare(b.id));
-
-      if (readyTasks.length > 0) {
-        const concurrency = settings.concurrency?.workers ?? 4;
-        const activeRunning = tasks.filter(
-          (t) =>
-            t.state === "RUNNING" ||
-            t.state === "SCOPE_CHECK" ||
-            t.state === "VERIFYING"
-        ).length;
-        const slots = Math.max(0, concurrency - activeRunning);
-        return readyTasks.slice(0, slots).map((t) => ({
-          type: "worker",
-          taskId: t.id,
-        }));
-      }
-
       const inFlightTasks = tasks.filter(
         (t) =>
           t.state === "RUNNING" ||
           t.state === "SCOPE_CHECK" ||
           t.state === "VERIFYING"
       );
+
+      // Dependents move as soon as a passed task is merged, without waiting for
+      // every task to pass.
+      if (inFlightTasks.length === 0) {
+        const passedTasks = tasks.filter((t) => t.state === "PASSED" || t.state === "MERGING");
+        if (passedTasks.length > 0) {
+          return [{ type: "merge", batch: topologicalOrder(passedTasks) }];
+        }
+      }
+
+      const scheduled = scheduleNextTasks(state, settings, inFlightTasks.length);
+      if (scheduled.length > 0) {
+        return scheduled.map((taskId) => ({ type: "worker", taskId }));
+      }
+
       if (inFlightTasks.length > 0) {
         return [];
       }
 
-      const passedTasks = tasks
-        .filter((t) => t.state === "PASSED" || t.state === "MERGING")
-        .sort((a, b) => a.id.localeCompare(b.id));
-
-      if (passedTasks.length > 0) {
-        const unmergedNonPassed = tasks.filter(
-          (t) => t.state !== "PASSED" && t.state !== "MERGING" && t.state !== "MERGED"
-        );
-        if (unmergedNonPassed.length === 0) {
-          return [
-            {
-              type: "merge",
-              batch: passedTasks.map((t) => t.id),
-            },
-          ];
-        }
-      }
-
       const mergedTasks = tasks.filter((t) => t.state === "MERGED");
-      if (mergedTasks.length > 0 && mergedTasks.length === tasks.length) {
+      if (mergedTasks.length === tasks.length) {
         return [{ type: "integration" }];
       }
 
@@ -229,26 +245,18 @@ export async function executeAction(
   return events;
 }
 
-export function appendRunEvent(runDir: string, event: EngineEvent): void {
-  // Reject events that are not in the catalog; nothing is appended on failure.
-  parseEngineEvent(event);
-  const eventsPath = path.join(runDir, "events.jsonl");
-  fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
-  fs.appendFileSync(eventsPath, JSON.stringify(event) + "\n", "utf8");
+function storeFor(ctx: EffectContext): EventStoreImpl {
+  return ctx.store ?? new EventStoreImpl(ctx.runId, { runDir: ctx.runDir });
 }
 
-export function readAllRunEvents(runDir: string): EngineEvent[] {
-  const eventsPath = path.join(runDir, "events.jsonl");
-  if (!fs.existsSync(eventsPath)) return [];
-  const content = fs.readFileSync(eventsPath, "utf8");
-  const lines = content.split("\n").filter((l) => l.trim().length > 0);
-  const events: EngineEvent[] = [];
-  for (const line of lines) {
-    try {
-      events.push(JSON.parse(line));
-    } catch {}
-  }
-  return events;
+export function appendRunEvent(ctx: EffectContext, event: EngineEvent): void {
+  // The catalog is checked first so nothing is appended for an event that is not
+  // in the catalog or whose data does not match its member shape. The store then
+  // validates the envelope and the sequence numbering. One store instance per run
+  // keeps the sequence cached, so a torn last line is skipped rather than read as
+  // a middle-line corruption.
+  parseEngineEvent(event);
+  storeFor(ctx).appendSync(event);
 }
 
 // Budget check per R1.4: after each usage.recorded the action compares the
@@ -316,37 +324,55 @@ export async function runEffectsLoop(
   ctx: EffectContext,
   initialState: EngineState
 ): Promise<EngineState> {
-  const existingEvents = readAllRunEvents(ctx.runDir);
+  const store = storeFor(ctx);
+  const existingEvents = store.readAllSync();
   let seq = existingEvents.length > 0 ? existingEvents[existingEvents.length - 1].seq : 0;
   let persistedSeqs: Set<number> | undefined = undefined;
 
   let state = initialState;
-  (state as any)._seq = seq;
 
-  while (
-    state.state !== "FINISHED" &&
-    state.state !== "PAUSED" &&
-    state.state !== "FAILED" &&
-    state.state !== "CANCELLED"
-  ) {
-    if (ctx.signal?.aborted) {
-      seq++;
-      const cancelEvt: EngineEvent = {
-        v: 1,
-        seq,
-        ts: new Date().toISOString(),
-        run_id: ctx.runId,
-        type: "run.paused",
-        data: { reason: "user_cancel" },
+  // The loop emits the events it derives itself (promotions, blocks, the stall
+  // result), so every state change is still an appended event.
+  const emitLoopEvent = <T extends EventType>(type: T, data: EventData<T>): EngineEvent => {
+    const emitter = makeEmitter(ctx, { ...(state as any), _seq: seq } as EngineState);
+    const evt = emitter.emit(type, data);
+    seq = evt.seq;
+    return evt;
+  };
+
+  const applyEvent = (evt: EngineEvent): EngineState => {
+    state = reduce(state, evt);
+    if (evt.type === "run.finished") {
+      state = {
+        ...state,
+        state: (evt.data as any)?.exit_code === 0 ? "FINISHED" : "FAILED",
       };
-      appendRunEvent(ctx.runDir, cancelEvt);
-      ctx.onEvent?.(cancelEvt);
-      state = reduce(state, cancelEvt);
+    }
+    (state as any)._seq = seq;
+    return state;
+  };
+
+  const settleDependents = (): void => {
+    for (const taskId of blockedPendingTasks(state)) {
+      applyEvent(emitLoopEvent("task.blocked", { task_id: taskId }));
+    }
+    for (const taskId of promoteReadyTasks(state)) {
+      applyEvent(emitLoopEvent("task.ready", { task_id: taskId }));
+    }
+  };
+
+  while (!isTerminal(state)) {
+    if (ctx.signal?.aborted) {
+      applyEvent(emitLoopEvent("run.paused", { reason: "user_cancel" }));
       break;
     }
 
     const actions = nextActions(state, ctx.settings);
     if (actions.length === 0) {
+      log.debug("[DEBUG] runEffectsLoop: no actions while state is", state.state);
+      applyEvent(
+        emitLoopEvent("run.finished", { exit_code: 1, status: "failed", reason: "stalled" })
+      );
       break;
     }
 
@@ -359,7 +385,7 @@ export async function runEffectsLoop(
       // emitted after an observer crash are not in the log, so they must not
       // reach the ledger either.
       if ((ctx as any)._observabilityCrashed && !crashedBefore) {
-        persistedSeqs = new Set(readAllRunEvents(ctx.runDir).map((e) => e.seq));
+        persistedSeqs = new Set(store.readAllSync().map((e) => e.seq));
       }
       for (const evt of actionEvents) {
         if (evt.type === "usage.recorded") {
@@ -373,22 +399,11 @@ export async function runEffectsLoop(
           seq = evt.seq;
         }
         log.debug("[DEBUG] evt:", evt.type, evt.data);
-        state = reduce(state, evt);
-        if (evt.type === "run.finished") {
-          state = {
-            ...state,
-            state: (evt.data as any)?.exit_code === 0 ? "FINISHED" : "FAILED",
-          };
-        }
-        (state as any)._seq = seq;
+        applyEvent(evt);
+        settleDependents();
       }
 
-      if (
-        state.state === "FINISHED" ||
-        state.state === "PAUSED" ||
-        state.state === "FAILED" ||
-        state.state === "CANCELLED"
-      ) {
+      if (isTerminal(state)) {
         break;
       }
     }

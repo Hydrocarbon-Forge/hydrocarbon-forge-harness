@@ -1,7 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 import { EngineEvent, type RunId } from "../contracts/index.js";
 import { type EngineState, reduce } from "../engine/reducer.js";
+
+// The contract envelope with the run id validated as a string. Run directories can
+// pre-date the RunId regex (see the note in src/contracts/events.ts), so the store
+// must accept their ids; the RunId type is enforced where new ids are generated.
+// Event data shapes are checked against the catalog by the emit sites.
+const StoreEventEnvelope = EngineEvent.extend({ run_id: z.string() });
 
 export interface EventStore {
   append(event: EngineEvent): Promise<void>;
@@ -15,14 +22,23 @@ export class EventStoreImpl implements EventStore {
 
   constructor(
     private readonly runId: RunId,
-    options?: { baseDir?: string }
+    options?: { baseDir?: string; runDir?: string }
   ) {
     const baseDir = options?.baseDir ?? process.cwd();
-    this.logPath = path.join(baseDir, ".substrate", "runs", runId, "events.jsonl");
+    this.logPath = options?.runDir
+      ? path.join(options.runDir, "events.jsonl")
+      : path.join(baseDir, ".substrate", "runs", runId, "events.jsonl");
   }
 
   async append(event: EngineEvent): Promise<void> {
-    EngineEvent.parse(event);
+    this.appendSync(event);
+  }
+
+  /**
+   * Same checks as `append`, for the synchronous write path the emitter uses.
+   */
+  appendSync(event: EngineEvent): void {
+    StoreEventEnvelope.parse(event);
 
     if (event.run_id !== this.runId) {
       throw new Error(
@@ -31,7 +47,7 @@ export class EventStoreImpl implements EventStore {
     }
 
     if (this.lastSeq === undefined) {
-      const existing = await this.readAll();
+      const existing = this.readAllSync();
       this.lastSeq = existing.length > 0 ? existing[existing.length - 1].seq : 0;
     }
 
@@ -48,6 +64,10 @@ export class EventStoreImpl implements EventStore {
   }
 
   async readAll(): Promise<EngineEvent[]> {
+    return this.readAllSync();
+  }
+
+  readAllSync(): EngineEvent[] {
     if (!fs.existsSync(this.logPath)) {
       return [];
     }
@@ -86,7 +106,7 @@ export class EventStoreImpl implements EventStore {
         );
       }
 
-      const result = EngineEvent.safeParse(parsed);
+      const result = StoreEventEnvelope.safeParse(parsed);
       if (!result.success) {
         throw new Error(
           `Corruption error in ${this.logPath} at line ${lineNum}: schema violation - ${result.error.message}`

@@ -68,6 +68,17 @@ export async function runTaskAction(
   const attempt = isHeal ? 2 : (taskState.attempt ?? 1);
   const sessionId = taskState.session_id ?? crypto.randomUUID();
 
+  // A task put back in the queue by `resume` keeps its session when the worktree
+  // that session worked in is still present; otherwise a new session is started.
+  const existingWorktree = path.join(
+    ctx.repoRoot,
+    ".substrate",
+    "worktrees",
+    `${taskId}-g${generation}`
+  );
+  const resumeExistingSession =
+    taskState.session_id !== undefined && fs.existsSync(existingWorktree);
+
   if (isHeal) {
     emit("task.healing", { task_id: taskId, generation, attempt: 2 });
   }
@@ -115,7 +126,10 @@ export async function runTaskAction(
     raw_dir: ctx.runDir,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
-    session: isHeal ? { resume: taskState.session_id ?? sessionId } : { id: sessionId },
+    session:
+      isHeal || resumeExistingSession
+        ? { resume: taskState.session_id ?? sessionId }
+        : { id: sessionId },
     permission: {
       allow: [worktreeInfo.worktreePath],
       deny: [],

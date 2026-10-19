@@ -189,7 +189,7 @@ describe("E2E Entry Point and Signal Tests", () => {
   }, 35000);
 
   // Expected to fail until R3.2 (C-H4)
-  it.fails("(c) resume after a cancel finishes the task", async () => {
+  it("(c) resume after a cancel finishes the task", async () => {
     expect(savedRepo).not.toBeNull();
     expect(savedRunId).not.toBeNull();
     expect(savedScenarioPath).not.toBeNull();

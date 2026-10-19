@@ -131,7 +131,25 @@ export const ContractsCommittedEvent = member(
   z.object({ commit_sha: z.string().optional() }).strict()
 );
 
-export const SetupDoneEvent = member("setup.done", z.object({}).strict());
+export const SetupDoneEvent = member(
+  "setup.done",
+  z
+    .object({
+      tasks: z
+        .array(
+          z
+            .object({
+              id: z.string(),
+              depends_on: z.array(z.string()),
+              write: z.array(z.string()),
+              create: z.array(z.string()),
+            })
+            .strict()
+        )
+        .optional(),
+    })
+    .strict()
+);
 
 export const BatchStartedEvent = member(
   "batch.started",
@@ -150,7 +168,12 @@ export const BatchMergedEvent = member(
 
 export const TaskReadyEvent = member(
   "task.ready",
-  z.object({ task_id: z.string() }).strict()
+  z
+    .object({
+      task_id: z.string(),
+      resumed: z.boolean().optional(),
+    })
+    .strict()
 );
 
 export const TaskWorktreeCreatedEvent = member(
@@ -267,7 +290,12 @@ export const TaskMergedEvent = member(
 
 export const TaskBlockedEvent = member(
   "task.blocked",
-  z.object({ task_id: z.string() }).strict()
+  z
+    .object({
+      task_id: z.string(),
+      dependents: z.array(z.string()).optional(),
+    })
+    .strict()
 );
 
 export const TaskFailedEvent = member(

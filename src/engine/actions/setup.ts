@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-import type { TaskSpecFrontmatter } from "../../contracts/index.js";
+import type { TaskId, TaskSpecFrontmatter } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import { computeDagLayers } from "../reducer.js";
@@ -42,7 +42,7 @@ export async function runSetupAction(
     return;
   }
 
-  const specMap = new Map<string, TaskSpecFrontmatter>();
+  const specMap = new Map<TaskId, TaskSpecFrontmatter>();
   for (const t of manifest.tasks) {
     const full = path.resolve(ctx.runDir, t.spec);
     if (fs.existsSync(full)) {
@@ -52,17 +52,27 @@ export async function runSetupAction(
     }
   }
 
-  const tasksWithDeps = manifest.tasks.map((t) => ({
-    id: t.id,
-    depends_on: specMap.get(t.id)?.depends_on ?? [],
-  }));
+  const taskList = manifest.tasks.map((t) => {
+    const frontmatter = specMap.get(t.id);
+    return {
+      id: t.id,
+      depends_on: frontmatter?.depends_on ?? [],
+      write: frontmatter?.write ?? [],
+      create: frontmatter?.create ?? [],
+    };
+  });
 
-  const layers = computeDagLayers(tasksWithDeps);
-  emit("setup.done", {});
+  // Dependency cycles are rejected here; scheduling itself is done by
+  // `promoteReadyTasks`, which only releases a dependent once every dependency
+  // has been merged.
+  computeDagLayers(taskList.map((t) => ({ id: t.id, depends_on: t.depends_on })));
 
-  if (layers.length > 0 && layers[0].length > 0) {
-    emit("batch.started", { batch: layers[0] });
-    for (const taskId of layers[0]) {
+  emit("setup.done", { tasks: taskList });
+
+  const firstBatch = taskList.filter((t) => t.depends_on.length === 0).map((t) => t.id);
+  if (firstBatch.length > 0) {
+    emit("batch.started", { batch: firstBatch });
+    for (const taskId of firstBatch) {
       emit("task.ready", { task_id: taskId });
     }
   }

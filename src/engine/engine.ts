@@ -17,16 +17,13 @@ import type {
 } from "../contracts/index.js";
 import { DEFAULT_SETTINGS } from "../config/index.js";
 import { createAdapters, type AdapterMap } from "../backends/registry.js";
-import { type EngineState, reduce } from "./reducer.js";
-import {
-  type EffectContext,
-  runEffectsLoop,
-  appendRunEvent,
-  readAllRunEvents,
-} from "./effects.js";
-import { RunLockImpl } from "../store/run-lock.js";
+import { type EngineState, type RunState, reduce } from "./reducer.js";
+import { type EffectContext, runEffectsLoop } from "./effects.js";
+import { EventStoreImpl } from "../store/event-store.js";
+import { RunLockImpl, RunLockError } from "../store/run-lock.js";
 import { getRunBranch } from "../git/index.js";
 import { deepMerge } from "../util/merge.js";
+import { createRunId } from "../util/index.js";
 import { log } from "../util/log.js";
 
 export interface EngineOptions {
@@ -35,13 +32,10 @@ export interface EngineOptions {
   adapters?: AdapterMap;
 }
 
+// Run ids must satisfy the RunId schema the event store validates, so the shared
+// base32 generator is used rather than a local alphabet.
 function generateRunId(): RunId {
-  const chars = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-  let id = "r_";
-  for (let i = 0; i < 12; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id as RunId;
+  return createRunId() as RunId;
 }
 
 function findExistingUnstartedRun(runsDir: string): RunId | undefined {
@@ -70,6 +64,76 @@ function findExistingUnstartedRun(runsDir: string): RunId | undefined {
   if (candidates.length === 0) return undefined;
   candidates.sort((a, b) => b.mtime - a.mtime);
   return candidates[0].id;
+}
+
+type RunSummaryStatus = "finished" | "paused" | "failed" | "cancelled";
+
+function statusForState(runState: RunState): RunSummaryStatus {
+  switch (runState) {
+    case "FINISHED":
+      return "finished";
+    case "PAUSED":
+      return "paused";
+    case "FAILED":
+      return "failed";
+    case "CANCELLED":
+      return "cancelled";
+    default:
+      throw new Error(`cannot report a run as finished from state ${runState}`);
+  }
+}
+
+// Exit codes from the run's state (rule 7). There is no default: a run that is
+// not in a terminal state is not summarised.
+function exitCodeForState(runState: RunState, pauseReason?: PauseReason): number {
+  switch (runState) {
+    case "FINISHED":
+      return 0;
+    case "FAILED":
+      return 1;
+    case "CANCELLED":
+      return 1;
+    case "PAUSED":
+      if (pauseReason === "budget_exhausted") return 4;
+      if (pauseReason === "user_cancel") return 130;
+      return 3;
+    default:
+      throw new Error(`cannot report a run as finished from state ${runState}`);
+  }
+}
+
+function buildSummary(runId: RunId, state: EngineState): RunSummary {
+  const summaryTasks: Record<
+    TaskId,
+    { state: string; generation: number; failure_class?: FailureClass }
+  > = {};
+
+  for (const [id, t] of Object.entries(state.tasks)) {
+    let taskStateStr = t.state;
+    if (t.state === "MERGED" || t.state === "PASSED") {
+      taskStateStr = "PASSED";
+    } else if (t.failure_class || t.state === "BLOCKED" || t.state === "REPLANNING") {
+      taskStateStr = "FAILED";
+    }
+    summaryTasks[id as TaskId] = {
+      state: taskStateStr,
+      generation: t.generation ?? 1,
+      ...(t.failure_class ? { failure_class: t.failure_class } : {}),
+    };
+  }
+
+  const status = statusForState(state.state);
+  const exitCode = exitCodeForState(state.state, state.pause_reason);
+
+  return {
+    run_id: runId,
+    status,
+    ...(state.pause_reason ? { pause_reason: state.pause_reason } : {}),
+    tasks: summaryTasks,
+    usage: state.usage,
+    branch: getRunBranch(runId),
+    exit_code: exitCode,
+  };
 }
 
 export class EngineImpl implements Engine {
@@ -110,9 +174,7 @@ export class EngineImpl implements Engine {
     const lock = new RunLockImpl(runId, { baseDir: repoRoot });
     const acquired = await lock.acquire();
     if (!acquired) {
-      throw new Error(
-        `Failed to acquire run lock for run ${runId}: active lock exists`
-      );
+      throw new RunLockError(runId, lock.holderPid());
     }
 
     const heartbeatTimer = setInterval(() => {
@@ -121,6 +183,8 @@ export class EngineImpl implements Engine {
 
     const runDir = path.join(repoRoot, ".substrate", "runs", runId);
     fs.mkdirSync(runDir, { recursive: true });
+
+    const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
     const ctx: EffectContext = {
       runId,
@@ -133,6 +197,7 @@ export class EngineImpl implements Engine {
       prompt: opts.prompt,
       mode: opts.mode,
       permission_mode: opts.permission_mode,
+      store,
     };
 
     let state: EngineState = {
@@ -159,7 +224,7 @@ export class EngineImpl implements Engine {
         },
       };
 
-      appendRunEvent(runDir, createdEvt);
+      await store.append(createdEvt);
       opts.onEvent?.(createdEvt);
       state = reduce(state, createdEvt);
 
@@ -167,64 +232,7 @@ export class EngineImpl implements Engine {
       state = await runEffectsLoop(ctx, state);
       log.debug("[DEBUG] engine.run: exited runEffectsLoop, state:", state.state);
 
-      let finalStatus: "finished" | "paused" | "failed" | "cancelled" = "finished";
-      let finalExitCode = 0;
-
-      if (state.state === "FINISHED") {
-        finalStatus = "finished";
-        finalExitCode = 0;
-      } else if (state.state === "PAUSED") {
-        finalStatus = "paused";
-        if (state.pause_reason === "budget_exhausted") {
-          finalExitCode = 4;
-        } else if (
-          state.pause_reason === "permission_denied" ||
-          state.pause_reason === "needs_human" ||
-          state.pause_reason === "needs_approval" ||
-          state.pause_reason === "rate_limited"
-        ) {
-          finalExitCode = 3;
-        } else if (state.pause_reason === "user_cancel") {
-          finalExitCode = 130;
-        } else {
-          finalExitCode = 3;
-        }
-      } else if (state.state === "FAILED") {
-        finalStatus = "failed";
-        finalExitCode = 1;
-      } else if (state.state === "CANCELLED") {
-        finalStatus = "cancelled";
-        finalExitCode = 1;
-      }
-
-      const summaryTasks: Record<
-        TaskId,
-        { state: string; generation: number; failure_class?: FailureClass }
-      > = {};
-
-      for (const [id, t] of Object.entries(state.tasks)) {
-        let taskStateStr = t.state;
-        if (t.state === "MERGED" || t.state === "PASSED") {
-          taskStateStr = "PASSED";
-        } else if (t.failure_class || t.state === "BLOCKED" || t.state === "REPLANNING") {
-          taskStateStr = "FAILED";
-        }
-        summaryTasks[id as TaskId] = {
-          state: taskStateStr,
-          generation: t.generation ?? 1,
-          ...(t.failure_class ? { failure_class: t.failure_class } : {}),
-        };
-      }
-
-      return {
-        run_id: runId,
-        status: finalStatus,
-        ...(state.pause_reason ? { pause_reason: state.pause_reason } : {}),
-        tasks: summaryTasks,
-        usage: state.usage,
-        branch: getRunBranch(runId),
-        exit_code: finalExitCode,
-      };
+      return buildSummary(runId, state);
     } finally {
       clearInterval(heartbeatTimer);
       await lock.release();
@@ -254,9 +262,7 @@ export class EngineImpl implements Engine {
     const lock = new RunLockImpl(runId, { baseDir: repoRoot });
     const acquired = await lock.acquire();
     if (!acquired) {
-      throw new Error(
-        `Failed to acquire run lock for run ${runId}: active lock exists`
-      );
+      throw new RunLockError(runId, lock.holderPid());
     }
 
     const heartbeatTimer = setInterval(() => {
@@ -264,6 +270,8 @@ export class EngineImpl implements Engine {
     }, 5000);
 
     const runDir = path.join(repoRoot, ".substrate", "runs", runId);
+
+    const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
     const ctx: EffectContext = {
       runId,
@@ -276,10 +284,11 @@ export class EngineImpl implements Engine {
       prompt: opts?.prompt,
       mode: opts?.mode,
       permission_mode: opts?.permission_mode,
+      store,
     };
 
     try {
-      const existingEvents = readAllRunEvents(runDir);
+      const existingEvents = await store.readAll();
       let state: EngineState = {
         run_id: runId,
         state: "CREATED",
@@ -291,81 +300,50 @@ export class EngineImpl implements Engine {
         state = reduce(state, evt);
       }
 
+      let lastSeq = existingEvents.length > 0 ? existingEvents[existingEvents.length - 1].seq : 0;
+
       if (state.state === "PAUSED") {
-        const nextSeq = existingEvents.length + 1;
         const resumedEvt: EngineEvent = {
           v: 1,
-          seq: nextSeq,
+          seq: lastSeq + 1,
           ts: new Date().toISOString(),
           run_id: runId,
           type: "run.resumed",
           data: {},
         };
-        appendRunEvent(runDir, resumedEvt);
+        await store.append(resumedEvt);
+        lastSeq = resumedEvt.seq;
         opts?.onEvent?.(resumedEvt);
         state = reduce(state, resumedEvt);
       }
 
+      // A task killed between task.session.started and task.session.ended is put
+      // back in the queue; HEALING tasks keep their state.
+      for (const task of Object.values(state.tasks)) {
+        if (
+          task.state !== "RUNNING" &&
+          task.state !== "SCOPE_CHECK" &&
+          task.state !== "VERIFYING"
+        ) {
+          continue;
+        }
+        const readyEvt: EngineEvent = {
+          v: 1,
+          seq: lastSeq + 1,
+          ts: new Date().toISOString(),
+          run_id: runId,
+          type: "task.ready",
+          data: { task_id: task.id, resumed: true },
+        };
+        await store.append(readyEvt);
+        lastSeq = readyEvt.seq;
+        opts?.onEvent?.(readyEvt);
+        state = reduce(state, readyEvt);
+      }
+
       state = await runEffectsLoop(ctx, state);
 
-      let finalStatus: "finished" | "paused" | "failed" | "cancelled" = "finished";
-      let finalExitCode = 0;
-
-      if (state.state === "FINISHED") {
-        finalStatus = "finished";
-        finalExitCode = 0;
-      } else if (state.state === "PAUSED") {
-        finalStatus = "paused";
-        if (state.pause_reason === "budget_exhausted") {
-          finalExitCode = 4;
-        } else if (
-          state.pause_reason === "permission_denied" ||
-          state.pause_reason === "needs_human" ||
-          state.pause_reason === "needs_approval" ||
-          state.pause_reason === "rate_limited"
-        ) {
-          finalExitCode = 3;
-        } else if (state.pause_reason === "user_cancel") {
-          finalExitCode = 130;
-        } else {
-          finalExitCode = 3;
-        }
-      } else if (state.state === "FAILED") {
-        finalStatus = "failed";
-        finalExitCode = 1;
-      } else if (state.state === "CANCELLED") {
-        finalStatus = "cancelled";
-        finalExitCode = 1;
-      }
-
-      const summaryTasks: Record<
-        TaskId,
-        { state: string; generation: number; failure_class?: FailureClass }
-      > = {};
-
-      for (const [id, t] of Object.entries(state.tasks)) {
-        let taskStateStr = t.state;
-        if (t.state === "MERGED" || t.state === "PASSED") {
-          taskStateStr = "PASSED";
-        } else if (t.failure_class || t.state === "BLOCKED" || t.state === "REPLANNING") {
-          taskStateStr = "FAILED";
-        }
-        summaryTasks[id as TaskId] = {
-          state: taskStateStr,
-          generation: t.generation ?? 1,
-          ...(t.failure_class ? { failure_class: t.failure_class } : {}),
-        };
-      }
-
-      return {
-        run_id: runId,
-        status: finalStatus,
-        ...(state.pause_reason ? { pause_reason: state.pause_reason } : {}),
-        tasks: summaryTasks,
-        usage: state.usage,
-        branch: getRunBranch(runId),
-        exit_code: finalExitCode,
-      };
+      return buildSummary(runId, state);
     } finally {
       clearInterval(heartbeatTimer);
       await lock.release();

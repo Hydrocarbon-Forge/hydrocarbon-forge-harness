@@ -88,7 +88,7 @@ export function makeEmitter(
         getSeq,
         write: (evt) => {
           if (crashed) return;
-          appendRunEvent(ctx.runDir, evt);
+          appendRunEvent(ctx, evt);
         },
         onEvent: ctx.onEvent && !crashed
           ? (evt) => {

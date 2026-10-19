@@ -1,8 +1,9 @@
 import path from "node:path";
 
-import type { Effort, Engine, PermissionMode, RunId, RunOptions, RunSummary, Settings } from "../../contracts/index.js";
+import type { Effort, Engine, PermissionMode, RunId, RunOptions, Settings } from "../../contracts/index.js";
 import { EngineImpl } from "../../engine/engine.js";
 import { loadSettings, sandboxProblem } from "../../config/index.js";
+import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -138,30 +139,6 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
   return overrides;
 }
 
-export function mapSummaryExitCode(summary: any): number {
-  if (summary.status === "finished") {
-    const tasks = summary.tasks ?? {};
-    const anyFailed = Object.values(tasks).some(
-      (t: any) => t.state === "failed" || t.failure_class !== undefined,
-    );
-    if (anyFailed || summary.exit_code === 1) return 1;
-    return summary.exit_code ?? 0;
-  }
-  if (summary.status === "failed") return 1;
-  if (summary.pause_reason === "budget_exhausted" || summary.exit_code === 4) {
-    return 4;
-  }
-  if (
-    summary.pause_reason === "needs_human" ||
-    summary.pause_reason === "needs_approval" ||
-    summary.pause_reason === "permission_denied" ||
-    summary.exit_code === 3
-  ) {
-    return 3;
-  }
-  return summary.exit_code ?? 0;
-}
-
 export const runCommand: CliCommand = {
   name: "run",
   description: "Execute Substrate run with specified prompt",
@@ -264,8 +241,13 @@ export const runCommand: CliCommand = {
       formatter.onSummary(summary, session?.sessionId ?? "");
       await formatter.flush();
 
-      return mapSummaryExitCode(summary);
+      return summary.exit_code;
     } catch (err: any) {
+      if (err instanceof RunLockError) {
+        formatter.onError(err);
+        await formatter.flush();
+        return 2;
+      }
       if (err.name === "AbortError" || err.message?.includes("SIGINT")) {
         return 130;
       }

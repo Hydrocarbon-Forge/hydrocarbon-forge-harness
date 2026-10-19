@@ -28,10 +28,6 @@
       "until": "R3.5"
     },
     {
-      "path": "src/engine/scheduler.ts",
-      "until": "R3.2"
-    },
-    {
       "path": "src/hooks/gate.ts",
       "until": "R5.3"
     },
@@ -58,10 +54,6 @@
     {
       "path": "src/roles/worker.ts",
       "until": "R3.3"
-    },
-    {
-      "path": "src/store/event-store.ts",
-      "until": "R3.2"
     },
     {
       "path": "src/store/index.ts",
@@ -440,11 +432,6 @@
       "until": "R5.3"
     },
     {
-      "symbol": "EngineEvent",
-      "path": "src/contracts/index.ts",
-      "until": "R5.3"
-    },
-    {
       "symbol": "EnvReport",
       "path": "src/contracts/index.ts",
       "until": "R5.3"
@@ -498,16 +485,6 @@
       "symbol": "resolveEscalationRoute",
       "path": "src/engine/replan.ts",
       "until": "R5.3"
-    },
-    {
-      "symbol": "detectOverlap",
-      "path": "src/engine/scheduler.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "scheduleNextTasks",
-      "path": "src/engine/scheduler.ts",
-      "until": "R3.2"
     },
     {
       "symbol": "GitCommitter",
@@ -635,11 +612,6 @@
       "until": "R5.3"
     },
     {
-      "symbol": "EventStoreImpl",
-      "path": "src/store/event-store.ts",
-      "until": "R5.3"
-    },
-    {
       "symbol": "resolveResumeTarget",
       "path": "src/store/sessions.ts",
       "until": "R5.3"
@@ -651,11 +623,6 @@
     },
     {
       "symbol": "assertTaskId",
-      "path": "src/util/index.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "createRunId",
       "path": "src/util/index.ts",
       "until": "R5.3"
     },
