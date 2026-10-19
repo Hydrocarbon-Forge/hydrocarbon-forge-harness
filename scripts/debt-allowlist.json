@@ -503,6 +503,16 @@
       "until": "R5.3"
     },
     {
+      "symbol": "bisectBatch",
+      "path": "src/git/merger.ts",
+      "until": "R5.3"
+    },
+    {
+      "symbol": "runBatchMerge",
+      "path": "src/git/merger.ts",
+      "until": "R5.3"
+    },
+    {
       "symbol": "taskMerger",
       "path": "src/git/merger.ts",
       "until": "R5.3"

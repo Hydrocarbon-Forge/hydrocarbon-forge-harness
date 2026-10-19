@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { createE2ERepo } from "./repo.js";
 
 export interface RunSubstrateOptions {
+  repo?: ReturnType<typeof createE2ERepo>; // if supplied, reused instead of creating a new repo
+  beforeRun?: (repo: ReturnType<typeof createE2ERepo>) => void; // invoked right before running the substrate process
   files?: Record<string, string>; // written into the temp repo, committed as "seed"
   scenario?: { calls: unknown[] }; // written to a file outside the repo; sets FAKE_SCENARIO_FILE
   args: string[]; // argv after dist/substrate.mjs
@@ -54,7 +56,7 @@ export function runSubstrate(options: RunSubstrateOptions): RunSubstrateResult {
   const substrateMjs = resolve(projectRoot, "dist/substrate.mjs");
   const binDir = resolve(projectRoot, "test/fixtures/fake-harness/bin");
 
-  const repo = createE2ERepo(options.files ?? {});
+  const repo = options.repo ?? createE2ERepo(options.files ?? {});
   const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-scenario-"));
   const homeDir = mkdtempSync(join(tmpdir(), "substrate-home-"));
 
@@ -100,6 +102,10 @@ export function runSubstrate(options: RunSubstrateOptions): RunSubstrateResult {
 
   if (options.env) {
     Object.assign(env, options.env);
+  }
+
+  if (options.beforeRun) {
+    options.beforeRun(repo);
   }
 
   const timeout = options.timeoutMs ?? 120000;

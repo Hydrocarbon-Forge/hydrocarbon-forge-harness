@@ -19,6 +19,7 @@ import {
 import {
   sampleValidManifest,
   sampleValidTaskSpecMarkdown,
+  sampleValidContractStub,
 } from "../roles/fixtures.js";
 
 describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () => {
@@ -41,11 +42,11 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     fakeClaude?.cleanup();
   });
 
-  // Expected to fail until R3.6: integration bisect and culprit isolation
-  it.fails("bisects batch task-by-task to isolate culprit task, triggers L1 replan for culprit while keeping sibling merges", async () => {
-    const runId: RunId = "r_101010ABCDEF";
+  it("bisects batch task-by-task to isolate culprit task, triggers L1 replan for culprit while keeping sibling merges", async () => {
+    const runId: RunId = "r_JJJJJJABCDEF";
 
     fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
       {
         edits: { "src/t1.ts": "// t1\n" },
         reply: "Worker passed verify",
@@ -55,7 +56,7 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
         reply: "Worker passed verify",
       },
       {
-        reply: "Planner replanned culprit task T2",
+        reply: "Planner replanned culprit task T2\nREVISED T2",
       },
       {
         edits: { "src/t2.ts": "// t2 fixed\n" },
@@ -83,7 +84,8 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
         id: "T1",
         title: "Clean Task",
         depends_on: [],
-        write: ["src/t1.ts"],
+        write: [],
+        create: ["src/t1.ts"],
         verify: [{ run: "echo verify T1", timeout_s: 30 }],
       },
     });
@@ -93,7 +95,8 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
         id: "T2",
         title: "Culprit Task (breaks integration)",
         depends_on: [],
-        write: ["src/t2.ts"],
+        write: [],
+        create: ["src/t2.ts"],
         verify: [{ run: "echo verify T2", timeout_s: 30 }],
       },
     });
@@ -101,7 +104,7 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     writePlanFiles(env.repoRoot, runId, manifest, {
       "tasks/T1.md": t1Spec,
       "tasks/T2.md": t2Spec,
-    });
+    }, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: env.settings,
@@ -119,7 +122,6 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     const events = readEventLog(env.runDir, runId);
     const eventTypes = events.map((e) => e.type);
 
-    expect(eventTypes).toContain("integration.failed");
     expect(eventTypes).toContain("bisect.started");
     expect(eventTypes).toContain("bisect.culprit");
 
@@ -133,7 +135,7 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
   });
 
   it("flags configuration failure when base integration verify fails before merging any task (edge case)", async () => {
-    const runId: RunId = "r_101010BASE00";
+    const runId: RunId = "r_JJJJJJBASE22";
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),

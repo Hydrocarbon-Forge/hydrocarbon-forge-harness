@@ -34,7 +34,7 @@ export function getTaskBranch(
  * True when `git worktree list` registers this path as a worktree. A plain
  * directory with the same name is a crash leftover, not a worktree.
  */
-function isRegisteredWorktree(repoRoot: string, worktreePath: string): boolean {
+export function isRegisteredWorktree(repoRoot: string, worktreePath: string): boolean {
   const out = execFileSync("git", ["worktree", "list", "--porcelain"], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -78,6 +78,46 @@ export interface WorkspaceLifecycle {
   pruneWorktrees(repoRoot: string): Promise<void>;
 }
 
+export function ensureGitExclude(repoRoot: string): void {
+  let excludePath = join(repoRoot, ".git", "info", "exclude");
+  const gitEntry = join(repoRoot, ".git");
+  if (existsSync(gitEntry)) {
+    const st = statSync(gitEntry);
+    if (!st.isDirectory()) {
+      const content = readFileSync(gitEntry, "utf8");
+      const match = content.match(/gitdir:\s*(.+)/);
+      if (match) {
+        const gitDir = resolve(repoRoot, match[1].trim());
+        excludePath = join(gitDir, "info", "exclude");
+      }
+    }
+  }
+  mkdirSync(dirname(excludePath), { recursive: true });
+  let currentExclude = "";
+  if (existsSync(excludePath)) {
+    currentExclude = readFileSync(excludePath, "utf8");
+  }
+  const linesToAdd: string[] = [];
+  if (!currentExclude.includes(".substrate/worktrees/")) {
+    linesToAdd.push(".substrate/worktrees/");
+  }
+  if (!currentExclude.includes(".substrate-task/")) {
+    linesToAdd.push(".substrate-task/");
+  }
+  if (!currentExclude.includes(".opencode/")) {
+    linesToAdd.push(".opencode/");
+  }
+  if (linesToAdd.length > 0) {
+    const sep =
+      currentExclude.endsWith("\n") || currentExclude.length === 0 ? "" : "\n";
+    writeFileSync(
+      excludePath,
+      currentExclude + sep + linesToAdd.join("\n") + "\n",
+      "utf8"
+    );
+  }
+}
+
 export class WorkspaceManagerImpl implements WorkspaceManager {
   async createRunBranch(
     repoRoot: string,
@@ -113,43 +153,7 @@ export class WorkspaceManagerImpl implements WorkspaceManager {
     const effectiveBaseRef = baseRef ?? getRunBranch(runId);
 
     // Ensure exclude file registers .substrate/worktrees/ and .substrate-task/
-    let excludePath = join(repoRoot, ".git", "info", "exclude");
-    const gitEntry = join(repoRoot, ".git");
-    if (existsSync(gitEntry)) {
-      const st = statSync(gitEntry);
-      if (!st.isDirectory()) {
-        const content = readFileSync(gitEntry, "utf8");
-        const match = content.match(/gitdir:\s*(.+)/);
-        if (match) {
-          const gitDir = resolve(repoRoot, match[1].trim());
-          excludePath = join(gitDir, "info", "exclude");
-        }
-      }
-    }
-    mkdirSync(dirname(excludePath), { recursive: true });
-    let currentExclude = "";
-    if (existsSync(excludePath)) {
-      currentExclude = readFileSync(excludePath, "utf8");
-    }
-    const linesToAdd: string[] = [];
-    if (!currentExclude.includes(".substrate/worktrees/")) {
-      linesToAdd.push(".substrate/worktrees/");
-    }
-    if (!currentExclude.includes(".substrate-task/")) {
-      linesToAdd.push(".substrate-task/");
-    }
-    if (!currentExclude.includes(".opencode/")) {
-      linesToAdd.push(".opencode/");
-    }
-    if (linesToAdd.length > 0) {
-      const sep =
-        currentExclude.endsWith("\n") || currentExclude.length === 0 ? "" : "\n";
-      writeFileSync(
-        excludePath,
-        currentExclude + sep + linesToAdd.join("\n") + "\n",
-        "utf8"
-      );
-    }
+    ensureGitExclude(repoRoot);
 
     const worktreePath = join(
       repoRoot,

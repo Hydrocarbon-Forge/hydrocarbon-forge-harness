@@ -443,8 +443,8 @@ export async function runEffectsLoop(
         }
         log.debug("[DEBUG] evt:", evt.type, evt.data);
         applyEvent(evt);
-        settleDependents();
       }
+      settleDependents();
 
       if (isTerminal(state)) {
         break;
