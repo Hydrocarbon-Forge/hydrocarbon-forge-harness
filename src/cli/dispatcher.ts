@@ -31,6 +31,9 @@ export interface CliGlobalFlags {
   plan?: string;
   work?: string;
   fast?: string;
+  dryRun?: boolean;
+  abortOnConflict?: boolean;
+  hard?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -115,6 +118,9 @@ const CLI_OPTIONS = {
   plan: { type: "string" },
   work: { type: "string" },
   fast: { type: "string" },
+  "dry-run": { type: "boolean" },
+  "abort-on-conflict": { type: "boolean" },
+  hard: { type: "boolean" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -181,6 +187,9 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.plan !== undefined) flags.plan = parsedValues.plan as string;
   if (parsedValues.work !== undefined) flags.work = parsedValues.work as string;
   if (parsedValues.fast !== undefined) flags.fast = parsedValues.fast as string;
+  if (parsedValues["dry-run"]) flags.dryRun = true;
+  if (parsedValues["abort-on-conflict"]) flags.abortOnConflict = true;
+  if (parsedValues.hard) flags.hard = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);
   }

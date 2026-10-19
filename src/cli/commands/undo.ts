@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
+import { advanceRunRef } from "../../git/merger.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -13,10 +14,12 @@ export interface CliGlobalFlags {
   effort?: Effort;
   sessionId?: string;
   resume?: string;
+  run?: string;
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
   noGovernor?: boolean;
+  hard?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -50,65 +53,178 @@ export interface CliCommand {
   execute(ctx: CommandContext): Promise<number>;
 }
 
+function resolveRunBranch(repoRoot: string, runId: string): { branch: string; exists: boolean } {
+  let runBranch = `substrate/runs/${runId}`;
+  try {
+    execFileSync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${runBranch}`], {
+      cwd: repoRoot,
+      stdio: "ignore",
+    });
+    return { branch: runBranch, exists: true };
+  } catch {
+    const doubleRef = `refs/heads/refs/heads/${runBranch}`;
+    try {
+      execFileSync("git", ["show-ref", "--verify", "--quiet", doubleRef], {
+        cwd: repoRoot,
+        stdio: "ignore",
+      });
+      return { branch: doubleRef, exists: true };
+    } catch {}
+  }
+  return { branch: runBranch, exists: false };
+}
+
+function findMostRecentRunIdWithCheckpoint(repoRoot: string): string | undefined {
+  const runsDir = path.join(repoRoot, ".substrate", "runs");
+  if (!fs.existsSync(runsDir)) return undefined;
+
+  const entries = fs
+    .readdirSync(runsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => {
+      const dirPath = path.join(runsDir, d.name);
+      let mtime = 0;
+      try {
+        mtime = fs.statSync(dirPath).mtimeMs;
+      } catch {}
+      return { name: d.name, mtime, dirPath };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+
+  for (const entry of entries) {
+    const eventsFile = path.join(entry.dirPath, "events.jsonl");
+    if (fs.existsSync(eventsFile)) {
+      try {
+        const content = fs.readFileSync(eventsFile, "utf8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const ev = JSON.parse(trimmed);
+            if (ev.type === "batch.merged" && ev.data?.checkpoint_ref) {
+              return entry.name;
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+  }
+  return undefined;
+}
+
 const { registry } = await import(`../registry.js`);
 
 export const undoCommand: CliCommand = {
   name: "undo",
   description: "Revert run branch to prior batch checkpoint ref",
   async execute(ctx: CommandContext): Promise<number> {
-    const runId = ctx.rawArgs[0];
+    let runId = ctx.rawArgs[0] || ctx.flags.run;
     if (!runId) {
-      ctx.stderr.write("Error: Run ID required\n");
+      runId = findMostRecentRunIdWithCheckpoint(ctx.cwd);
+    }
+
+    if (!runId) {
+      ctx.stderr.write("Error: no checkpoint recorded for run\n");
+      return 1;
+    }
+
+    const { branch: runBranch, exists: hasBranch } = resolveRunBranch(ctx.cwd, runId);
+    if (!hasBranch) {
+      ctx.stderr.write(`Error: unknown run ${runId}\n`);
       return 2;
     }
 
-    const runDir = path.join(ctx.cwd, ".substrate", "runs", runId);
-    const eventsFile = path.join(runDir, "events.jsonl");
-
-    let checkpointRef = "HEAD~1";
-    if (fs.existsSync(eventsFile)) {
-      const content = fs.readFileSync(eventsFile, "utf8");
-      const lines = content.trim().split("\n").filter((l) => l.trim().length > 0);
-      for (let i = lines.length - 1; i >= 0; i--) {
-        try {
-          const ev = JSON.parse(lines[i]);
-          if (ev.type === "batch.merged" && ev.data?.checkpoint_ref) {
-            checkpointRef = ev.data.checkpoint_ref;
-            break;
-          }
-        } catch {
-          // ignore
-        }
-      }
+    const eventsFile = path.join(ctx.cwd, ".substrate", "runs", runId, "events.jsonl");
+    if (!fs.existsSync(eventsFile)) {
+      ctx.stderr.write(`Error: no checkpoint recorded for run ${runId}\n`);
+      return 1;
     }
 
-    const branch = `substrate/runs/${runId}`;
+    let currentRunSha = "";
     try {
-      execFileSync("git", ["branch", "-f", branch, checkpointRef], {
-        cwd: ctx.cwd,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
+      currentRunSha = execFileSync(
+        "git",
+        ["rev-parse", runBranch],
+        { cwd: ctx.cwd, encoding: "utf8" }
+      ).trim();
     } catch {
+      ctx.stderr.write(`Error: unknown run ${runId}\n`);
+      return 2;
+    }
+
+    const content = fs.readFileSync(eventsFile, "utf8");
+    const lines = content.split("\n");
+    const checkpointRefs: string[] = [];
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
       try {
-        const rootCommit = execFileSync("git", ["rev-list", "--max-parents=0", "HEAD"], {
+        const ev = JSON.parse(line);
+        if (ev.type === "batch.merged" && ev.data?.checkpoint_ref) {
+          checkpointRefs.push(ev.data.checkpoint_ref);
+        }
+      } catch {}
+    }
+
+    if (checkpointRefs.length === 0) {
+      ctx.stderr.write(`Error: no checkpoint recorded for run ${runId}\n`);
+      return 1;
+    }
+
+    let targetSha: string | null = null;
+    for (const ref of checkpointRefs) {
+      try {
+        const sha = execFileSync("git", ["rev-parse", ref], {
           cwd: ctx.cwd,
           encoding: "utf8",
-          stdio: "pipe",
         }).trim();
-        if (rootCommit) {
-          execFileSync("git", ["branch", "-f", branch, rootCommit], {
-            cwd: ctx.cwd,
+        if (sha !== currentRunSha) {
+          targetSha = sha;
+          break;
+        }
+      } catch {}
+    }
+
+    if (!targetSha) {
+      ctx.stderr.write(`Error: no checkpoint recorded for run ${runId}\n`);
+      return 1;
+    }
+
+    let currentCheckoutBranch = "";
+    try {
+      currentCheckoutBranch = execFileSync(
+        "git",
+        ["branch", "--show-current"],
+        { cwd: ctx.cwd, encoding: "utf8" }
+      ).trim();
+    } catch {}
+
+    if (
+      currentCheckoutBranch === `substrate/runs/${runId}` ||
+      currentCheckoutBranch === runBranch ||
+      currentCheckoutBranch === `refs/heads/substrate/runs/${runId}`
+    ) {
+      ctx.stderr.write("Error: cannot undo while checkout is on run branch\n");
+      return 1;
+    }
+
+    await advanceRunRef(ctx.cwd, runId, targetSha, currentRunSha);
+
+    if (ctx.flags.hard) {
+      const intWorktree = path.join(ctx.cwd, ".substrate", "worktrees", runId, "integration");
+      if (fs.existsSync(intWorktree)) {
+        try {
+          execFileSync("git", ["reset", "--hard", targetSha], {
+            cwd: intWorktree,
             encoding: "utf8",
             stdio: "pipe",
           });
-        }
-      } catch {
-        // ignore
+        } catch {}
       }
     }
 
-    ctx.stdout.write(`Reverted branch ${branch} to ${checkpointRef}\n`);
+    ctx.stdout.write(`Reverted substrate/runs/${runId} to ${targetSha}\n`);
     return 0;
   },
 };

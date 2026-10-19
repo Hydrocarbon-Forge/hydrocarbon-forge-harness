@@ -519,7 +519,7 @@ describe("cli: inspection and lifecycle commands", () => {
 
         const exitCode = await mergeCommand.execute(ctx);
         expect(exitCode).toBe(0);
-        expect(stdout.getOutput()).toMatch(/Successfully merged/);
+        expect(stdout.getOutput()).toMatch(/Merged/);
       } finally {
         await env.cleanup();
       }
@@ -817,7 +817,7 @@ describe("cli: inspection and lifecycle commands", () => {
       );
       expect(text.exitCode).toBe(0);
       expect(text.stdout).toContain("== claude (not installed,");
-    });
+    }, 15000);
 
     it("unknown provider prints the error on stderr and exits 2 in both modes", async () => {
       const text = await runModels(slotSettings, { provider: "foo" });

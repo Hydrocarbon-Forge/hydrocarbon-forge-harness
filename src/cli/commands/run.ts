@@ -204,6 +204,7 @@ export const runCommand: CliCommand = {
     );
 
     let engine = ctx.engine;
+    let loadedSettings: Settings | undefined;
     if (!engine) {
       try {
         const settings = await loadSettings({
@@ -211,6 +212,7 @@ export const runCommand: CliCommand = {
           settingsFile: ctx.flags.settings,
           flags: overrides,
         });
+        loadedSettings = settings;
         const problem = sandboxProblem(settings);
         if (problem) {
           ctx.stderr.write(`Error: ${problem}\n`);
@@ -240,6 +242,23 @@ export const runCommand: CliCommand = {
       }
       formatter.onSummary(summary, session?.sessionId ?? "");
       await formatter.flush();
+
+      if (summary.exit_code === 0) {
+        const effectiveSettings =
+          loadedSettings ??
+          (await loadSettings({
+            projectDir: ctx.cwd,
+            settingsFile: ctx.flags.settings,
+            flags: overrides,
+          }));
+        if (effectiveSettings.git?.auto_merge === true) {
+          const { mergeRun } = await import(`./merge.js`);
+          return await mergeRun(ctx, summary.run_id, {
+            dryRun: false,
+            abortOnConflict: false,
+          });
+        }
+      }
 
       return summary.exit_code;
     } catch (err: any) {

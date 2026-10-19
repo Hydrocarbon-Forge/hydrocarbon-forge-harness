@@ -103,10 +103,6 @@
       "until": "DEFERRED"
     },
     {
-      "key": "git.auto_merge",
-      "until": "DEFERRED"
-    },
-    {
       "key": "git.branch_prefix",
       "until": "DEFERRED"
     },
@@ -489,11 +485,6 @@
     },
     {
       "symbol": "BatchIntegrationMerger",
-      "path": "src/git/merger.ts",
-      "until": "R5.3"
-    },
-    {
-      "symbol": "TaskMerger",
       "path": "src/git/merger.ts",
       "until": "R5.3"
     },
