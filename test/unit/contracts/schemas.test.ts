@@ -35,6 +35,11 @@ const EXPECTED_DECLARATIONS = [
   // ModelInfo is not in Appendix A; it was added by R2.6 per owner decision
   // (2026-10-18), see docs/plan/BLOCKED.md.
   "ModelInfo",
+  // ProfileSlot and Profile are not in Appendix A either; they are the contracts R2.9's
+  // Interface mandates, added by following the R2.6 decision above (see docs/plan/BLOCKED.md),
+  // and recorded as a Deviation in R2.9's PROGRESS.md Notes.
+  "ProfileSlot",
+  "Profile",
   "HarnessAdapter",
   "Settings",
   "Route",

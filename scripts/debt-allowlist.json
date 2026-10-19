@@ -631,7 +631,12 @@
     {
       "symbol": "appendRouteOutcome",
       "path": "src/roles/router.ts",
-      "until": "R2.9"
+      "until": "DEFERRED"
+    },
+    {
+      "symbol": "resolvePlannerRoute",
+      "path": "src/roles/router.ts",
+      "until": "R3.1"
     },
     {
       "symbol": "runWorker",

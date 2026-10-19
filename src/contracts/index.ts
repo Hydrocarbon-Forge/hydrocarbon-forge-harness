@@ -361,6 +361,24 @@ export type PricingTable = z.infer<typeof PricingTable>;
 export const ExecutionStrategy = z.enum(["direct", "dispatcher"]);
 export type ExecutionStrategy = z.infer<typeof ExecutionStrategy>;
 
+// One model+effort choice inside a provider profile (DECISIONS A3). A run names a
+// planner provider and a worker provider through Settings.defaults; each task class
+// maps to one of the three slots (DECISIONS A6).
+export const ProfileSlot = z.object({
+  model: z.string(),
+  effort: Effort.optional(),
+}).strict();
+export type ProfileSlot = z.infer<typeof ProfileSlot>;
+
+// The plan / work / fast triple for one provider. Keyed by provider name in
+// Settings.profiles.
+export const Profile = z.object({
+  plan: ProfileSlot,
+  work: ProfileSlot,
+  fast: ProfileSlot.optional(),
+}).strict();
+export type Profile = z.infer<typeof Profile>;
+
 export const Settings = z.object({
   backends: z.record(z.string(), z.object({
     bin: z.string().optional(),
@@ -385,6 +403,11 @@ export const Settings = z.object({
     Route.extend({ budget: Budget.optional() }).strict(),
     z.array(z.string()),
   ])),
+  profiles: z.record(z.string(), Profile).optional(),
+  defaults: z.object({
+    planner_provider: z.string().optional(),
+    worker_provider: z.string().optional(),
+  }).strict().optional(),
   pricing: z.object({
     asOf: z.string().optional(),
     sources: z.array(z.string()).optional(),

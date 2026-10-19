@@ -305,7 +305,29 @@ export function foldLayers(layers: SettingsLayers): Record<string, unknown> {
 
 export async function loadSettings(options: LoadSettingsOptions = {}): Promise<Contracts.Settings> {
   const merged = foldLayers(await settingsLayers(options));
-  return Contracts.Settings.parse(merged);
+  const settings = Contracts.Settings.parse(merged);
+  validateProfiles(settings);
+  return settings;
+}
+
+// DECISIONS A3: a defaults entry that names a provider must have a profile for it.
+export function validateProfiles(settings: Contracts.Settings): void {
+  if (!settings.defaults) return;
+  const profiles = settings.profiles ?? {};
+
+  const planner = settings.defaults.planner_provider;
+  if (planner !== undefined && !profiles[planner]) {
+    throw new Error(
+      `profiles.${planner} is required because defaults.planner_provider is "${planner}"`,
+    );
+  }
+
+  const worker = settings.defaults.worker_provider;
+  if (worker !== undefined && !profiles[worker]) {
+    throw new Error(
+      `profiles.${worker} is required because defaults.worker_provider is "${worker}"`,
+    );
+  }
 }
 
 export function modelCacheFile(projectRoot: string): string {

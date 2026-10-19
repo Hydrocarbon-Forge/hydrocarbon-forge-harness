@@ -160,6 +160,43 @@ Maps task classifications to specific harness routes, or defines model escalatio
 - Each named property corresponds to a `TaskClass` (e.g. `feature`, `fix`, `refactor`, `test`, `chore`, `docs`).
 - `escalation` *(array of strings)*: Sequence of model names used when recovering from verification failures.
 
+### `profiles`
+
+Per-provider model slots. Each provider entry names the models a role uses for that provider.
+
+```json
+{
+  "profiles": {
+    "claude": {
+      "plan": { "model": "claude-opus-5-5", "effort": "max" },
+      "work": { "model": "claude-sonnet-5-5", "effort": "medium" },
+      "fast": { "model": "claude-haiku-5-5", "effort": "low" }
+    }
+  }
+}
+```
+
+- `plan` *(ProfileSlot)*: Slot used by the planner role and by the `debug` and `review` task classes.
+- `work` *(ProfileSlot)*: Slot used by worker tasks, by the `tests`, `feature` and `refactor` task classes, and as the fallback for a class that has no slot.
+- `fast` *(ProfileSlot, optional)*: Slot used by the `search`, `mechanical` and `boilerplate` task classes; those classes use `work` when it is absent.
+- A profile is used only when `defaults` names it, or when a task class has no explicit `routing.<class>` entry: an explicit routing entry always wins over a slot.
+
+### `defaults`
+
+Names the provider whose profile each role uses. A default that names a provider with no profile is a settings validation error.
+
+```json
+{
+  "defaults": {
+    "planner_provider": "claude",
+    "worker_provider": "opencode"
+  }
+}
+```
+
+- `planner_provider` *(string, optional)*: Provider whose `plan` slot routes the planner. Falls back to `roles.planner` when unset.
+- `worker_provider` *(string, optional)*: Provider whose profile slots route worker tasks and the escalation ladder.
+
 ### `pricing`
 
 Authoritative token pricing table used to track usage and calculate dollar expenditures.

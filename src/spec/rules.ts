@@ -9,6 +9,7 @@ import {
   type Settings,
 } from "../contracts/index.js";
 import { isSafePath, matchGlob, redactSecrets } from "../util/index.js";
+import { slotForClass } from "../roles/router.js";
 import type { ParsedPlan, ParsedTaskSpec } from "./parser.js";
 import type { LintOptions } from "./linter.js";
 import { typecheckContracts } from "./typecheck.js";
@@ -687,20 +688,32 @@ export const ruleL014: LintRule = (ctx) => {
   return diags;
 };
 
-// L015: spec.class present in settings.routing
+// L015: spec.class present in settings.routing, or configured through the worker
+// provider's profile slot for that class (DECISIONS A6).
 export const ruleL015: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
+  const workerProvider = ctx.settings.defaults?.worker_provider;
+  const profile =
+    workerProvider !== undefined ? ctx.settings.profiles?.[workerProvider] : undefined;
 
   for (const [id, spec] of ctx.plan.specs) {
     const cls = spec.frontmatter?.class;
-    if (cls && !(cls in ctx.settings.routing)) {
-      diags.push({
-        code: "L015",
-        severity: "error",
-        task: id,
-        message: `Task ${id} has class '${cls}' which is not configured in settings.routing`,
-      });
+    if (!cls) continue;
+
+    if (cls in ctx.settings.routing) continue;
+
+    if (profile) {
+      const slot = slotForClass(cls);
+      const entry = slot === "fast" ? (profile.fast ?? profile.work) : profile[slot];
+      if (entry) continue;
     }
+
+    diags.push({
+      code: "L015",
+      severity: "error",
+      task: id,
+      message: `Task ${id} has class '${cls}' which is not configured in settings.routing`,
+    });
   }
 
   return diags;

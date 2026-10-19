@@ -188,3 +188,42 @@ The full suite is green: 1225 passed | 2 skipped (107 files).
 ### State of the work
 
 The full R2.8 implementation is present in the working tree, uncommitted, and ready to commit as `R2.8: substrate usage` once this entry is resolved: `src/ledger/usage.ts` (extended), `src/cli/commands/usage.ts` (created), `src/cli/commands/cost.ts` (re-export only), `src/cli/dispatcher.ts` (flags), the unit tests, fixture, and E2E test. Files touched outside R2.8's write/create lists, pending ratification as Deviations: `docs/reference/cli.md` (the `### cost` section rewritten as `### usage` with the `cost` alias note — required by the docs gate, per the R1.4 precedent), `test/integration/cli/flags.test.ts` (stale assertion: `parseCliArgs(["cost", ...])` now resolves to the primary name `usage`, per the R1.2–R1.7 stale-test precedent), and `test/integration/cli/commands.test.ts` (stale cost block updated per the same precedent). In `scripts/debt-allowlist.json`, the `rebuildFromEvents` entry was deleted (legitimately, as proven above) and the `aggregateLedger` entry was left in place, pending the decision on this entry.
+
+## R2.9 — two Done-when clauses cannot both hold (allowlist deletion vs the dead-export gate; Interface vs the contract catalogue test)
+
+**Status: RESOLVED on 2026-10-19 under the standing user instruction "continue, finish the whole thing", following the ratified precedents.** Conflict A was resolved by the R1.6/R2.8 precedent (option 1): the `appendRouteOutcome` entry was left in place with `until` re-targeted to `DEFERRED`, because R2.9 cannot consume the symbol. Conflict B was resolved by the R2.6 precedent (option 1): `ProfileSlot` and `Profile` were added to `EXPECTED_DECLARATIONS` in `test/unit/contracts/schemas.test.ts` with a comment citing this entry. R2.9 completed and committed with both recorded as Deviations in its `PROGRESS.md` Notes, together with the gate-forced `docs/reference/config.md` headings. Original analysis below.
+
+### Conflict A — the `until: R2.9` entry cannot be deleted because nothing can consume it
+
+`docs/plan/wp/R2.9.md`, Done-when requires **both**: `npm run check` exits 0 once R2.9 is DONE, **and** delete every `scripts/debt-allowlist.json` entry whose `until` is R2.9. The only such entry is `appendRouteOutcome` (`src/roles/router.ts`), and R2.9 cannot consume it: `RouteOutcomeRecord` (contracts line 22) requires `run_id: RunId`, while `routeRequest`'s `RouteRequestOptions` (router.ts lines 15–20) carries only `prompt`, `flags`, `settings` and `repoRoot` — the router has no run identifier, so consuming the ledger append inside `src/` would require inventing one. Its only consumers are test files, which `check-dead-exports` does not count. Deleting the entry therefore makes the gate fail; keeping it becomes a stale entry once R2.9 is DONE.
+
+Evidence (2026-10-19), with the entry deleted as the delete clause demands:
+
+```
+$ npm run check
+purity: OK
+wired: FAIL (exit code 1)
+dead-export src/roles/router.ts:275 appendRouteOutcome
+FAIL: 1 violation(s)
+```
+
+With the entry re-targeted to `DEFERRED` (the R1.6 resolution), `npm run check` exits 0.
+
+### Conflict B — the Interface-mandated contracts are outside the hard-coded catalogue list
+
+`docs/plan/wp/R2.9.md` Interface mandates `export const ProfileSlot = z.object(...)` and `export const Profile = z.object(...)` in `src/contracts/index.ts`. `test/unit/contracts/schemas.test.ts` asserts contracts export exactly its hard-coded `EXPECTED_DECLARATIONS` list ("No added contract-type schemas beyond Appendix A"), and neither name is in Appendix A (`SUBSTRATE-PLAN.md`); the test file is in neither R2.9's write nor create lists. Same shape as the R2.6 `ModelInfo` conflict, which the owner resolved by adding the name to the list.
+
+Evidence (2026-10-19), before the list was amended:
+
+```
+$ npm test
+FAIL test/unit/contracts/schemas.test.ts > exports exactly the Appendix A declarations (no renames, no extras)
+AssertionError: expected [ 'ProfileSlot', 'Profile' ] to deeply equal []
+```
+
+After the two names were added with a comment citing this entry, the test passes and the full suite is green: 1254 passed | 2 skipped (109 files).
+
+### Gate-forced edits outside R2.9's lists
+
+- `docs/reference/config.md` needs `### profiles` and `### defaults` headings: `scripts/docs-check.mjs` derives the Settings key list by importing `src/contracts/index.ts` at run time, so a new Settings key without a heading fails the docs gate. The file is not in R2.9's lists; the headings were added per the R1.4 precedent.
+- `resolvePlannerRoute` has no `src/` consumer until R3.1 (the planner spawn, per `IMPLEMENTATION-PLAN.md` line 221 and the `MAPPING_TABLE` entry already assigning `runPlanner` in `src/roles/planner.ts` to R3.1), so a `dead` allowlist entry with `until: R3.1` was added. `TASK_CLASSES`, `slotForClass` and `escalationChain` are live: L015 uses `slotForClass`, and `resolveTaskRoute` uses `escalationChain` and `slotForClass`.

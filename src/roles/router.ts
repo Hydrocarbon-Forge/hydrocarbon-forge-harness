@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import type {
+  BackendName,
+  Effort,
   Route,
   RoutingDecision,
   RunId,
@@ -129,55 +131,145 @@ export async function routeRequest(opts: RouteRequestOptions): Promise<RoutingDe
   };
 }
 
+// Task classes driven by profile slots (DECISIONS A6). A class outside this list
+// behaves as "work".
+export const TASK_CLASSES = [
+  "search",
+  "mechanical",
+  "boilerplate",
+  "tests",
+  "feature",
+  "refactor",
+  "debug",
+  "review",
+] as const;
+
+export function slotForClass(cls: string): "fast" | "work" | "plan" {
+  if (!(TASK_CLASSES as readonly string[]).includes(cls)) {
+    return "work";
+  }
+  switch (cls) {
+    case "search":
+    case "mechanical":
+    case "boilerplate":
+      return "fast";
+    case "debug":
+    case "review":
+      return "plan";
+    default:
+      return "work";
+  }
+}
+
+// The chain generation escalation walks: the worker provider's slots in fast, work,
+// plan order with repeats removed (DECISIONS A6). With no profile configured, the
+// legacy `routing.escalation` array is the chain.
+export function escalationChain(settings: Settings): string[] {
+  const provider = settings.defaults?.worker_provider;
+  const profile = provider !== undefined ? settings.profiles?.[provider] : undefined;
+
+  if (profile) {
+    const chain: string[] = [];
+    for (const model of [profile.fast?.model, profile.work.model, profile.plan.model]) {
+      if (model !== undefined && !chain.includes(model)) {
+        chain.push(model);
+      }
+    }
+    return chain;
+  }
+
+  const legacy = settings.routing.escalation;
+  return Array.isArray(legacy) ? [...legacy] : [];
+}
+
+// DECISIONS A3, A6: the planner route comes from the planner provider's plan slot.
+// Consumed by the planner spawn in R3.1.
+export function resolvePlannerRoute(settings: Settings): Route {
+  const provider = settings.defaults?.planner_provider;
+  const profile = provider !== undefined ? settings.profiles?.[provider] : undefined;
+
+  if (provider !== undefined && profile) {
+    return buildProfileRoute(provider, profile.plan.model, profile.plan.effort);
+  }
+
+  return { ...settings.roles.planner };
+}
+
+// BackendName is a closed enum, so a dynamic provider name from settings.profiles is
+// a cast, not a new value.
+function buildProfileRoute(provider: string, model: string, effort?: Effort): Route {
+  const route: Route = { backend: provider as BackendName, model };
+  if (effort !== undefined) {
+    route.effort = effort;
+  }
+  return route;
+}
+
+function isRouteEntry(value: unknown): value is Route {
+  return typeof value === "object" && value !== null && "backend" in value && "model" in value;
+}
+
+function normalizeRoute(route: Route): Route {
+  return buildProfileRoute(route.backend, route.model, route.effort);
+}
+
+// Route precedence (DECISIONS A6): explicit `routing.<class>`, then the worker
+// provider's profile slot for the class (fast falling back to work), then the feature
+// route. The hard-coded model fallback is removed, so an unconfigured class throws.
+function baseRouteForClass(taskClass: string, settings: Settings): Route {
+  const routing = settings.routing as Record<string, unknown>;
+
+  const direct = routing[taskClass];
+  if (isRouteEntry(direct)) {
+    return normalizeRoute(direct as Route);
+  }
+
+  const provider = settings.defaults?.worker_provider;
+  const profile = provider !== undefined ? settings.profiles?.[provider] : undefined;
+  if (provider !== undefined && profile) {
+    const slot = slotForClass(taskClass);
+    if (slot === "plan") {
+      return buildProfileRoute(provider, profile.plan.model, profile.plan.effort);
+    }
+    if (slot === "fast" && profile.fast) {
+      return buildProfileRoute(provider, profile.fast.model, profile.fast.effort);
+    }
+    return buildProfileRoute(provider, profile.work.model, profile.work.effort);
+  }
+
+  const feature = routing.feature;
+  if (isRouteEntry(feature)) {
+    return normalizeRoute(feature as Route);
+  }
+
+  throw new Error(
+    `no route configured for class '${taskClass}': set routing.<cls> or profiles plus defaults.worker_provider`,
+  );
+}
+
 export function resolveTaskRoute(
   taskClass: TaskClass,
   generation: number,
   settings: Settings,
 ): Route {
-  const routing = settings.routing as Record<string, unknown>;
-  const baseRaw = routing[taskClass] ?? routing["feature"];
-
-  let baseRoute: Route;
-  if (baseRaw && typeof baseRaw === "object" && "backend" in baseRaw && "model" in baseRaw) {
-    baseRoute = {
-      backend: (baseRaw as Route).backend,
-      model: (baseRaw as Route).model,
-      effort: (baseRaw as Route).effort,
-    };
-  } else {
-    baseRoute = {
-      backend: "claude",
-      model: "claude-sonnet-5-5",
-      effort: "medium",
-    };
-  }
+  const base = baseRouteForClass(taskClass, settings);
 
   if (generation <= 1) {
-    return { ...baseRoute };
+    return base;
   }
 
-  const escalation = Array.isArray(routing.escalation)
-    ? (routing.escalation as string[])
-    : [];
-
-  if (escalation.length === 0) {
-    return { ...baseRoute };
+  const chain = escalationChain(settings);
+  if (chain.length === 0) {
+    return base;
   }
 
-  const currentIdx = escalation.indexOf(baseRoute.model);
-  let targetIdx: number;
-  if (currentIdx !== -1) {
-    targetIdx = Math.min(currentIdx + (generation - 1), escalation.length - 1);
-  } else {
-    targetIdx = Math.min(generation - 1, escalation.length - 1);
-  }
+  const baseIdx = chain.indexOf(base.model);
+  const targetIdx =
+    baseIdx !== -1
+      ? Math.min(baseIdx + (generation - 1), chain.length - 1)
+      : Math.min(generation - 1, chain.length - 1);
 
-  const escalatedModel = escalation[targetIdx] ?? baseRoute.model;
-  return {
-    backend: baseRoute.backend,
-    model: escalatedModel,
-    effort: baseRoute.effort,
-  };
+  return buildProfileRoute(base.backend, chain[targetIdx] ?? base.model, base.effort);
 }
 
 export async function appendRouteOutcome(

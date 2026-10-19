@@ -4,9 +4,11 @@ import type {
   Route,
   SessionId,
   Settings,
+  TaskClass,
   TaskId,
 } from "../contracts/index.js";
 import type { EngineState } from "./reducer.js";
+import { resolveTaskRoute } from "../roles/router.js";
 
 export type EscalationAction =
   | { level: "L0"; action: "heal"; session_id: SessionId }
@@ -18,7 +20,8 @@ export function evaluateEscalation(
   state: EngineState,
   taskId: TaskId,
   failure: FailureClass,
-  settings: Settings
+  settings: Settings,
+  taskClass: TaskClass = "feature",
 ): EscalationAction {
   if (failure === "permission_denied") {
     return {
@@ -59,25 +62,9 @@ export function evaluateEscalation(
   const maxL1Replans = settings.budgets.l1_replans_per_task ?? 2;
   if (generation <= maxL1Replans) {
     const nextGen = generation + 1;
-    const escalationList = Array.isArray(settings.routing.escalation)
-      ? settings.routing.escalation
-      : [];
-    const modelIndex = Math.min(nextGen - 1, escalationList.length - 1);
-    const model = modelIndex >= 0 ? escalationList[modelIndex] : "claude-sonnet-5-5";
-
-    const featureRoute =
-      typeof settings.routing.feature === "object" && !Array.isArray(settings.routing.feature)
-        ? settings.routing.feature
-        : undefined;
-
-    const backend = featureRoute?.backend ?? "claude";
-    const effort = featureRoute?.effort;
-
-    const route: Route = {
-      backend,
-      model,
-      ...(effort ? { effort } : {}),
-    };
+    // The route comes from profile-slot precedence (DECISIONS A6); the ladder no
+    // longer names a model or reads routing.feature directly.
+    const route = resolveTaskRoute(taskClass, nextGen, settings);
 
     return {
       level: "L1",
