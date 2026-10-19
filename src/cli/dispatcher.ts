@@ -22,6 +22,11 @@ export interface CliGlobalFlags {
   local?: boolean;
   provider?: string;
   refresh?: boolean;
+  by?: string;
+  since?: string;
+  allProjects?: boolean;
+  cache?: boolean;
+  rebuild?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -97,6 +102,11 @@ const CLI_OPTIONS = {
   verify: { type: "string", multiple: true },
   provider: { type: "string" },
   refresh: { type: "boolean" },
+  by: { type: "string" },
+  since: { type: "string" },
+  "all-projects": { type: "boolean" },
+  cache: { type: "boolean" },
+  rebuild: { type: "boolean" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -154,6 +164,11 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
     flags.provider = parsedValues.provider as string;
   }
   if (parsedValues.refresh) flags.refresh = true;
+  if (parsedValues.by !== undefined) flags.by = parsedValues.by as string;
+  if (parsedValues.since !== undefined) flags.since = parsedValues.since as string;
+  if (parsedValues["all-projects"]) flags.allProjects = true;
+  if (parsedValues.cache) flags.cache = true;
+  if (parsedValues.rebuild) flags.rebuild = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);
   }

@@ -133,3 +133,58 @@ The edge-case message the spec wants (`Error: unknown provider foo`, exit 2) is 
 3. Relax the strict gate to pass unknown options through to `rawArgs`: changes behaviour asserted by earlier WPs' tests for every command. Not recommended.
 
 Nothing was worked around while this was open; no file outside R2.7's lists was touched until the owner resolved it. The owner resolved it with option 1, as recorded at the top.
+
+## R2.8 — Done-when #5 is unsatisfiable for one of the two allowlist entries
+
+**Status: RESOLVED by the user on 2026-10-19** (instruction: "continue, finish the whole thing"). The implementer applied option 1, per the R1.6 precedent: the `rebuildFromEvents` entry was deleted (its symbol is genuinely consumed by R2.8 `--rebuild`), the `aggregateLedger` entry was re-targeted to `until: "DEFERRED"`, and both gate-forced edits outside R2.8's lists (the `docs/reference/cli.md` Deviation and the two stale integration-test assertions) were ratified as recorded Deviations. R2.8 completed and committed with these recorded in its `PROGRESS.md` Notes. Original analysis below.
+
+### The conflict
+
+`docs/plan/wp/R2.8.md`, Done-when requires **both**:
+
+1. `npm run check` exits 0 once R2.8 is DONE in `docs/plan/PROGRESS.md`, **and**
+2. Delete the two entries in `scripts/debt-allowlist.json` whose `until` is R2.8.
+
+The two entries are:
+
+- `rebuildFromEvents` (`src/ledger/usage.ts`) — **can be deleted legitimately.** R2.8 consumes it: `src/cli/commands/usage.ts` calls it for `--rebuild`. This is proven: with both entries deleted, the gate flagged only `aggregateLedger`, not `rebuildFromEvents`.
+- `aggregateLedger` (`src/ledger/index.ts:79`) — **cannot be deleted, and cannot be consumed.** Once R2.8 is marked DONE, `applyAllowlist` treats an entry referencing a completed work package as a stale entry that must be removed; but removing it makes `check-wired` fail, because nothing in `src/` consumes the symbol — its only consumers are test files, which `check-dead-exports` does not count. The two exits R2.8 has from this trap are both barred by its own spec:
+  - consuming `aggregateLedger` in the command contradicts R2.8's guardrails ("The command only reads the usage ledger that R1.4 writes"; "Every number must come from `groupUsage`") — `aggregateLedger` returns `CostSummary` shapes (`by_role`/`by_class`/`by_tier`), which no R2.8 output uses;
+  - removing the symbol outright is barred because `src/ledger/index.ts` is in R2.8's protected-files list.
+
+So at commit time the choice is: delete the entry → `check-wired` FAIL (dead export); keep it → `applyAllowlist` FAIL (stale entry for a DONE WP). Either way Done-when #4 cannot exit 0.
+
+The trap comes from `scripts/check-dead-exports.mjs`'s `MAPPING_TABLE` (R0.6), which assigns `aggregateLedger` to R2.8 on the assumption that R2.8 consumes it — an assumption R2.8's own guardrails make impossible.
+
+### Evidence (2026-10-19)
+
+With both `until R2.8` entries deleted (as clause 5 demands):
+
+```
+$ npm run check
+wired: FAIL (exit code 1)
+dead-export src/ledger/index.ts:79 aggregateLedger
+```
+
+With only `rebuildFromEvents` deleted (consumed) and the `aggregateLedger` entry restored, while R2.8 is not yet DONE, the whole check passes — and it also passes with the pending docs deviation applied:
+
+```
+purity: OK
+wired: OK
+events: OK
+settings: OK
+boundaries: OK
+docs: OK
+```
+
+The full suite is green: 1225 passed | 2 skipped (107 files).
+
+### Options for the owner
+
+1. Follow the R1.6 resolution: leave the `aggregateLedger` entry and re-target its `until` to `DEFERRED`, so the entry stays until a work package actually consumes the symbol or the protection on `src/ledger/index.ts` is lifted. R2.8 records this as a Deviation in its `PROGRESS.md` Notes. Recommended.
+2. Lift the protection on `src/ledger/index.ts` for R2.8 and delete `aggregateLedger` from it. This resolves the dead export permanently but requires editing a protected file.
+3. Direct R2.8 to consume `aggregateLedger` anyway (e.g., as the source of the `total` row). This contradicts R2.8's guardrails and is not recommended.
+
+### State of the work
+
+The full R2.8 implementation is present in the working tree, uncommitted, and ready to commit as `R2.8: substrate usage` once this entry is resolved: `src/ledger/usage.ts` (extended), `src/cli/commands/usage.ts` (created), `src/cli/commands/cost.ts` (re-export only), `src/cli/dispatcher.ts` (flags), the unit tests, fixture, and E2E test. Files touched outside R2.8's write/create lists, pending ratification as Deviations: `docs/reference/cli.md` (the `### cost` section rewritten as `### usage` with the `cost` alias note — required by the docs gate, per the R1.4 precedent), `test/integration/cli/flags.test.ts` (stale assertion: `parseCliArgs(["cost", ...])` now resolves to the primary name `usage`, per the R1.2–R1.7 stale-test precedent), and `test/integration/cli/commands.test.ts` (stale cost block updated per the same precedent). In `scripts/debt-allowlist.json`, the `rebuildFromEvents` entry was deleted (legitimately, as proven above) and the `aggregateLedger` entry was left in place, pending the decision on this entry.

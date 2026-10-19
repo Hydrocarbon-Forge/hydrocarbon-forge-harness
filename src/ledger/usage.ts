@@ -165,3 +165,120 @@ export function toDelta(
     },
   };
 }
+
+export type UsageGroupBy = "model" | "provider" | "role" | "run" | "task" | "class" | "day";
+
+export interface UsageRow {
+  group: string;
+  runs: number;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  unknown_cost_rows: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  reasoning_tokens: number;
+}
+
+/**
+ * Reads a usage ledger JSONL file. A missing file returns []. Blank lines are
+ * ignored; lines that are not valid JSON or fail the UsageLedgerEntry schema
+ * (including a torn last line) are skipped.
+ */
+export function readUsageLedger(file: string): UsageLedgerEntry[] {
+  if (!fs.existsSync(file)) return [];
+
+  const entries: UsageLedgerEntry[] = [];
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (line.trim().length === 0) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue; // torn or malformed line: skipped
+    }
+    const result = UsageLedgerEntry.safeParse(parsed);
+    if (result.success) {
+      entries.push(result.data);
+    }
+  }
+  return entries;
+}
+
+function groupKey(entry: UsageLedgerEntry, by: UsageGroupBy): string {
+  switch (by) {
+    case "model":
+      return entry.model;
+    case "provider":
+      return entry.backend;
+    case "role":
+      return entry.role;
+    case "task":
+      return entry.task_id ?? "(none)";
+    case "run":
+      return entry.run_id;
+    case "class":
+      return entry.class ?? "(none)";
+    case "day":
+      return entry.ts.slice(0, 10);
+  }
+}
+
+/**
+ * Groups ledger entries by one of the seven --by keys. A row is never dropped
+ * because its price is unknown: unknown-cost entries count toward tokens and
+ * calls and are flagged through unknown_cost_rows. Cache fields stay zero
+ * unless opts.cache is set. Sorted by cost descending, then group name.
+ */
+export function groupUsage(
+  entries: UsageLedgerEntry[],
+  by: UsageGroupBy,
+  opts: { cache: boolean }
+): UsageRow[] {
+  const rows = new Map<string, UsageRow>();
+  const runIds = new Map<string, Set<string>>();
+
+  for (const entry of entries) {
+    const key = groupKey(entry, by);
+    let row = rows.get(key);
+    if (!row) {
+      row = {
+        group: key,
+        runs: 0,
+        calls: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cost_usd: 0,
+        unknown_cost_rows: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        reasoning_tokens: 0,
+      };
+      rows.set(key, row);
+      runIds.set(key, new Set());
+    }
+    runIds.get(key)!.add(entry.run_id);
+
+    row.calls += 1;
+    row.input_tokens += entry.input_tokens;
+    row.output_tokens += entry.output_tokens;
+    row.cost_usd += entry.cost_usd;
+    if (entry.cost_source === "unknown") {
+      row.unknown_cost_rows += 1;
+    }
+    if (opts.cache) {
+      row.cache_read_tokens += entry.cache_read_tokens ?? 0;
+      row.cache_write_tokens += entry.cache_write_tokens ?? 0;
+      row.reasoning_tokens += entry.reasoning_tokens ?? 0;
+    }
+  }
+
+  for (const [key, row] of rows) {
+    row.runs = runIds.get(key)!.size;
+  }
+
+  return [...rows.values()].sort(
+    (a, b) => b.cost_usd - a.cost_usd || a.group.localeCompare(b.group)
+  );
+}

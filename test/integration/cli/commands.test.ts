@@ -315,8 +315,8 @@ describe("cli: inspection and lifecycle commands", () => {
     });
   });
 
-  describe("cost command", () => {
-    it("reads usage recorded by a real run and breaks cost down per role and model", async () => {
+  describe("cost command (usage alias)", () => {
+    it("groups the usage ledger from a real run, rows derived from its usage events", async () => {
       const env = await runTwoTaskRun();
       try {
         const runId = findRunId(env);
@@ -339,29 +339,69 @@ describe("cli: inspection and lifecycle commands", () => {
         const exitCode = await costCommand.execute(ctx);
         expect(exitCode).toBe(0);
 
-        // The roles the run actually reported usage for appear in the table.
-        const roles = new Set(usageEvents.map((e) => (e.data as any).role));
         const output = stdout.getOutput();
-        for (const role of roles) {
-          expect(output).toContain(role);
+        const lines = output.trim().split("\n");
+        expect(lines[0]).toBe("group runs calls input output cost");
+
+        // The expected rows are computed from the events themselves, not from
+        // the command, so the table is checked against the run's own records.
+        interface Row { calls: number; input: number; output: number; cost: number; unknown: number }
+        const byModel = new Map<string, Row>();
+        for (const e of usageEvents) {
+          const data = (e.data as any);
+          const record = (data.record as any);
+          const row = byModel.get(record.model) ?? { calls: 0, input: 0, output: 0, cost: 0, unknown: 0 };
+          row.calls += 1;
+          row.input += record.input_tokens ?? 0;
+          row.output += record.output_tokens ?? 0;
+          row.cost += record.cost_usd ?? 0;
+          if ((record.cost_source ?? "unknown") === "unknown") row.unknown += 1;
+          byModel.set(record.model, row);
         }
+
+        const costCell = (row: Row): string =>
+          `$${row.cost.toFixed(4)}${row.unknown > 0 ? ` (+ ${row.unknown} unknown)` : ""}`;
+        const expectedRows = [...byModel.entries()].sort(
+          (a, b) => b[1].cost - a[1].cost || a[0].localeCompare(b[0])
+        );
+        for (const [model, row] of expectedRows) {
+          expect(lines).toContain(`${model} 1 ${row.calls} ${row.input} ${row.output} ${costCell(row)}`);
+        }
+
+        const totals: Row = { calls: 0, input: 0, output: 0, cost: 0, unknown: 0 };
+        for (const row of byModel.values()) {
+          totals.calls += row.calls;
+          totals.input += row.input;
+          totals.output += row.output;
+          totals.cost += row.cost;
+          totals.unknown += row.unknown;
+        }
+        expect(lines[lines.length - 1]).toBe(
+          `total ${byModel.size} ${totals.calls} ${totals.input} ${totals.output} ${costCell(totals)}`
+        );
       } finally {
         await env.cleanup();
       }
     });
 
-    it("displays aggregate ledger spend when run ID is omitted", async () => {
+    it("aggregates the project ledger into a grouped table when no run ID is given", async () => {
       const costCommand = await loadCommand("../../../src/cli/commands/cost.js", "costCommand");
 
       const ledgerDir = join(tmpDir, ".substrate", "ledger");
       mkdirSync(ledgerDir, { recursive: true });
 
       const usageRecord = {
+        v: 1,
         ts: nowIsoTimestamp(),
+        project: tmpDir,
         run_id: createRunId(),
         role: "planner",
+        backend: "fake",
         model: "claude-sonnet-5-5",
+        input_tokens: 1000,
+        output_tokens: 200,
         cost_usd: 1.50,
+        cost_source: "reported",
       };
       writeFileSync(join(ledgerDir, "usage.jsonl"), JSON.stringify(usageRecord) + "\n", "utf8");
 
@@ -379,8 +419,10 @@ describe("cli: inspection and lifecycle commands", () => {
       const exitCode = await costCommand.execute(ctx);
       expect(exitCode).toBe(0);
 
-      const output = stdout.getOutput();
-      expect(output).toContain("1.50");
+      const lines = stdout.getOutput().trim().split("\n");
+      expect(lines[0]).toBe("group runs calls input output cost");
+      expect(lines).toContain("claude-sonnet-5-5 1 1 1000 200 $1.5000");
+      expect(lines[lines.length - 1]).toBe("total 1 1 1000 200 $1.5000");
     });
   });
 

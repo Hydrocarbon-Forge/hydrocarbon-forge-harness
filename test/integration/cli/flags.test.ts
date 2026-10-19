@@ -222,7 +222,7 @@ describe("cli: flags and dispatcher", () => {
       const { parseCliArgs } = await loadDispatcher();
 
       const subcommands = [
-        "run", "plan", "resume", "status", "tasks", "cost", "report",
+        "run", "plan", "resume", "status", "tasks", "usage", "report",
         "verify", "merge", "undo", "discard", "models", "agents",
         "backends", "sessions", "config", "doctor", "init",
       ];
@@ -232,6 +232,12 @@ describe("cli: flags and dispatcher", () => {
         expect(res.commandName).toBe(cmd);
         expect(res.positional).toEqual(["arg1", "arg2"]);
       }
+
+      // R2.8: `cost` is now an alias of `usage`, so the registry resolves it
+      // to its primary name.
+      const aliasRes = parseCliArgs(["cost", "arg1", "arg2"]);
+      expect(aliasRes.commandName).toBe("usage");
+      expect(aliasRes.positional).toEqual(["arg1", "arg2"]);
     });
 
     it("defaults to 'run' command when -p or --print is specified", async () => {

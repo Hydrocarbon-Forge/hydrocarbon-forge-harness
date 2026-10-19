@@ -596,12 +596,7 @@
     {
       "symbol": "aggregateLedger",
       "path": "src/ledger/index.ts",
-      "until": "R2.8"
-    },
-    {
-      "symbol": "rebuildFromEvents",
-      "path": "src/ledger/usage.ts",
-      "until": "R2.8"
+      "until": "DEFERRED"
     },
     {
       "symbol": "validateGovernorTool",

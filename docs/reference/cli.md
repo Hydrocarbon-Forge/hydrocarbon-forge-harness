@@ -133,19 +133,21 @@ substrate tasks [options] [run-id]
 substrate tasks --task T1
 ```
 
-### cost
+### usage
 
-Analyzes usage ledger and cost breakdown across roles, models, and tasks.
+Reports token usage and cost across every harness from the usage ledger. `cost` is an alias with identical behaviour.
 
 ```bash
-substrate cost [options] [run-id]
+substrate usage [options] [run-id]
 ```
 
-- **Options**: `--by role|model|task`, `--output-format text|json`.
-- **Behavior**: Aggregates token usage (input, output, cache read/write) and USD costs, comparing reported amounts against the configured pricing table.
+- **Options**: `--by model|provider|role|run|task|class|day` (default `model`), `--since 7d|YYYY-MM-DD`, `--provider P`, `--model M`, `--run ID`, `--all-projects`, `--cache`, `--rebuild`, `--output-format text|json`. `usage <run-id>` is shorthand for `--run <run-id>`.
+- **Behavior**: Reads only the JSONL usage ledger the engine writes. It never recomputes prices and never drops rows whose cost is unknown; unknown-cost rows are grouped with a ` (+ n unknown)` suffix on the cost cell. `--rebuild` regenerates the ledger from recorded `usage.recorded` events before reporting. Invalid `--by` or `--since` values exit 2; with no entries the command prints `no usage recorded` and exits 0, and `--all-projects` with no global mirror prints `no global mirror` and exits 0.
 
 ```bash
-substrate cost --by model
+substrate usage --by model
+substrate usage --by day --since 30d --cache
+substrate cost --by task --since 7d
 ```
 
 ### report
