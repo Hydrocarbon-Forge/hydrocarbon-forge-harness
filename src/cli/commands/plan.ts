@@ -18,6 +18,9 @@ export interface CliGlobalFlags {
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
   noGovernor?: boolean;
+  request?: string;
+  plan?: string;
+  work?: string;
 }
 
 export interface CliGovernanceFlags {
@@ -60,20 +63,46 @@ export const planCommand: CliCommand = {
   name: "plan",
   description: "Plan changes for a goal without executing modifications",
   async execute(ctx: CommandContext): Promise<number> {
-    let prompt = ctx.rawArgs[0];
-    if (!prompt && ctx.stdin && ctx.stdin.trim().length > 0) {
-      prompt = ctx.stdin.trim();
-    }
-
-    if (!prompt || !prompt.trim()) {
-      ctx.stderr.write("Error: prompt required\n");
-      return 2;
-    }
-    prompt = prompt.trim();
-
     const mode = "plan";
     const permission_mode = "plan";
-    const overrides = buildSettingsOverrides(ctx.flags, mode);
+    let overrides = buildSettingsOverrides(ctx.flags, mode);
+    let prompt = ctx.rawArgs[0];
+    let runVerify: string[] | undefined;
+    let runContext: string[] | undefined;
+
+    if (ctx.flags.request !== undefined || ctx.flags.plan !== undefined || ctx.flags.work !== undefined) {
+      const { loadRequest } = await import(`../request.js`);
+      const reqRes = await loadRequest(ctx.flags.request, ctx.stdin, { ...ctx.flags, mode: "plan" }, {
+        repoRoot: ctx.cwd,
+        rawPrompt: ctx.rawArgs[0],
+      });
+      if (!reqRes.ok) {
+        ctx.stdout.write(JSON.stringify({ error: "invalid_request", problems: reqRes.problems }) + "\n");
+        return 2;
+      }
+      prompt = reqRes.request.goal;
+      if (reqRes.overrides.roles) {
+        overrides.roles = { ...(overrides.roles ?? {}), ...reqRes.overrides.roles };
+      }
+      if (reqRes.overrides.budgets) {
+        overrides.budgets = { ...(overrides.budgets ?? {}), ...reqRes.overrides.budgets };
+      }
+      if (reqRes.overrides.verify) {
+        runVerify = reqRes.overrides.verify;
+      }
+      if (reqRes.overrides.context) {
+        runContext = reqRes.overrides.context;
+      }
+    } else {
+      if (!prompt && ctx.stdin && ctx.stdin.trim().length > 0) {
+        prompt = ctx.stdin.trim();
+      }
+      if (!prompt || !prompt.trim()) {
+        ctx.stderr.write("Error: prompt required\n");
+        return 2;
+      }
+      prompt = prompt.trim();
+    }
 
     const sessionStore =
       ctx.sessionStore ??
@@ -119,6 +148,12 @@ export const planCommand: CliCommand = {
       signal: ctx.signal,
       onEvent: (event) => formatter.onEvent(event),
     };
+    if (runVerify) {
+      (runOpts.overrides as any).verify = runVerify;
+    }
+    if (runContext) {
+      (runOpts.overrides as any).context = runContext;
+    }
 
     try {
       const summary = await engine.run(runOpts);

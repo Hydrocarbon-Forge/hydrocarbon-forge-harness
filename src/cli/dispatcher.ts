@@ -35,6 +35,7 @@ export interface CliGlobalFlags {
   abortOnConflict?: boolean;
   hard?: boolean;
   verify?: string[];
+  request?: string;
 }
 
 export interface CliGovernanceFlags {
@@ -122,6 +123,7 @@ const CLI_OPTIONS = {
   "dry-run": { type: "boolean" },
   "abort-on-conflict": { type: "boolean" },
   hard: { type: "boolean" },
+  request: { type: "string" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -205,6 +207,9 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   }
   if (parsedValues.verify) {
     flags.verify = parsedValues.verify as string[];
+  }
+  if (parsedValues.request !== undefined) {
+    flags.request = parsedValues.request as string;
   }
 
   let commandName: string | undefined;
@@ -344,18 +349,24 @@ export async function runCli(
     }
   }
 
+  let stdinData: string | undefined;
   if (cmd.name === "run" || cmd.name === "plan") {
-    if (positional.length === 0) {
-      if (stdin.isTTY) {
-        stderr.write("Error: prompt required\n");
-        return 2;
+    if (flags.request === "-") {
+      stdinData = await readStdinIfAvailable(stdin);
+    } else if (flags.request === undefined) {
+      if (positional.length === 0) {
+        if (stdin.isTTY) {
+          stderr.write("Error: prompt required\n");
+          return 2;
+        }
+        const stdinContent = await readStdinIfAvailable(stdin);
+        if (!stdinContent || !stdinContent.trim()) {
+          stderr.write("Error: prompt required on command line or stdin\n");
+          return 2;
+        }
+        positional.push(stdinContent.trim());
+        stdinData = stdinContent;
       }
-      const stdinContent = await readStdinIfAvailable(stdin);
-      if (!stdinContent || !stdinContent.trim()) {
-        stderr.write("Error: prompt required on command line or stdin\n");
-        return 2;
-      }
-      positional.push(stdinContent.trim());
     }
   }
 
@@ -363,6 +374,7 @@ export async function runCli(
     cwd: process.cwd(),
     flags,
     rawArgs: positional,
+    stdin: stdinData,
     stdout,
     stderr,
     signal: streams?.signal,
