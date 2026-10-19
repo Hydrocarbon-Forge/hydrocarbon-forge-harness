@@ -25,7 +25,7 @@ import { runReplanAction } from "./actions/replan.js";
 import { runMergeAction } from "./actions/merge.js";
 import { runIntegrateAction } from "./actions/integrate.js";
 import { runApproveAction } from "./actions/approve.js";
-import { runFinishAction } from "./actions/finish.js";
+import { runFinishAction, finishAction } from "./actions/finish.js";
 
 export { safeParseManifest, safeLoadPlan } from "./actions/shared.js";
 
@@ -163,10 +163,11 @@ export function nextActions(
 
       const replanTasks = tasks.filter(
         (t) =>
-          t.state === "REPLANNING" ||
-          (t.state === "FAILED" &&
-            t.failure_class !== "permission_denied" &&
-            t.failure_class !== "rate_limited")
+          t.id !== "SOLO" &&
+          (t.state === "REPLANNING" ||
+            (t.state === "FAILED" &&
+              t.failure_class !== "permission_denied" &&
+              t.failure_class !== "rate_limited"))
       );
       if (replanTasks.length > 0) {
         return replanTasks.map((t) => ({ type: "replan", taskId: t.id }));
@@ -450,6 +451,10 @@ export async function runEffectsLoop(
         break;
       }
     }
+  }
+
+  if (state.state === "FINISHED" || state.state === "FAILED" || state.state === "CANCELLED") {
+    await finishAction(ctx, state);
   }
 
   log.debug("[DEBUG] runEffectsLoop loop finished, final state:", state.state);

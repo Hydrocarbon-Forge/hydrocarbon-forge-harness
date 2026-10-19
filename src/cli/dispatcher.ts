@@ -37,6 +37,8 @@ export interface CliGlobalFlags {
   verify?: string[];
   request?: string;
   answers?: string;
+  allVersions?: boolean;
+  olderThan?: string;
 }
 
 export interface CliGovernanceFlags {
@@ -84,6 +86,9 @@ await import(`./commands/sessions.js`);
 await import(`./commands/config.js`);
 await import(`./commands/doctor.js`);
 await import(`./commands/init.js`);
+await import(`./commands/history.js`);
+await import(`./commands/archive.js`);
+await import(`./commands/gc.js`);
 await import(`./bench.js`);
 
 const CLI_OPTIONS = {
@@ -126,6 +131,8 @@ const CLI_OPTIONS = {
   hard: { type: "boolean" },
   request: { type: "string" },
   answers: { type: "string" },
+  "all-versions": { type: "boolean" },
+  "older-than": { type: "string" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -215,6 +222,12 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   }
   if (parsedValues.answers !== undefined) {
     flags.answers = parsedValues.answers as string;
+  }
+  if (parsedValues["all-versions"]) {
+    flags.allVersions = true;
+  }
+  if (parsedValues["older-than"] !== undefined) {
+    flags.olderThan = parsedValues["older-than"] as string;
   }
 
   let commandName: string | undefined;

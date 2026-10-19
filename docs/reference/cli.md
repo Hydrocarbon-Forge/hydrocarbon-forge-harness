@@ -375,3 +375,40 @@ substrate agents-import [options]
 ```bash
 substrate agents-import --from claude
 ```
+
+### history
+
+Lists archived runs for the current version, or across all versions with `--all-versions`.
+
+```bash
+substrate history [--all-versions] [--output-format json]
+```
+
+- **Options**:
+  - `--all-versions`: List archived runs across all archive versions.
+  - `--output-format json`: Output structured JSON payload.
+- **Behavior**: Lists current version's runs from `.substrate/archive/<version>/INDEX.md`, or every version with `--all-versions`. Text format prints one line per run (`<run_id> | <status> | <goal> | <ended_at>`). When no archive exists, prints `no archived runs` and exits 0.
+
+### archive
+
+Archives a finished, failed, or cancelled run into `.substrate/archive/<version>/<run_id>/`.
+
+```bash
+substrate archive <run_id>
+```
+
+- **Arguments**:
+  - `<run_id>`: The run ID to archive.
+- **Behavior**: Re-archives the run by creating or overwriting `.substrate/archive/<version>/<run_id>/` with `summary.md`, `manifest.yaml`, `tasks/`, `decisions.md`, and `usage.json`, and records one entry in `INDEX.md`. If the run is still in progress, exits 1 with `Error: run <id> is not terminal`. If the run ID is unknown, exits 2.
+
+### gc
+
+Garbage-collects raw run directory data for runs that are already archived.
+
+```bash
+substrate gc [--older-than 30d]
+```
+
+- **Options**:
+  - `--older-than <duration>`: Age threshold (e.g. `30d`, `7d`). Default is `30d`.
+- **Behavior**: Removes `.substrate/runs/<run_id>/` only for runs that have an archive record and whose archive `summary.md` mtime is older than the cut-off. Prints `removed <n> run(s)`. Never deletes an unarchived run, a worktree, or a branch.
