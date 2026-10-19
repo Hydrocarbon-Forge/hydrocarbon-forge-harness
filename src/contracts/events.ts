@@ -75,7 +75,15 @@ export const RunFinishedEvent = member(
 
 export const RunBudgetWarningEvent = member(
   "run.budget.warning",
-  z.object({ cost_usd: z.number(), max_usd: z.number() }).strict()
+  z
+    .object({
+      cost_usd: z.number().optional(),
+      max_usd: z.number().optional(),
+      // The same warning for the run token budget (R3.4).
+      tokens: z.number().optional(),
+      max_tokens: z.number().optional(),
+    })
+    .strict()
 );
 
 export const RunBudgetExceededEvent = member(
@@ -84,6 +92,8 @@ export const RunBudgetExceededEvent = member(
     .object({
       cost_usd: z.number().optional(),
       max_usd: z.number().optional(),
+      tokens: z.number().optional(),
+      max_tokens: z.number().optional(),
     })
     .strict()
 );
@@ -268,6 +278,7 @@ export const TaskHealingEvent = member(
       generation: z.number().int(),
       attempt: z.number().int(),
       session_id: z.string().optional(),
+      failures: z.string(),
     })
     .strict()
 );

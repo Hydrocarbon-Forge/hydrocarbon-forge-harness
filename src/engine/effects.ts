@@ -55,6 +55,14 @@ export interface EffectContext {
   runDir: string;
   settings: Settings;
   adapters: AdapterMap;
+  /**
+   * Effective worker concurrency for this run (R3.4), initialised from
+   * `settings.concurrency.workers` and halved on a rate limit with floor 1. The
+   * settings value itself is never mutated.
+   */
+  concurrency: number;
+  /** Which run budget warnings have fired, so the 80 percent warning is emitted once. */
+  budgetWarned?: { cost: boolean; tokens: boolean };
   signal?: AbortSignal;
   onEvent?: (event: EngineEvent) => void;
   prompt?: string;
@@ -108,7 +116,8 @@ function topologicalOrder(tasks: TaskRuntimeState[]): TaskId[] {
 
 export function nextActions(
   state: EngineState,
-  settings: Settings
+  settings: Settings,
+  limits?: { concurrency: number }
 ): EngineAction[] {
   if (isTerminal(state)) {
     return [];
@@ -179,7 +188,15 @@ export function nextActions(
         }
       }
 
-      const scheduled = scheduleNextTasks(state, settings, inFlightTasks.length);
+      // The effective limit comes from the run copy, never from a mutated settings
+      // object. The copy keeps every other field so the scheduler's own budget rules
+      // still see them.
+      const effectiveConcurrency = limits?.concurrency ?? settings.concurrency.workers;
+      const scheduled = scheduleNextTasks(
+        state,
+        { ...settings, concurrency: { workers: effectiveConcurrency } },
+        inFlightTasks.length
+      );
       if (scheduled.length > 0) {
         return scheduled.map((taskId) => ({ type: "worker", taskId }));
       }
@@ -259,25 +276,51 @@ export function appendRunEvent(ctx: EffectContext, event: EngineEvent): void {
   storeFor(ctx).appendSync(event);
 }
 
-// Budget check per R1.4: after each usage.recorded the action compares the
-// running total with settings.budgets.run.max_usd. Emits the warning while
-// below the cap; emits exceeded+paused at or above it. Returns true when the
-// run must stop for budget.
+// Budget check per R1.4 and R3.4: after each usage.recorded the action compares the
+// running total with settings.budgets.run.max_usd and budgets.run.max_tokens. The
+// 80 percent warning is emitted once per run; at 100 percent the run pauses and the
+// session is killed by the caller. The total the caller passes is state.usage plus the
+// pending usage this action has recorded, so an event is never counted twice.
 export function checkRunBudget(
   ctx: EffectContext,
   emit: Emit,
-  currentTotal: number
+  currentTotal: number,
+  currentTokens?: number
 ): boolean {
+  const warned = (ctx.budgetWarned ??= { cost: false, tokens: false });
+
   const maxUsd = ctx.settings.budgets?.run?.max_usd;
-  if (maxUsd === undefined) return false;
-  if (currentTotal >= 0.8 * maxUsd && currentTotal < maxUsd) {
-    emit("run.budget.warning", { cost_usd: currentTotal, max_usd: maxUsd });
+  if (maxUsd !== undefined) {
+    if (currentTotal >= 0.8 * maxUsd && currentTotal < maxUsd && !warned.cost) {
+      warned.cost = true;
+      emit("run.budget.warning", {
+        cost_usd: currentTotal,
+        max_usd: maxUsd,
+        ...(currentTokens !== undefined && ctx.settings.budgets?.run?.max_tokens !== undefined
+          ? { tokens: currentTokens, max_tokens: ctx.settings.budgets.run.max_tokens }
+          : {}),
+      });
+    }
+    if (currentTotal >= maxUsd) {
+      emit("run.budget.exceeded", { cost_usd: currentTotal, max_usd: maxUsd });
+      emit("run.paused", { reason: "budget_exhausted" });
+      return true;
+    }
   }
-  if (currentTotal >= maxUsd) {
-    emit("run.budget.exceeded", { cost_usd: currentTotal, max_usd: maxUsd });
-    emit("run.paused", { reason: "budget_exhausted" });
-    return true;
+
+  const maxTokens = ctx.settings.budgets?.run?.max_tokens;
+  if (maxTokens !== undefined && currentTokens !== undefined) {
+    if (currentTokens >= 0.8 * maxTokens && currentTokens < maxTokens && !warned.tokens) {
+      warned.tokens = true;
+      emit("run.budget.warning", { tokens: currentTokens, max_tokens: maxTokens });
+    }
+    if (currentTokens >= maxTokens) {
+      emit("run.budget.exceeded", { tokens: currentTokens, max_tokens: maxTokens });
+      emit("run.paused", { reason: "budget_exhausted" });
+      return true;
+    }
   }
+
   return false;
 }
 
@@ -367,7 +410,7 @@ export async function runEffectsLoop(
       break;
     }
 
-    const actions = nextActions(state, ctx.settings);
+    const actions = nextActions(state, ctx.settings, { concurrency: ctx.concurrency });
     if (actions.length === 0) {
       log.debug("[DEBUG] runEffectsLoop: no actions while state is", state.state);
       applyEvent(

@@ -12,14 +12,20 @@ import { runSoloTask } from "./solo.js";
 import { parseTaskSpec } from "../../spec/index.js";
 import { resolveTaskRoute } from "../../roles/router.js";
 import { getRunBranch } from "../../git/index.js";
-import { runWorker, type WorkerObservation, type WorkerRunPolicy } from "../../roles/worker.js";
+import {
+  runWorker,
+  type TaskTotals,
+  type WorkerObservation,
+  type WorkerRunPolicy,
+  type WorkerStopDecision,
+} from "../../roles/worker.js";
+
+/** Rate limit backoff delays for the first three limits of a task (R3.4). */
+const BACKOFF_MS = [1000, 2000, 4000];
 
 function isRateLimit(event: BackendEvent | undefined): boolean {
-  return (
-    event?.type === "error" &&
-    ((event as any).kind === "rate_limit" ||
-      String((event as any).message).includes("Rate limit"))
-  );
+  // Typed events only: the rate limit is the error kind, never a message match (R3.4).
+  return event?.type === "error" && event.kind === "rate_limit";
 }
 
 export async function runTaskAction(
@@ -81,15 +87,8 @@ export async function runTaskAction(
       const resumeExistingSession =
         taskState.session_id !== undefined && fs.existsSync(existingWorktree);
 
-      if (isHeal) {
-        emit("task.healing", {
-          task_id: taskId,
-          generation,
-          attempt: 2,
-          ...(taskState.session_id ? { session_id: taskState.session_id } : {}),
-        });
-      }
-
+      // The heal event is the worker's, because the role is what has the failing
+      // VerifyResults to render into it (R3.4).
       const route = resolveTaskRoute(parsedSpec.frontmatter.class, generation, ctx.settings);
 
       const adapter = adapterFor(ctx, route.backend);
@@ -101,28 +100,84 @@ export async function runTaskAction(
       // Run-level policy is decided here, not by the role (R1.4, R1.5). The worker
       // reports what it observed and this answers whether the attempt must stop.
       let localTotal = state.usage.total_usd;
+      // The reducer accumulates cost only, so the run token total is what this action
+      // has seen for the run.
+      let localTokens = 0;
+      let rateLimits = 0;
 
-      const rateLimitDecision = () => {
-        const currentConcurrency = ctx.settings.concurrency?.workers ?? 1;
-        if (currentConcurrency <= 1) {
+      const taskBudget = {
+        max_usd: parsedSpec.frontmatter.budget?.max_usd ?? ctx.settings.budgets.task.max_usd,
+        max_tokens:
+          parsedSpec.frontmatter.budget?.max_tokens ?? ctx.settings.budgets.task.max_tokens,
+        max_turns:
+          parsedSpec.frontmatter.budget?.max_turns ?? ctx.settings.budgets.task.max_turns,
+      };
+
+      const rateLimitDecision = (): WorkerStopDecision => {
+        rateLimits += 1;
+        const effective = ctx.concurrency;
+        const halved = Math.max(1, Math.floor(effective / 2));
+
+        // The fourth rate limit for this task ends it; and at the floor there is
+        // nothing left to halve, which is the L3 pause rule (R3.4). The settings value
+        // itself is never mutated: the halving lives on the run's EffectContext.
+        if (rateLimits >= 4 || halved === effective) {
+          ctx.concurrency = halved;
+          emit("rate_limit.backoff", { task_id: taskId, concurrency: ctx.concurrency });
           emit("run.paused", { reason: "rate_limited" });
-          return { stop: true };
+          return {
+            stop: true,
+            kill: "cancel",
+            failure_class: "rate_limited",
+            detail:
+              rateLimits >= 4
+                ? "four rate limits for this task"
+                : "concurrency already at the floor",
+          };
         }
-        ctx.settings.concurrency.workers = Math.max(1, Math.floor(currentConcurrency / 2));
-        emit("rate_limit.backoff", {
-          task_id: taskId,
-          concurrency: ctx.settings.concurrency.workers,
-        });
-        emit("task.ready", { task_id: taskId });
-        return { stop: true };
+
+        ctx.concurrency = halved;
+        emit("rate_limit.backoff", { task_id: taskId, concurrency: ctx.concurrency });
+        return { stop: true, kill: "cancel", backoff_ms: BACKOFF_MS[rateLimits - 1] };
+      };
+
+      const taskBudgetDecision = (totals: TaskTotals): WorkerStopDecision | undefined => {
+        const crossed = (limit: number | undefined, value: number, label: string) =>
+          limit !== undefined && value >= limit ? label : undefined;
+
+        const which =
+          crossed(taskBudget.max_usd, totals.cost_usd, "cost") ??
+          crossed(taskBudget.max_tokens, totals.tokens, "tokens") ??
+          crossed(taskBudget.max_turns, totals.turns, "turns");
+
+        // A per-task budget ends only the task; it never pauses the run (R3.4).
+        if (!which) return undefined;
+        return {
+          stop: true,
+          kill: "budget",
+          failure_class: "budget_exceeded",
+          detail: `task ${which} budget`,
+        };
       };
 
       const runPolicy: WorkerRunPolicy = (obs: WorkerObservation) => {
-        if (obs.usageDelta) {
-          localTotal += obs.usageDelta.cost_usd ?? 0;
-          if (checkRunBudget(ctx, emit, localTotal)) {
-            return { stop: true, kill: "budget" };
-          }
+        const delta = obs.usageDelta;
+        const contributed =
+          (delta?.cost_usd ?? 0) + (delta?.input_tokens ?? 0) + (delta?.output_tokens ?? 0);
+
+        if (delta && contributed > 0) {
+          localTotal += delta.cost_usd ?? 0;
+          localTokens += (delta.input_tokens ?? 0) + (delta.output_tokens ?? 0);
+        }
+
+        if (checkRunBudget(ctx, emit, localTotal, localTokens)) {
+          return { stop: true, kill: "budget" };
+        }
+
+        // A discarded usage record (a duplicate cumulative event) is not checked.
+        if (obs.totals && (contributed > 0 || obs.totals.turns > 0)) {
+          const decision = taskBudgetDecision(obs.totals);
+          if (decision) return decision;
         }
 
         if (obs.event?.type === "permission.denied") {
@@ -147,9 +202,6 @@ export async function runTaskAction(
           if (res.denials && res.denials.length > 0) {
             emit("run.paused", { reason: "permission_denied" });
             return { stop: true };
-          }
-          if (res.final_text?.includes("Rate limit")) {
-            return rateLimitDecision();
           }
         }
 

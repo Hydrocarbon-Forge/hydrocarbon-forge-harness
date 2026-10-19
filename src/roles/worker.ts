@@ -30,6 +30,7 @@ import {
 } from "../git/index.js";
 import { VerifyRunner } from "../verify/index.js";
 import { resolveTaskRoute } from "./router.js";
+import { capBytes, HEAL_TAIL_MAX_BYTES } from "../util/index.js";
 
 /** The action's typed emit (R1.2): every event is checked against the catalog. */
 export type WorkerEmit = <T extends EventType>(
@@ -39,24 +40,45 @@ export type WorkerEmit = <T extends EventType>(
 
 export type WorkerKillReason = "budget" | "timeout" | "cancel";
 
+/** Per-task totals of cost, tokens and turns for one generation (R3.4). */
+export interface TaskTotals {
+  cost_usd: number;
+  tokens: number;
+  turns: number;
+}
+
 /**
  * What the worker observed: a streamed event with the usage delta computed for it,
- * or the session result once the stream is drained.
+ * or the session result once the stream is drained, plus the per-task totals kept
+ * for this generation so the action can decide the task budget (R3.4).
  */
 export type WorkerObservation = {
   event?: BackendEvent;
   usageDelta?: UsageRecord;
   result?: SessionResult;
+  totals?: TaskTotals;
 };
 
 /**
  * Run-level policy is the engine action's decision, not the role's (R1.4, R1.5).
  * The worker reports what it observed and the action answers whether this attempt
- * must stop and with which kill reason. The role never decides run policy.
+ * must stop, with which kill reason, which failure class records the task, and with
+ * which backoff delay the same attempt is retried (R3.4). The role never decides run
+ * policy.
  */
 export type WorkerRunPolicy = (
   observation: WorkerObservation
-) => { stop: boolean; kill?: WorkerKillReason };
+) => WorkerStopDecision;
+
+export interface WorkerStopDecision {
+  stop: boolean;
+  kill?: WorkerKillReason;
+  /** Set when the action decided a task failure, which the worker then emits. */
+  failure_class?: FailureClass;
+  detail?: string;
+  /** Retry the same attempt after this delay; the attempt number is not consumed. */
+  backoff_ms?: number;
+}
 
 export interface WorkerRunOptions {
   runId: RunId;
@@ -85,8 +107,8 @@ export interface WorkerRunOptions {
   onEvent?: WorkerEmit;
 }
 
-/** Cap for one command's failure output in the heal prompt (R1.6). */
-const FAILURE_TAIL_CAP = 8192;
+/** Cap for the failures text in the heal prompt (R1.6, R3.4). */
+const FAILURE_TAIL_CAP = HEAL_TAIL_MAX_BYTES;
 
 /** One L0 heal per generation. Which failure escalates is the engine ladder (R3.4). */
 const HEAL_CAP = 1;
@@ -97,16 +119,27 @@ function gitRef(worktreePath: string, args: string[]): string {
   }).trim();
 }
 
+/**
+ * The failures text for the heal prompt, built from the real VerifyResults of
+ * attempt 1 (R3.4): command, exit code, then the stdout and stderr tails, capped at
+ * 8192 bytes with capBytes.
+ */
 function formatFailures(results: VerifyResult[]): string {
-  return results
+  const text = results
     .filter((r) => r.exit_code !== 0 || r.timed_out)
     .map((r) => {
       const parts = [`Command: ${r.cmd}`, `Exit code: ${r.exit_code}`];
-      if (r.stdout_tail) parts.push(`Stdout:\n${r.stdout_tail.slice(0, FAILURE_TAIL_CAP)}`);
-      if (r.stderr_tail) parts.push(`Stderr:\n${r.stderr_tail.slice(0, FAILURE_TAIL_CAP)}`);
+      if (r.stdout_tail) parts.push(`Stdout:\n${r.stdout_tail}`);
+      if (r.stderr_tail) parts.push(`Stderr:\n${r.stderr_tail}`);
       return parts.join("\n");
     })
     .join("\n\n");
+
+  return capBytes(text, FAILURE_TAIL_CAP).text;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface AttemptBaseline {
@@ -124,12 +157,12 @@ interface AttemptOutcome {
   stopped: boolean;
   /** Verify decided this attempt: the caller heals once or fails the task. */
   verifyFailed: boolean;
+  /** The policy decision that stopped the attempt, when it stopped it. */
+  decision?: WorkerStopDecision;
 }
 
-type StopDecision = { stop: boolean; kill?: WorkerKillReason };
-
 class AttemptStopped extends Error {
-  constructor(public readonly decision: StopDecision) {
+  constructor(public readonly decision: WorkerStopDecision) {
     super("attempt stopped by run policy");
   }
 }
@@ -148,8 +181,14 @@ async function runAttempt(
   baseline: AttemptBaseline,
   startTime: number,
   sessionTotals: Map<string, UsageTotals>,
-  usage: UsageRecord
+  usage: UsageRecord,
+  taskTotals: TaskTotals
 ): Promise<AttemptOutcome> {
+  // Per-attempt timeout (R3.4): the timer is armed for every attempt, not only the
+  // first, and it kills this attempt's session, never the run.
+  const timeoutMs =
+    (opts.spec.budget?.timeout_min ?? opts.settings.budgets.task.timeout_min ?? 30) * 60 * 1000;
+
   const spawnReq: SpawnRequest = {
     role: "worker",
     cwd: baseline.worktreePath,
@@ -173,15 +212,18 @@ async function runAttempt(
     },
     budget: {
       max_usd: opts.spec.budget?.max_usd ?? opts.settings.budgets.task.max_usd,
-      timeout_ms:
-        (opts.spec.budget?.timeout_min ?? opts.settings.budgets.task.timeout_min ?? 30) *
-        60 *
-        1000,
+      timeout_ms: timeoutMs,
       ...(opts.spec.budget?.max_tokens ? { max_tokens: opts.spec.budget.max_tokens } : {}),
     },
   };
 
   const handle = opts.adapter.spawn(spawnReq);
+
+  let timedOut = false;
+  const timeoutTimer = setTimeout(() => {
+    timedOut = true;
+    void handle.kill("timeout");
+  }, timeoutMs);
 
   let sessionId = session.resume ?? session.id ?? "";
   let sawUsage = false;
@@ -217,6 +259,9 @@ async function runAttempt(
     usage.input_tokens += delta.input_tokens;
     usage.output_tokens += delta.output_tokens;
     usage.cost_usd += delta.cost_usd ?? 0;
+    // Per-task totals for the generation: cost and input plus output tokens (R3.4).
+    taskTotals.cost_usd += delta.cost_usd ?? 0;
+    taskTotals.tokens += delta.input_tokens + delta.output_tokens;
     opts.onEvent?.("usage.recorded", {
       record: delta,
       role: "worker",
@@ -260,6 +305,14 @@ async function runAttempt(
     return { report: buildReport("failed", failureClass), stopped: false, verifyFailed: false };
   };
 
+  /** The decision the action made is executed here: kill, record, or retry. */
+  const stoppedOutcome = (decision: WorkerStopDecision): AttemptOutcome => {
+    const base = decision.failure_class
+      ? fail(decision.failure_class, decision.detail)
+      : { report: buildReport("failed", undefined), stopped: false, verifyFailed: false };
+    return { ...base, stopped: true, decision };
+  };
+
   let unbind = () => {};
   if (opts.signal) {
     if (opts.signal.aborted) {
@@ -280,13 +333,22 @@ async function runAttempt(
         recordSessionStarted();
       }
 
+      // Assistant turns are counted per generation, across attempt 1 and heal (R3.4).
+      if (event.type === "assistant.text") {
+        taskTotals.turns += 1;
+      }
+
       let delta: UsageRecord | undefined;
       if (event.type === "usage" && event.record) {
         sawUsage = true;
         delta = recordUsage(event.record, Boolean(event.cumulative));
       }
 
-      const decision = opts.runPolicy?.({ event, usageDelta: delta });
+      const decision = opts.runPolicy?.({
+        event,
+        usageDelta: delta,
+        totals: taskTotals,
+      });
       if (decision?.stop) {
         if (decision.kill) await handle.kill(decision.kill);
         throw new AttemptStopped(decision);
@@ -310,12 +372,19 @@ async function runAttempt(
       attempt,
     });
 
-    const decision = opts.runPolicy?.({ result: res, usageDelta: resultDelta });
-    if (decision?.stop) throw new AttemptStopped(decision);
+    const decision = opts.runPolicy?.({
+      result: res,
+      usageDelta: resultDelta,
+      totals: taskTotals,
+    });
+    if (decision?.stop) {
+      if (decision.kill) await handle.kill(decision.kill);
+      throw new AttemptStopped(decision);
+    }
 
     if (!sessionId) return fail("worker_crashed", "adapter reported no session id");
 
-    if (res.killed_for === "timeout") {
+    if (timedOut || res.killed_for === "timeout") {
       return fail("timeout", "session killed for timeout");
     }
 
@@ -425,14 +494,11 @@ async function runAttempt(
     return { report: buildReport("passed"), stopped: false, verifyFailed: false };
   } catch (err) {
     if (err instanceof AttemptStopped) {
-      return {
-        report: buildReport("failed", undefined),
-        stopped: true,
-        verifyFailed: false,
-      };
+      return stoppedOutcome(err.decision);
     }
     throw err;
   } finally {
+    clearTimeout(timeoutTimer);
     unbind();
   }
 }
@@ -532,20 +598,68 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
     "HEAD",
   ]);
 
+  const taskTotals: TaskTotals = { cost_usd: 0, tokens: 0, turns: 0 };
+
+  // A heal dispatched by the action is recorded by the worker, which is the role that
+  // renders the failures (R3.4). On this path the attempt 1 verify results are not in
+  // the engine state, so the action supplies the text it has.
+  if (attempt >= 2) {
+    opts.onEvent?.("task.healing", {
+      task_id: opts.taskId,
+      generation: opts.generation,
+      attempt,
+      ...(opts.session?.resume ? { session_id: opts.session.resume } : {}),
+      failures: opts.healFailures ?? "",
+    });
+  }
+
   const taskPrompt = render(loadTemplate("worker/task.md"), {
     spec_path: baseline.specPath,
   });
 
-  const first = await runAttempt(
-    opts,
-    route,
-    attempt,
+  const runWithBackoff = async (
+    promptText: string,
+    session: { id?: string; resume?: string },
+    attemptNumber: number
+  ): Promise<AttemptOutcome> => {
+    let outcome = await runAttempt(
+      opts,
+      route,
+      attemptNumber,
+      promptText,
+      session,
+      baseline,
+      startTime,
+      sessionTotals,
+      usage,
+      taskTotals
+    );
+
+    // A rate limit backoff retries the same attempt and does not consume the attempt
+    // number (R3.4). The worktree and the session are reused, as in a heal.
+    while (outcome.stopped && outcome.decision?.backoff_ms && !opts.signal?.aborted) {
+      await sleep(outcome.decision.backoff_ms);
+      outcome = await runAttempt(
+        opts,
+        route,
+        attemptNumber,
+        promptText,
+        outcome.report.session_id ? { resume: outcome.report.session_id } : session,
+        baseline,
+        startTime,
+        sessionTotals,
+        usage,
+        taskTotals
+      );
+    }
+
+    return outcome;
+  };
+
+  const first = await runWithBackoff(
     taskPrompt,
     opts.session ?? { id: crypto.randomUUID() },
-    baseline,
-    startTime,
-    sessionTotals,
-    usage
+    attempt
   );
 
   if (first.stopped) return first.report;
@@ -556,28 +670,19 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
   // with the heal template rendered from real verify output. Escalation is the
   // engine ladder (R3.4), so here the first failure gets that one heal.
   if (attempt === 1) {
+    const failures = opts.healFailures ?? formatFailures(first.report.verify);
+
     opts.onEvent?.("task.healing", {
       task_id: opts.taskId,
       generation: opts.generation,
       attempt: 2,
       session_id: first.report.session_id,
+      failures,
     });
 
-    const healPrompt = render(loadTemplate("worker/heal.md"), {
-      failures: opts.healFailures ?? formatFailures(first.report.verify),
-    });
+    const healPrompt = render(loadTemplate("worker/heal.md"), { failures });
 
-    const healed = await runAttempt(
-      opts,
-      route,
-      2,
-      healPrompt,
-      { resume: first.report.session_id },
-      baseline,
-      startTime,
-      sessionTotals,
-      usage
-    );
+    const healed = await runWithBackoff(healPrompt, { resume: first.report.session_id }, 2);
 
     if (healed.stopped) return healed.report;
 

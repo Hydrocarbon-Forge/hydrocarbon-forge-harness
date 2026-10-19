@@ -46,7 +46,12 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "scope.checked": { task_id: "T1", generation: 1, attempt: 1, ok: true },
   "task.verify.started": { task_id: "T1", generation: 1, attempt: 1 },
   "task.verify.finished": { task_id: "T1", generation: 1, attempt: 1, passed: true },
-  "task.healing": { task_id: "T1", generation: 1, attempt: 2 },
+  "task.healing": {
+    task_id: "T1",
+    generation: 1,
+    attempt: 2,
+    failures: "Command: echo fail\nExit code: 1\nStderr:\nboom",
+  },
   "task.passed": { task_id: "T1" },
   "task.merged": { task_id: "T1" },
   "task.blocked": { task_id: "T1" },

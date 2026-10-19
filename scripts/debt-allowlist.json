@@ -75,6 +75,11 @@
       "type": "task.verify.finished",
       "kind": "consumed-not-emitted",
       "until": "R5.3"
+    },
+    {
+      "type": "task.healing",
+      "kind": "consumed-not-emitted",
+      "until": "R5.3"
     }
   ],
   "events_observe_only": [
@@ -97,14 +102,6 @@
     "task.worktree.created"
   ],
   "settings": [
-    {
-      "key": "budgets.run.max_tokens",
-      "until": "DEFERRED"
-    },
-    {
-      "key": "budgets.task.max_turns",
-      "until": "DEFERRED"
-    },
     {
       "key": "execution.strategy",
       "until": "DEFERRED"
@@ -163,10 +160,6 @@
     },
     {
       "key": "routing.*.backend",
-      "until": "R5.3"
-    },
-    {
-      "key": "routing.*.budget.max_turns",
       "until": "R5.3"
     },
     {
