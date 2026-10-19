@@ -53,6 +53,8 @@ export interface PlannerRunOptions {
   /** Planner route resolved by the plan action with `resolvePlannerRoute` (R2.9). */
   route?: Route;
   onEvent?: PlannerEmit;
+  charter?: string;
+  history?: string;
 }
 
 export type PlannerOutcome =
@@ -231,8 +233,8 @@ async function requestVars(opts: PlannerRunOptions, route: Route): Promise<Recor
     task_budget: money(budgets?.task?.max_usd),
     run_budget: money(budgets?.run?.max_usd),
     max_tasks: "",
-    charter: "",
-    history: "",
+    charter: opts.charter ?? "",
+    history: opts.history ?? "",
     repo_map: `Detected ecosystem: ${ecosystem}\n${mapText}`,
   };
 }
@@ -387,6 +389,12 @@ export async function runPlanner(
             max_attempts: maxAttempts,
             diagnostics,
           });
+
+    if (attempt === 1) {
+      try {
+        fs.writeFileSync(path.join(opts.runDir, "planner-request.md"), prompt.user, "utf8");
+      } catch {}
+    }
 
     const attemptSessionId = sessionId === "" ? crypto.randomUUID() : sessionId;
 

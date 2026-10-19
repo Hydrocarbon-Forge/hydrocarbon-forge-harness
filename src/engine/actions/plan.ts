@@ -30,6 +30,7 @@ import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
 import { runLintAction } from "./approve.js";
 import { log } from "../../util/log.js";
+import { plannerCharter, plannerHistory } from "../../charter/index.js";
 
 function isSafeRelativePath(p: string): boolean {
   if (path.isAbsolute(p)) return false;
@@ -347,6 +348,15 @@ export async function runPlanAction(
     return evt;
   };
 
+  const historyAll = Boolean(
+    (ctx as any).historyAll ||
+    (ctx.settings as any).historyAll ||
+    (ctx.settings as any).overrides?.historyAll
+  );
+  const substrateDir = path.join(ctx.repoRoot, ".substrate");
+  const charter = plannerCharter(substrateDir);
+  const history = plannerHistory(substrateDir, { historyAll });
+
   let outcome;
   try {
     outcome = await runPlanner({
@@ -358,6 +368,8 @@ export async function runPlanAction(
       adapter,
       route,
       onEvent: plannerEmit,
+      charter,
+      history,
     });
   } catch (err) {
     if (stoppedForBudget) return;

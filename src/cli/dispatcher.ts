@@ -39,6 +39,7 @@ export interface CliGlobalFlags {
   answers?: string;
   allVersions?: boolean;
   olderThan?: string;
+  historyAll?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -88,6 +89,7 @@ await import(`./commands/doctor.js`);
 await import(`./commands/init.js`);
 await import(`./commands/history.js`);
 await import(`./commands/archive.js`);
+await import(`./commands/charter.js`);
 await import(`./commands/gc.js`);
 await import(`./bench.js`);
 
@@ -133,6 +135,7 @@ const CLI_OPTIONS = {
   answers: { type: "string" },
   "all-versions": { type: "boolean" },
   "older-than": { type: "string" },
+  "history-all": { type: "boolean" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -228,6 +231,9 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   }
   if (parsedValues["older-than"] !== undefined) {
     flags.olderThan = parsedValues["older-than"] as string;
+  }
+  if (parsedValues["history-all"]) {
+    flags.historyAll = true;
   }
 
   let commandName: string | undefined;
@@ -390,6 +396,61 @@ export async function runCli(
     if (flags.answers === "-") {
       stdinData = await readStdinIfAvailable(stdin);
     }
+  }
+
+  if (flags.historyAll && (cmd.name === "run" || cmd.name === "plan")) {
+    const origExecute = cmd.execute.bind(cmd);
+    cmd.execute = async (commandCtx: CommandContext) => {
+      let realEngine: any = commandCtx.engine;
+      const interceptedEngine: any = {
+        async run(opts: any) {
+          opts.historyAll = true;
+          if (!realEngine) {
+            const { EngineImpl } = await import(`../engine/engine.js`);
+            const { loadSettings, sandboxProblem } = await import(`../config/index.js`);
+            const settings = await loadSettings({
+              projectDir: commandCtx.cwd,
+              settingsFile: commandCtx.flags.settings,
+              flags: opts.overrides,
+            });
+            const problem = sandboxProblem(settings);
+            if (problem) {
+              commandCtx.stderr.write(`Error: ${problem}\n`);
+              return { exit_code: 2 } as any;
+            }
+            (settings as any).historyAll = true;
+            realEngine = new EngineImpl({ settings });
+          } else if (realEngine.options?.settings) {
+            (realEngine.options.settings as any).historyAll = true;
+          }
+          return realEngine.run(opts);
+        },
+        async resume(runId: any, opts?: any) {
+          const runOpts = opts ?? {};
+          runOpts.historyAll = true;
+          if (!realEngine) {
+            const { EngineImpl } = await import(`../engine/engine.js`);
+            const { loadSettings, sandboxProblem } = await import(`../config/index.js`);
+            const settings = await loadSettings({
+              projectDir: commandCtx.cwd,
+              settingsFile: commandCtx.flags.settings,
+              flags: runOpts.overrides,
+            });
+            const problem = sandboxProblem(settings);
+            if (problem) {
+              commandCtx.stderr.write(`Error: ${problem}\n`);
+              return { exit_code: 2 } as any;
+            }
+            (settings as any).historyAll = true;
+            realEngine = new EngineImpl({ settings });
+          } else if (realEngine.options?.settings) {
+            (realEngine.options.settings as any).historyAll = true;
+          }
+          return realEngine.resume(runId, runOpts);
+        },
+      };
+      return origExecute({ ...commandCtx, engine: interceptedEngine });
+    };
   }
 
   const ctx: CommandContext = {

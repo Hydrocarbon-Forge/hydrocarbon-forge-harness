@@ -32,6 +32,7 @@ These flags can be applied to `substrate run`, `substrate plan`, and other execu
 | `--settings <file>` | String | Path to custom JSONC configuration file. |
 | `--allowed-tools <tools...>` | String[] | Explicit whitelist of allowed tool calls (repeatable or comma-separated). |
 | `--disallowed-tools <tools...>` | String[] | Explicit blacklist of prohibited tool calls (repeatable or comma-separated). |
+| `--history-all` | Boolean | Include archived runs across all project versions in planner context. |
 
 ---
 
@@ -53,7 +54,7 @@ Substrate adheres to deterministic process exit codes across headless and script
 
 ## Subcommands
 
-Substrate includes 20 specialized subcommands:
+Substrate includes 21 specialized subcommands:
 
 ### run
 
@@ -412,3 +413,18 @@ substrate gc [--older-than 30d]
 - **Options**:
   - `--older-than <duration>`: Age threshold (e.g. `30d`, `7d`). Default is `30d`.
 - **Behavior**: Removes `.substrate/runs/<run_id>/` only for runs that have an archive record and whose archive `summary.md` mtime is older than the cut-off. Prints `removed <n> run(s)`. Never deletes an unarchived run, a worktree, or a branch.
+
+### charter
+
+Views or manages the project charter and version.
+
+```bash
+substrate charter show
+substrate charter set <file|->
+substrate charter bump <version>
+```
+
+- **Subcommands**:
+  - `show`: Prints `.substrate/charter.md`. Exits 2 if missing.
+  - `set <file|->`: Sets `.substrate/charter.md` content from a file or stdin, preserving any existing version frontmatter. Refuses empty content (exit 2).
+  - `bump <version>`: Updates the project version (must match `^v\d+$`), keeping charter body, and initializes `.substrate/archive/<version>/INDEX.md` if not present.
