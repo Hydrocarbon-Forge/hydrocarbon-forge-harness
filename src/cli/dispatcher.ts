@@ -22,6 +22,7 @@ export interface CliGlobalFlags {
   local?: boolean;
   provider?: string;
   refresh?: boolean;
+  stats?: boolean;
   by?: string;
   since?: string;
   allProjects?: boolean;
@@ -119,6 +120,7 @@ const CLI_OPTIONS = {
   verify: { type: "string", multiple: true },
   provider: { type: "string" },
   refresh: { type: "boolean" },
+  stats: { type: "boolean" },
   by: { type: "string" },
   since: { type: "string" },
   "all-projects": { type: "boolean" },
@@ -193,6 +195,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
     flags.provider = parsedValues.provider as string;
   }
   if (parsedValues.refresh) flags.refresh = true;
+  if (parsedValues.stats) flags.stats = true;
   if (parsedValues.by !== undefined) flags.by = parsedValues.by as string;
   if (parsedValues.since !== undefined) flags.since = parsedValues.since as string;
   if (parsedValues["all-projects"]) flags.allProjects = true;

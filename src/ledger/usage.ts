@@ -206,6 +206,34 @@ export function readUsageLedger(file: string): UsageLedgerEntry[] {
   return entries;
 }
 
+// The engine numbers a task's first generation 1 (reducer.ts), so a ledger row
+// with a task_id but no generation belongs to generation 1.
+export const FIRST_GENERATION = 1;
+
+export function taskGenerationKey(runId: string, taskId: string, generation: number): string {
+  return `${runId}/${taskId}/${generation}`;
+}
+
+/**
+ * Groups ledger rows by task generation (run_id, task_id, generation). Rows with
+ * no task_id (planner and reviewer rows) are not task rows and are skipped. Order
+ * inside each list is the ledger order.
+ */
+export function distinctTasks(entries: UsageLedgerEntry[]): Map<string, UsageLedgerEntry[]> {
+  const tasks = new Map<string, UsageLedgerEntry[]>();
+  for (const entry of entries) {
+    if (entry.task_id === undefined) continue;
+    const key = taskGenerationKey(entry.run_id, entry.task_id, entry.generation ?? FIRST_GENERATION);
+    const list = tasks.get(key);
+    if (list) {
+      list.push(entry);
+    } else {
+      tasks.set(key, [entry]);
+    }
+  }
+  return tasks;
+}
+
 function groupKey(entry: UsageLedgerEntry, by: UsageGroupBy): string {
   switch (by) {
     case "model":

@@ -17,6 +17,8 @@ export interface CliGlobalFlags {
   noGovernor?: boolean;
   provider?: string;
   refresh?: boolean;
+  stats?: boolean;
+  since?: string;
 }
 
 export interface CliGovernanceFlags {
@@ -56,16 +58,91 @@ function priceText(price: { input: number; output: number } | null): string {
   return price ? `${price.input}/${price.output} per Mtok` : "unpriced";
 }
 
+// Same --since forms as `usage`: 7d (days back from now) or YYYY-MM-DD (UTC midnight).
+function sinceCutoff(since: string): number | null {
+  let cutoff: number;
+  if (/^\d+d$/.test(since)) {
+    cutoff = Date.now() - Number(since.slice(0, -1)) * 24 * 60 * 60 * 1000;
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    cutoff = Date.parse(`${since}T00:00:00Z`);
+  } else {
+    return null;
+  }
+  return Number.isNaN(cutoff) ? null : cutoff;
+}
+
+function percentText(value: number | null): string {
+  return value === null ? "-" : `${(value * 100).toFixed(1)}%`;
+}
+
+function tokensText(value: number | null): string {
+  return value === null ? "-" : value.toFixed(1);
+}
+
+function costPerPassedText(stat: { cost_unknown: boolean; avg_cost_per_passed_task: number | null }): string {
+  if (stat.cost_unknown) return "unknown";
+  return stat.avg_cost_per_passed_task === null ? "-" : `$${stat.avg_cost_per_passed_task.toFixed(4)}`;
+}
+
+async function runModelStats(ctx: CommandContext, jsonMode: boolean): Promise<number> {
+  const since = ctx.flags.since;
+  let cutoff: number | undefined;
+  if (since !== undefined) {
+    const parsed = sinceCutoff(since);
+    if (parsed === null) {
+      ctx.stderr.write(`Error: invalid --since '${since}' (use 7d or YYYY-MM-DD)\n`);
+      if (jsonMode) {
+        ctx.stdout.write(`${JSON.stringify({ error: `invalid --since '${since}' (use 7d or YYYY-MM-DD)` })}\n`);
+      }
+      return 2;
+    }
+    cutoff = parsed;
+  }
+
+  const { modelStats } = await import(`../model-catalog.js`);
+  const stats = modelStats({ projectRoot: ctx.cwd, since: cutoff });
+
+  if (jsonMode) {
+    ctx.stdout.write(`${JSON.stringify({ since: since ?? null, stats })}\n`);
+    return 0;
+  }
+
+  const providers = [...new Set(stats.map((stat) => stat.provider))];
+  for (const provider of providers) {
+    ctx.stdout.write(`== ${provider} ==\n`);
+    for (const stat of stats.filter((s) => s.provider === provider)) {
+      const cells = [
+        stat.model,
+        String(stat.tasks),
+        percentText(stat.first_pass_rate),
+        percentText(stat.heal_rate),
+        String(stat.replans),
+        tokensText(stat.avg_input_tokens),
+        tokensText(stat.avg_output_tokens),
+        costPerPassedText(stat),
+      ];
+      if (stat.note !== undefined) cells.push(stat.note);
+      ctx.stdout.write(`${cells.join("\t")}\n`);
+    }
+  }
+  const totalTasks = stats.reduce((sum, stat) => sum + stat.tasks, 0);
+  ctx.stdout.write(`== all models ==\n${stats.length} model(s)\t${totalTasks} task(s)\n`);
+  return 0;
+}
+
 export const modelsCommand: CliCommand = {
   name: "models",
   description: "Show the model catalog: providers, models, pricing, and routing slots",
   async execute(ctx: CommandContext): Promise<number> {
+    const jsonMode = ctx.flags.outputFormat === "json";
+    if (ctx.flags.stats === true) {
+      return runModelStats(ctx, jsonMode);
+    }
+
     const settings = await loadSettings({
       projectDir: ctx.cwd,
       settingsFile: ctx.flags.settings,
     });
-
-    const jsonMode = ctx.flags.outputFormat === "json";
     const adapters = createAdapters(settings);
 
     const provider = ctx.flags.provider;
