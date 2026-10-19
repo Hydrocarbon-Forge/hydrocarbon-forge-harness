@@ -92,5 +92,11 @@ describe("Scenario 16: Solo Mode (§14.5 #16)", () => {
 
     const routedEvt = events.find((e) => e.type === "run.routed");
     expect((routedEvt?.data as any)?.mode).toBe("solo");
+
+    const passedEvt = events.find((e) => e.type === "task.passed");
+    expect((passedEvt?.data as any)?.task_id).toBe("SOLO");
+
+    expect(summary.tasks["SOLO"]).toBeDefined();
+    expect(summary.tasks["SOLO"].state).toBe("PASSED");
   });
 });

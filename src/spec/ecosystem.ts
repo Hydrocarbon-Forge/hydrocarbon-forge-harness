@@ -40,6 +40,6 @@ export function getDefaultVerify(ecosystem: Ecosystem): Command[] {
       return [{ run: "go test ./...", timeout_s: 300 }];
     case "other":
     default:
-      return [{ run: "echo 'No default verify command'", timeout_s: 60 }];
+      return [];
   }
 }

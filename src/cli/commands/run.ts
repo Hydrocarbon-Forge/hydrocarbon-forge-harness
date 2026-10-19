@@ -18,6 +18,7 @@ export interface CliGlobalFlags {
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
   noGovernor?: boolean;
+  verify?: string[];
 }
 
 export interface CliGovernanceFlags {
@@ -177,6 +178,18 @@ export const runCommand: CliCommand = {
     const permission_mode = ctx.flags.permissionMode ?? "dontAsk";
     const overrides = buildSettingsOverrides(ctx.flags, mode);
 
+    if (mode === "solo") {
+      const verifyFlags = ctx.flags.verify;
+      if (!verifyFlags || verifyFlags.length === 0) {
+        const { detectEcosystem, getDefaultVerify } = await import(`../../spec/ecosystem.js`);
+        const eco = await detectEcosystem(ctx.cwd);
+        const def = getDefaultVerify(eco);
+        if (def.length === 0) {
+          ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
+        }
+      }
+    }
+
     const sessionStore =
       ctx.sessionStore ??
       createSessionStore(path.join(ctx.cwd, ".substrate"));
@@ -234,6 +247,9 @@ export const runCommand: CliCommand = {
       signal: ctx.signal,
       onEvent: (event) => formatter.onEvent(event),
     };
+    if (ctx.flags.verify) {
+      (runOpts.overrides as any).verify = ctx.flags.verify;
+    }
 
     try {
       const summary = await engine.run(runOpts);

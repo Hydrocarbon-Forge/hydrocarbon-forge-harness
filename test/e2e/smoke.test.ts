@@ -6,6 +6,9 @@ import { runSubstrate } from "./helpers/run-substrate.js";
 describe("E2E Smoke Tests", () => {
   it("full solo run edits a file, verifies it and finishes with exit 0", () => {
     const res = runSubstrate({
+      settings: {
+        git: { auto_merge: true },
+      },
       files: {
         "src/a.txt": "one\n",
       },

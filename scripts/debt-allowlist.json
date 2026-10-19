@@ -76,6 +76,16 @@
       "type": "task.healing",
       "kind": "consumed-not-emitted",
       "until": "R5.3"
+    },
+    {
+      "type": "task.session.started",
+      "kind": "consumed-not-emitted",
+      "until": "R5.3"
+    },
+    {
+      "type": "task.passed",
+      "kind": "consumed-not-emitted",
+      "until": "R5.3"
     }
   ],
   "events_observe_only": [
@@ -599,8 +609,8 @@
       "until": "DEFERRED"
     },
     {
-      "symbol": "getDefaultVerify",
-      "path": "src/spec/ecosystem.ts",
+      "symbol": "bindAbort",
+      "path": "src/engine/actions/shared.ts",
       "until": "R5.3"
     },
     {

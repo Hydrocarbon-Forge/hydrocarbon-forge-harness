@@ -34,6 +34,7 @@ export interface CliGlobalFlags {
   dryRun?: boolean;
   abortOnConflict?: boolean;
   hard?: boolean;
+  verify?: string[];
 }
 
 export interface CliGovernanceFlags {
@@ -201,6 +202,9 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   }
   if (parsedValues["disallowed-tools"]) {
     flags.disallowedTools = parsedValues["disallowed-tools"] as string[];
+  }
+  if (parsedValues.verify) {
+    flags.verify = parsedValues.verify as string[];
   }
 
   let commandName: string | undefined;

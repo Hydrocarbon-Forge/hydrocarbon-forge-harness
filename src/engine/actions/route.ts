@@ -3,6 +3,7 @@ import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { checkGovernorHealth, callGovernorIntake } from "../../roles/governor.js";
 import { routeRequest } from "../../roles/router.js";
+import { workspaceManager } from "../../git/index.js";
 
 export async function runRouteAction(
   action: EngineAction,
@@ -11,9 +12,19 @@ export async function runRouteAction(
   emit: Emit
 ): Promise<void> {
   if (ctx.mode === "solo") {
+    await workspaceManager.createRunBranch(ctx.repoRoot, ctx.runId, "HEAD");
     emit("run.routed", { mode: "solo" });
-    emit("setup.done", {});
-    emit("task.ready", { task_id: "solo" });
+    emit("setup.done", {
+      tasks: [
+        {
+          id: "SOLO",
+          depends_on: [],
+          write: ["**"],
+          create: ["**"],
+        },
+      ],
+    });
+    emit("task.ready", { task_id: "SOLO" });
     return;
   }
 
@@ -61,8 +72,18 @@ export async function runRouteAction(
 
     emit("run.routed", { mode: routedMode });
     if (routedMode === "solo") {
-      emit("setup.done", {});
-      emit("task.ready", { task_id: "solo" });
+      await workspaceManager.createRunBranch(ctx.repoRoot, ctx.runId, "HEAD");
+      emit("setup.done", {
+        tasks: [
+          {
+            id: "SOLO",
+            depends_on: [],
+            write: ["**"],
+            create: ["**"],
+          },
+        ],
+      });
+      emit("task.ready", { task_id: "SOLO" });
     }
     return;
   }

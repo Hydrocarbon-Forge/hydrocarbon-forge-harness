@@ -99,7 +99,7 @@ describe("ecosystem: detectEcosystem", () => {
 });
 
 describe("ecosystem: getDefaultVerify", () => {
-  const ecosystems: Ecosystem[] = ["node-ts", "python", "rust", "go", "other"];
+  const ecosystems: Ecosystem[] = ["node-ts", "python", "rust", "go"];
 
   it.each(ecosystems)("returns valid Command array for %s", (eco) => {
     const commands = getDefaultVerify(eco);
@@ -113,6 +113,11 @@ describe("ecosystem: getDefaultVerify", () => {
       expect(cmd.run.length).toBeGreaterThan(0);
       expect(cmd.timeout_s).toBeGreaterThan(0);
     }
+  });
+
+  it("returns empty Command array for other", () => {
+    const commands = getDefaultVerify("other");
+    expect(commands).toEqual([]);
   });
 
   it("provides expected test runners in verify commands", () => {

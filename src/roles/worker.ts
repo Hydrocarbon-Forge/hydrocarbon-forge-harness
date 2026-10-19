@@ -461,7 +461,8 @@ async function runAttempt(
       sandbox: opts.settings.sandbox.enabled,
       network: "allow",
     });
-    const passed = runner.isAllPassed(verifyResults);
+    const passed =
+      (opts.spec.verify?.length ?? 0) === 0 ? true : runner.isAllPassed(verifyResults);
 
     opts.onEvent?.("task.verify.finished", {
       task_id: opts.taskId,

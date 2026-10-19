@@ -37,9 +37,9 @@ export async function runTaskAction(
   switch (action.type) {
     case "worker":
     case "heal": {
-      const taskId = action.taskId ?? "solo";
+      const taskId = action.taskId ?? "SOLO";
 
-      if (taskId === "solo") {
+      if (taskId === "solo" || taskId === "SOLO") {
         await runSoloTask(action, ctx, state, emit);
         return;
       }
