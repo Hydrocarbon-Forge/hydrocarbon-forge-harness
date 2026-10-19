@@ -233,3 +233,30 @@ After the two names were added with a comment citing this entry, the test passes
 **Status: RESOLVED by precedent on 2026-10-19; work continued under the user instruction to continue on progress.json.** `docs/plan/wp/R4.6.md` Interface requires `substrate models --stats [--since 30d] [--output-format json]` and Done-when 3 requires it to run through the built CLI. `src/cli/dispatcher.ts` rejects any option that is not in `CLI_OPTIONS` (`Error: Unknown option '--stats'`, exit 2), and that file is not in R4.6's write list. The R2.7 entry above is the same conflict, and the owner ratified option 1 there: add the flag to `CLI_OPTIONS`, `ParsedCliFlags` and the `flags` mapping, exactly as `refresh` is done. R4.6 did that for `stats` (3 lines, no other change to the file). `since` was already registered by R2.8.
 
 Other facts for the reviewer: no entry in `scripts/debt-allowlist.json` had `until: R4.6`, so Done-when 5 deleted nothing. A first, uncommitted attempt at R4.6 left corrupted edits (a `TODO` stub and broken syntax) in `src/cli/commands/models.ts`, `src/cli/model-catalog.ts` and `src/ledger/usage.ts`; they were reverted to HEAD before the real implementation.
+
+## R5.1 — deviations, and findings for R5.3 (nothing here blocks R5.1)
+
+**Status: R5.1 completed.** These are recorded so the owner can ratify the deviations and R5.3 can act on the findings.
+
+### Deviations (files outside R5.1's lists, or choices the spec left open)
+
+- `test/e2e/helpers/run-substrate.ts` (not in R5.1's lists) was changed so `result.events` and `result.runDir` come from the run directory this invocation created. Before, the helper took the lexically last directory, but run ids are random, so any test that makes two runs in one repo read the wrong run's events about half the time. `test/e2e/archive.test.ts` (R4.4) failed in two of five full `npm test` runs because of this (`expected +0 to be 1` on the second run's `exit_code`). With the fix it passed 8 of 8 repeated runs and the full suite passed. A resume creates no new directory, so the helper falls back to all directories and picks the newest `events.jsonl`.
+- `scripts/docs-check.mjs` `DOC-CMD` and the older `missing_cli_doc` rule count a command module beside the dispatcher only if `src/cli/dispatcher.ts` loads it (today: `bench`). The spec reads only `src/cli/commands/*.ts`; `bench` lives outside that directory, so a strict reading would flag a command that works. `src/cli/agents-import.ts` is not loaded by the dispatcher, so its `agents:import` / `agents-import` names register nothing. A test in `test/unit/scripts/docs-check.test.ts` covers both cases.
+- `DOC-KEY` checks the dotted keys of the new `## Settings key index` table in `docs/reference/config.md`. Schema keys the engine does not read are described in prose and left out of the table, not put on the debt allowlist.
+- `assets/prompts/README.md` is protected and has no row for the new `assets/prompts/caller/` directory (its Layout tree and the Variables and spawn tables). No check currently requires it. The owner may add `caller/substrate-caller.md` to the Layout tree.
+- No entry in `scripts/debt-allowlist.json` had `until: R5.1`, so Done-when 5 deleted nothing.
+
+### Findings from documenting the code (for the R5.3 wiring audit)
+
+Reported by the documentation agents while reading the code and running the built CLI. The ones marked verified were re-checked by the lead.
+
+- Verified: `agents:import` and `agents-import` are not reachable. The dispatcher never loads `src/cli/agents-import.ts`, so either word becomes a run prompt and starts a run. `agents import --from <claude|opencode>` (two words) works through `src/cli/commands/agents.ts`. The documentation lists only the two-word form.
+- Verified: the governor is still called by `src/roles/router.ts` and `src/engine/actions/route.ts` when `roles.governor.enabled` is true. It is off by default.
+- Verified: the OpenCode adapter writes `opencode.json` and an agent file into `req.cwd` (the task worktree), which R4.3 Behavior 2 forbids.
+- Reported, not re-checked: `bench` does not pass `--dry-run` through, and its per-attempt costs are fixed per arm, so its printed costs and pass rates are not measurements.
+- Reported: `config get <unknown key>` prints `undefined` and exits 0. `substrate --resume <id>`, `-c` and `--fork-session` with no command print help.
+- Reported: `config set backends.opencode.provider.base_url <url>` without `--local` writes the key to `settings.json`, after which every command exits 2. The OpenCode error text names `backends.opencode.extra.base_url`, but the key read is `backends.opencode.provider.base_url`.
+- Reported: built-in defaults (`routing.feature`, `roles.worker`, both claude) beat profile routes, so a profile does not reach the feature class or the solo worker. A profile named other than a backend pauses with `backend_unavailable`, which exits 3, the same code as `needs_input`.
+- Reported: `--allowed-tools`, `--disallowed-tools` and `--timeout` write settings keys that nothing reads. A solo run on the local route verified with zero tokens.
+- Reported: settings keys accepted by the schema but not read by the engine: `budgets.run.max_wall_min`, `execution.strategy`, `git.branch_prefix`, `permissions.allow|deny|ask`, `roles.reviewer.*`, `roles.worker.effort`, `sandbox.network`, `routing.*.budget.*`, `hooks.*`, `backends.*.extra` (except `customBaseUrl`).
+- Reported: the installed agy is 1.4.2 and the pin is 1.4.0, so `doctor` reports a mismatch.

@@ -1,38 +1,28 @@
 # Local Model Worker Route
 
-Substrate supports delegating worker tasks to a local OpenAI-compatible inference server (such as llama.cpp server, Ollama, or vLLM) via OpenCode's custom provider route.
+A local OpenAI-compatible inference server, such as the llama.cpp server, can run worker tasks. Substrate reaches it through OpenCode's custom provider. The endpoint is stored only in `.substrate/settings.local.json`, which `substrate init` lists in the `.gitignore` it writes.
 
----
-
-## Architecture Overview
-
-A local model route is configured as a custom provider inside OpenCode. When a task routes to a local model:
-
-1. **Per-Run Isolation**: The adapter generates a per-run configuration file (`opencode.json`) within the task's execution directory. This configuration defines the custom provider with `@ai-sdk/openai-compatible`.
-2. **Ephemeral Credentials & Endpoints**: The server base URL and model definitions live strictly in `.substrate/settings.local.json` and in the ephemeral per-run configuration file. They are never committed to the git repository or exposed to task prompts.
-3. **Automatic Cleanup**: Upon task completion (whether successful, failed, or cancelled), the per-run configuration file is deleted.
-4. **Targeted Concurrency**: Worker concurrency for local OpenCode execution defaults to 2 (configurable via `backends.opencode.max_concurrency`) to avoid overwhelming local GPU or CPU inference capacity.
+Nothing is routed to the local provider unless a route names one of its models.
 
 ---
 
 ## Configuration
 
-Local provider settings must be stored in `.substrate/settings.local.json`. Substrate explicitly rejects `backends.opencode.provider` if defined in any non-local settings file (such as `.substrate/settings.json` or global user configuration).
+### 1. Set the endpoint
 
-### Setting Base URL via CLI
-
-Use `substrate config set` with the `--local` flag to write the endpoint URL into `.substrate/settings.local.json`:
+Write the endpoint URL into the local settings file:
 
 ```bash
-substrate config set backends.opencode.provider.base_url "http://<host>:<port>/v1" --local
+substrate config set backends.opencode.provider.base_url "<endpoint URL>" --local
 ```
 
-> [!IMPORTANT]
-> The URL must use the `http:` or `https:` scheme. Any other scheme is rejected with exit code 2. Never commit local IP addresses or hostnames to version-controlled files.
+The URL must start with `http:` or `https:`. Any other scheme is rejected with exit code 2.
 
-### Configuration Schema
+Always pass `--local`. Without it, `config set` writes the provider key into `.substrate/settings.json`, reports success, and every later load then fails with exit code 2 (see [config.md](config.md)).
 
-In `.substrate/settings.local.json`:
+### 2. Describe the provider
+
+In `.substrate/settings.local.json`, the provider block is:
 
 ```json
 {
@@ -41,11 +31,9 @@ In `.substrate/settings.local.json`:
       "provider": {
         "id": "local",
         "npm": "@ai-sdk/openai-compatible",
-        "base_url": "http://<host>:<port>/v1",
+        "base_url": "<endpoint URL>",
         "models": {
-          "local-llama": {
-            "name": "Local Llama 3"
-          }
+          "local-llama": { "name": "Local Llama 3" }
         }
       }
     }
@@ -53,43 +41,78 @@ In `.substrate/settings.local.json`:
 }
 ```
 
-- `id`: Provider identifier inside OpenCode (defaults to `"local"`).
-- `npm`: SDK package for OpenCode provider resolution (must be `"@ai-sdk/openai-compatible"`).
-- `base_url`: HTTP/HTTPS endpoint of the local OpenAI-compatible server.
-- `models`: Dictionary of model keys served by the local instance.
+- `base_url` (required): the endpoint of the local server. It must be an `http:` or `https:` URL. A path such as `/v1` is kept as written.
+- `id` (optional, default `local`): the provider name used in OpenCode model strings.
+- `npm` (optional): must be `@ai-sdk/openai-compatible`, which is also the default.
+- `models` (optional, default empty): the model keys that the server serves. Each key may have a `name` used as its display name.
 
----
+`backends.opencode.provider` may be set only in the local file. Setting it in the project file, the user file, or any other explicit file is an error (exit 2).
 
-## Routing to Local Models
+### 3. Route work to the local models
 
-A profile or role slot names the local model using either the key from `provider.models` or `<id>/<key>`.
-
-### Project Profile Definition
-
-In `.substrate/settings.json`:
+A profile names the models for each provider, and `defaults.worker_provider` names the provider whose profile routes worker tasks. The provider name is also the backend name, so the local models go under the `opencode` profile:
 
 ```json
 {
   "profiles": {
-    "local-worker": {
-      "plan": {
-        "model": "claude-sonnet-5-5",
-        "effort": "high"
-      },
-      "work": {
-        "model": "local-llama"
-      }
+    "claude": {
+      "plan": { "model": "claude-sonnet-5-5", "effort": "high" },
+      "work": { "model": "claude-sonnet-5-5", "effort": "medium" }
+    },
+    "opencode": {
+      "plan": { "model": "local-llama" },
+      "work": { "model": "local-llama" }
     }
   },
   "defaults": {
     "planner_provider": "claude",
-    "worker_provider": "local-worker"
+    "worker_provider": "opencode"
   }
 }
 ```
 
-When the worker task executes:
-- The adapter resolves `local-llama` against `provider.models`.
-- The adapter translates the model flag to `-m local/local-llama`.
-- The ephemeral `opencode.json` configures the `local` provider with endpoint `"http://<host>:<port>/v1"`.
-- If `provider.models` is empty while a profile slot names a local model, Substrate reports `unknown model` with exit code 2.
+A profile whose name is not a backend name (for example `local-worker`) is not usable: the route's backend is the profile name, no adapter has that name, and the run pauses with `backend_unavailable`.
+
+Two built-in settings take precedence over profiles:
+
+- `routing.feature` is always present (claude, `claude-sonnet-5-5`). An explicit route for a task class wins over a profile slot, so the `feature` class uses claude unless `routing.feature` is set.
+- `roles.worker` is always present (claude, `claude-sonnet-5-5`). In solo mode it replaces the route of the single worker.
+
+To run a solo task on the local model, set the solo worker route:
+
+```json
+{
+  "roles": {
+    "worker": { "backend": "opencode", "model": "local-llama" }
+  }
+}
+```
+
+---
+
+## Model Names
+
+- A profile or role slot may name a local model by its key (`local-llama`) or by `<provider id>/<key>` (`local/local-llama`).
+- The adapter maps the key to `<provider id>/<key>` in the model string it passes to OpenCode. An effort adds `#<effort>` to the end.
+- `substrate models` lists each local key and each `<provider id>/<key>` id under the `opencode` provider, when the provider is set. The listing does not need the local server to be reachable.
+- When the `opencode` harness is installed and a requested id is not in that listing, request validation reports `unknown model`.
+
+---
+
+## What Happens at Run Time
+
+When a session starts on the local route, the OpenCode adapter:
+
+1. Writes an agent file and an `opencode.json` file into the task's working directory (the task worktree). The `opencode.json` file holds the provider block: the `npm` package, `options.baseURL` set to `base_url`, and the `models` table.
+2. Starts `opencode` with the mapped model string.
+3. Removes both files when the session finishes or is killed.
+
+The endpoint is passed to OpenCode only through that per-run file. It is not part of the prompt or of the task spec.
+
+If a local model is named and no endpoint is configured, the session fails at once with a `protocol` error and exit code 1. The error text names `backends.opencode.extra.base_url`; the key the code reads is `backends.opencode.provider.base_url`.
+
+---
+
+## Concurrency
+
+The scheduler caps simultaneous OpenCode processes only when `backends.opencode.max_concurrency` is set and `roles.worker.backend` is `opencode`. It reads `roles.worker.backend` only, so the cap has no effect on profile-routed workers unless `roles.worker` also names `opencode`. The adapter's own reported value of 2 is not read by the engine (see [adapters.md](adapters.md)).

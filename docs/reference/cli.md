@@ -1,430 +1,330 @@
-# CLI Reference
+# CLI reference
 
-Substrate provides a comprehensive command-line interface for running autonomous execution workflows, inspecting state, analyzing costs, and managing Git worktrees.
+This page describes the `substrate` command as the code implements it. Every flag, command and exit code below was checked against `src/cli/` and the built CLI. Settings files and their layers are in [config.md](config.md). Callers that are agents should read [caller-guide.md](caller-guide.md) first.
+
+In this document `substrate` means either `node bin/substrate.mjs` or `node dist/substrate.mjs` from the repository root.
+
+## Invocation
 
 ```text
-Usage: substrate [command] [options] [arguments...]
+substrate <command> [options] [arguments]
+substrate <prompt words>
 ```
 
----
+- With no arguments, `substrate` prints the command list and global options and exits 0. `--help` or `-h` does the same, for any command. There is no per-command help text.
+- A first word that is not a command is a run prompt. `substrate "fix the flaky test"` is the same as `substrate run "fix the flaky test"`. A single word works too, so a mistyped command name starts a run instead of failing.
+- `-p` or `--print` with no command runs a prompt headlessly. An option that is not in the option table is an error: `Error: Unknown option`, exit 2. Only `bench` gets its option names past that check, and it does not use them (see bench).
+- A flag from the option table is accepted by every command, even when that command does not read it. Such a flag is ignored. For example `report --output-format json` is accepted and still prints text.
+- `--resume` and `--continue` with no command print help. Use `substrate run --resume <target>`, `substrate run -c`, or `substrate resume <target>`.
 
-## Global and Governance Flags
+## Exit codes
 
-These flags can be applied to `substrate run`, `substrate plan`, and other execution subcommands:
+Copied from SUBSTRATE-PLAN.md section 4.6:
 
-| Flag | Type | Description |
+| Code | Meaning |
+|---|---|
+| `0` | success |
+| `1` | run failed |
+| `2` | usage/config error |
+| `3` | needs human (approval in `dontAsk`, permission denial, escalation L3) |
+| `4` | budget exhausted |
+| `130` | SIGINT (Ctrl+C) |
+| `143` | SIGTERM |
+
+For a run, the engine maps its state to a code: finished is `0`; failed or cancelled is `1`; paused for budget is `4`; paused for a user cancel is `130`; any other pause, including a run paused for answers to `QUESTIONS.md`, is `3`. Commands that are not runs use `0`, `1` and `2` as their entries describe.
+
+## Global options
+
+| Option | Used by | Description |
 |---|---|---|
-| `-p`, `--print` | Boolean | Run headlessly and print the result to stdout. |
-| `--output-format <format>` | String | Selects output format: `text` (human-readable), `json` (single structured payload), or `stream-json` (NDJSON stream). |
-| `--model <model>` | String | Overrides the primary model used for planning, manifest generation, or solo mode. |
-| `--worker-model <model>` | String | Overrides the worker model across all task routing classes. |
-| `--effort <level>` | String | Reasoning effort level: `low`, `medium`, `high`, `xhigh`, or `max`. |
-| `--session-id <id>` | String | Explicit session identifier to bind or create. |
-| `--resume <target>` | String | Resume an interrupted run or prior session from the JSONL event log by RunId or SessionId. |
-| `-c`, `--continue` | Boolean | Automatically continue the most recently active session. |
-| `--fork-session` | Boolean | Branch the state of an existing session into a new independent session. |
-| `--mode <mode>` | String | Execution mode: `auto` (default DAG decomposition), `solo` (single-agent execution), or `plan` (planning only). |
-| `--no-governor` | Boolean | Bypass local governor front-door triage and proceed directly to planning. |
-| `--permission-mode <mode>` | String | Permission mode: `default`, `plan`, `acceptEdits`, `dontAsk`, or `bypassPermissions`. |
-| `--max-budget-usd <amount>` | Number | Maximum cumulative spend limit in USD for the run before pausing. |
-| `--timeout <seconds>` | Number | Overall wall-clock timeout limit in seconds. |
-| `--sandbox` | Boolean | Enforce Bubblewrap OS-level sandbox isolation on worker commands. |
-| `--settings <file>` | String | Path to custom JSONC configuration file. |
-| `--allowed-tools <tools...>` | String[] | Explicit whitelist of allowed tool calls (repeatable or comma-separated). |
-| `--disallowed-tools <tools...>` | String[] | Explicit blacklist of prohibited tool calls (repeatable or comma-separated). |
-| `--history-all` | Boolean | Include archived runs across all project versions in planner context. |
+| `-h`, `--help` | all | print help |
+| `-p`, `--print` | run | run headlessly and print the result |
+| `-c`, `--continue` | run | continue the most recent session |
+| `--resume <target>` | run | resume a run or session by id |
+| `--session-id <id>` | run, resume | bind to or create a session |
+| `--fork-session` | run, plan, resume | branch a session; `run` needs `--resume` or `--continue`, `resume` needs a session target |
+| `--output-format <fmt>` | run, plan, resume, status, models, usage, doctor, backends, sessions, history | `text` (default), `json`, or `stream-json`. Commands that do not read it always print text. |
+| `--settings <file>` | most commands | read this settings file instead of the project's |
+| `--sandbox` | run, verify | enable the bubblewrap sandbox (`sandbox.enabled`) |
 
----
+## run
 
-## Standard Exit Codes
-
-Substrate adheres to deterministic process exit codes across headless and scripted environments:
-
-| Exit Code | Classification | Meaning |
-|---|---|---|
-| `0` | **Success** | All planned tasks executed, passed acceptance verification, and merged. |
-| `1` | **Run Failure** | A task verification failed, worker process crashed, spec invalid, or unrecoverable error. |
-| `2` | **Usage / Config Error** | Invalid flags, unknown subcommand, syntax error, or settings validation error. |
-| `3` | **Needs Human** | Execution paused requiring human approval (permission prompt, gate confirmation, budget escalation). |
-| `4` | **Budget Exhausted** | Configured budget threshold reached (max USD, max tokens, or max wall-clock time). |
-| `130` | **SIGINT Interruption** | Process interrupted by user keyboard signal (`Ctrl+C`). |
-| `143` | **SIGTERM Termination** | Clean termination after receiving external operating system kill signal. |
-
----
-
-## Subcommands
-
-Substrate includes 21 specialized subcommands:
-
-### run
-
-Executes a goal prompt through deterministic DAG planning, isolated worker dispatch, and verification.
-
-```bash
-substrate run [options] "<prompt>"
+```text
+substrate run [options] [prompt]
 ```
 
-- **Arguments**: Goal prompt describing the desired code change. If omitted in non-interactive mode, reads from standard input (`stdin`).
-- **Options**: Accepts all Global and Governance flags.
-- **Behavior**: If `--no-governor` is not specified, routes through the local triage governor. Then invokes the planner, creates isolated worktrees per task, executes worker sessions, gates merges on verification, and summarizes usage.
+Runs a goal end to end: plans it (unless `--mode solo`), starts workers in git worktrees, verifies each task, and merges what passes.
+
+- **Prompt**: the first argument. If it is missing and stdin is piped, the trimmed stdin text is the prompt. With neither, exit 2 with `prompt required on command line or stdin`.
+- **Request file**: `--request <file|->` reads a JSON request from a file (relative to the project) or from stdin with `-`. A request cannot be combined with a prompt. An invalid request prints `{"error":"invalid_request","problems":[...]}` on stdout and exits 2. The fields are listed in [caller-guide.md](caller-guide.md).
+- **Roles**: `--plan <provider[:model[:effort]]>` sets the planner and `--work <provider[:model[:effort]]>` sets the worker. Either one switches the run to the request path. `--model` sets the planner (in `auto` and `plan` modes) or the worker (in `solo`). `--worker-model` sets the worker. `--effort` sets the planner's effort.
+- **Mode**: `--mode auto|solo|plan`. The default is `auto`. `solo` runs one worker with no planner.
+- **Verify**: `--verify "<cmd>"` adds a verify command. It can be repeated. In `solo` mode, a run with no verify command warns that only scope and budget checks apply.
+- **Limits**: `--max-budget-usd <amount>` caps the run's spend, `--timeout <seconds>` caps its wall-clock time.
+- **Tools**: `--allowed-tools` and `--disallowed-tools` take a list (comma-separated or repeated).
+- **Permissions**: `--permission-mode default|plan|acceptEdits|dontAsk|bypassPermissions`. The run default is `dontAsk`.
+- **History**: `--history-all` includes archived runs from every charter version in the planner's context.
+- **Exit codes**: see the table above. A run that needs answers exits `3` and prints a `needs_input` result with its questions. Answer them with `resume --answers`.
 
 ```bash
-# Headless run with maximum budget cap
-substrate run --max-budget-usd 5.0 -p "Add request rate limiter to server"
+substrate run --request - --output-format json < request.json
+substrate run --mode solo --verify "npm test" "add a retry to the client"
+substrate run --plan claude:opus:high --work claude:sonnet:medium "rename the config key"
 ```
 
-### plan
+## plan
 
-Generates a decomposed task manifest and runs specification linter without dispatching workers.
-
-```bash
-substrate plan [options] "<prompt>"
+```text
+substrate plan [options] [prompt]
 ```
 
-- **Arguments**: Goal prompt describing the feature or refactor.
-- **Options**: `--model`, `--effort`, `--output-format`.
-- **Behavior**: Calls the configured planner route, generates `.substrate-task/` specs, checks DAG acyclicity, runs spec linting rules, and computes pre-flight cost estimates.
+Runs the planner only. It forces `--mode plan` and `plan` permissions, so it writes a plan and stops before any worker runs. It accepts the same prompt, `--request`, `--plan`, `--work`, `--model`, `--effort`, `--max-budget-usd` and `--timeout` options as `run`. Without a prompt or request it exits 2 with `prompt required`.
 
-```bash
-substrate plan "Refactor database connection pooling"
+## resume
+
+```text
+substrate resume [options] <run-id | session-id>
 ```
 
-### resume
-
-Resumes an interrupted or paused run from its JSONL event log.
-
-```bash
-substrate resume [options] [run-id]
-```
-
-- **Arguments**: Optional `run-id` (e.g., `r_7ABCD234EF56`). If omitted, resumes the latest run in `.substrate/runs/`.
-- **Behavior**: Reconstructs state from the append-only event log, validates existing task worktrees, escalates failed tasks according to the model ladder, and resumes uncompleted DAG nodes.
+- With a target, resumes that run. With a session id, resumes the session's latest run. `--session-id` or `--resume` can name the target instead of a positional argument.
+- A run whose event log says it has finished prints `Run <id> is already finished. Nothing to resume.` and exits 0.
+- A run paused with questions needs answers. `--answers <file|->` reads a JSON object `{"answers":[{"id":"Q1","text":"..."}]}` from a file or stdin. A question left out takes its `default`. A question with no default and no answer exits 2. An answer for an unknown question id exits 2. `--answers` on a run with no pending questions exits 2.
+- `--fork-session` with a session target forks the session first.
+- Exit codes follow the run exit codes above.
 
 ```bash
 substrate resume r_ABC123DEF456
+substrate resume <run_id> --answers answers.json
 ```
 
-### status
+## status
 
-Displays current execution status, task graph breakdown, and failure counts.
+```text
+substrate status [--output-format json] [run-id]
+```
+
+Shows a run's state, its tasks and any pause reason. Without a run id it uses the most recent run in `.substrate/runs/`. With no runs it exits 2 with `No run found to display status`. `--output-format json` prints a JSON object.
+
+## tasks
+
+```text
+substrate tasks [run-id]
+```
+
+Prints a table of the run's tasks. Without a run id it uses the most recent run directory whose name starts with `r_`. It has no JSON output and no task filter. Use `status` or `report` for more detail.
+
+## report
+
+```text
+substrate report <run-id>
+```
+
+Prints a text diagnostic for a run: goal, duration, a table of tasks (state, generation, attempts, failure), tokens in and out, cost, files changed and verify outcomes. A missing run id exits 2 with `Run ID required`. An unknown run exits 2. `--output-format` is accepted and ignored. Reports are text only.
+
+## verify
+
+```text
+substrate verify <task-id> [--run <run-id>] [--timeout <seconds>] [--sandbox]
+```
+
+Re-runs a task's verify commands in its worktree, `.substrate/worktrees/<run-id>/<task-id>`. With no `--run`, it searches the worktrees for the task. Each command prints `[verify] <cmd> -> exit <n>`. Exit `0` when every command passes, `1` when any fails, `2` for a missing task id or a missing worktree. `--timeout` overrides every command's timeout. `--sandbox` runs the commands in the sandbox.
+
+## merge
+
+```text
+substrate merge [--dry-run] [--abort-on-conflict] [run-id]
+```
+
+Merges a finished run branch into the current branch. A missing run id exits 2 with `Run ID required`, and an unknown run exits 2 with `Error: unknown run <id>`. The merge is refused, exit 1, when the run did not finish successfully, when tracked files have uncommitted changes, or when a preflight check finds a conflict; the conflicting files are listed on stderr. `--abort-on-conflict` takes the abort path on a conflict. `--dry-run` runs the checks without merging.
+
+## undo
+
+```text
+substrate undo [--hard] [run-id]
+```
+
+Moves the run branch back to the checkpoint before its most recent merged batch. Without a run id it uses the most recent run that has a checkpoint. With none it exits 1 with `no checkpoint recorded for run`. It refuses to run while the run branch is checked out, and it exits 1 in that case. `--hard` also resets the run's integration worktree to the checkpoint, if that worktree exists.
+
+## discard
+
+```text
+substrate discard [--force] [run-id]
+```
+
+Removes a run's worktrees and deletes its run branch. If a run process is still alive, the command exits 1 unless `--force` is given. With `--force` it sends the process SIGTERM first. A missing run id exits 2.
+
+## models
+
+```text
+substrate models [--provider <name>] [--refresh] [--output-format json]
+substrate models --stats [--since 7d|YYYY-MM-DD] [--output-format json]
+```
+
+- Lists each installed provider (`claude`, `opencode`, `agy`), its version and pin status, and its models with the efforts they accept, their price per million tokens and the profile slots that use them. Models with no known price show `unpriced`. A `== all models ==` table follows.
+- `--provider <name>` limits the listing to one provider. An unknown provider exits 2.
+- `--refresh` queries the providers again and rewrites the cache in `.substrate/state/models.json`. Without it a fresh cache is reused.
+- `--stats` prints per-model task statistics for each provider: tasks, first-pass rate, heal rate, replans, average input and output tokens, and cost per passed task. `--since` limits the statistics to recent runs. It takes `7d` (days back) or a `YYYY-MM-DD` date. A cost shows `unknown` when a price is missing.
+- `--output-format json` prints the catalog as one JSON object, or the statistics as `{"since":...,"stats":[...]}` with `--stats`.
 
 ```bash
-substrate status [options] [run-id]
+substrate models
+substrate models --provider claude --output-format json
+substrate models --stats --since 30d
 ```
 
-- **Options**: `--output-format text|json`.
-- **Behavior**: Replays events to show overall run state (`running`, `paused`, `finished`, `failed`), individual task states (`pending`, `running`, `passed`, `failed`), and pause reason.
+## usage
 
-```bash
-substrate status
+```text
+substrate usage [--by model|provider|role|run|task|class|day] [--since 7d|YYYY-MM-DD]
+                [--provider <name>] [--model <id>] [--run <run-id>] [--cache]
+                [--all-projects] [--rebuild] [--output-format json] [run-id]
 ```
 
-### tasks
+`cost` is an alias of `usage` with the same behaviour and options.
 
-Provides detailed inspection of individual tasks and isolated worktrees.
-
-```bash
-substrate tasks [options] [run-id]
-```
-
-- **Options**: `--task <task-id>`, `--output-format text|json`.
-- **Behavior**: Prints task specification details, write allowances, dependency status, worktree path, attempt count, and verification outputs.
-
-```bash
-substrate tasks --task T1
-```
-
-### usage
-
-Reports token usage and cost across every harness from the usage ledger. `cost` is an alias with identical behaviour.
-
-```bash
-substrate usage [options] [run-id]
-```
-
-- **Options**: `--by model|provider|role|run|task|class|day` (default `model`), `--since 7d|YYYY-MM-DD`, `--provider P`, `--model M`, `--run ID`, `--all-projects`, `--cache`, `--rebuild`, `--output-format text|json`. `usage <run-id>` is shorthand for `--run <run-id>`.
-- **Behavior**: Reads only the JSONL usage ledger the engine writes. It never recomputes prices and never drops rows whose cost is unknown; unknown-cost rows are grouped with a ` (+ n unknown)` suffix on the cost cell. `--rebuild` regenerates the ledger from recorded `usage.recorded` events before reporting. Invalid `--by` or `--since` values exit 2; with no entries the command prints `no usage recorded` and exits 0, and `--all-projects` with no global mirror prints `no global mirror` and exits 0.
+- Reads the usage ledger (`.substrate/ledger/usage.jsonl`). It sums the recorded tokens and cost and never recomputes a price.
+- `--by` groups rows. The default is `model`. Any other value exits 2 with `invalid --by`.
+- `--since` keeps only entries on or after the date. Any other form exits 2 with `invalid --since`.
+- `--provider`, `--model` and `--run` filter entries. A positional run id is the same as `--run`.
+- `--cache` adds cache read, cache write and reasoning token columns.
+- A cost that Substrate cannot price is shown as `$x.xxxx (+ n unknown)`. The tokens of those calls are still counted.
+- `--all-projects` reads the global mirror of the ledger (`usage.global`). Without a mirror it prints `no global mirror` and exits 0.
+- `--rebuild` rebuilds the ledger from each run's recorded events before reporting, and prints `rebuilt <n> line(s) from <m> run(s)`.
+- With no entries, text output prints `no usage recorded` and exits 0. JSON output has the same shape with empty `rows`.
+- `--output-format json` prints `{"by","since","filters","rows","totals"}`. Each row has `group`, `runs`, `calls`, `input_tokens`, `output_tokens`, `cost_usd` and `unknown_cost_rows`.
 
 ```bash
 substrate usage --by model
 substrate usage --by day --since 30d --cache
-substrate cost --by task --since 7d
+substrate cost --by task --since 7d --output-format json
 ```
 
-### report
+## agents
 
-Generates a comprehensive execution summary report.
-
-```bash
-substrate report [options] [run-id]
-```
-
-- **Options**: `--output-format text|json`, `--file <path>`.
-- **Behavior**: Exports summary of run metadata, duration, cost, task attempts, files modified, and verify command outcomes.
-
-```bash
-substrate report --output-format json
-```
-
-### verify
-
-Re-runs acceptance verify commands inside a task's worktree.
-
-```bash
-substrate verify <task-id> [options]
-```
-
-- **Arguments**: `task-id` corresponding to a task spec.
-- **Options**: `--run <id>`, `--timeout <seconds>`.
-- **Behavior**: Executes all verify commands specified in the task frontmatter within the worktree environment, returning detailed exit codes and truncated tails.
-
-```bash
-substrate verify T1
-```
-
-### merge
-
-Applies a completed run branch into the active working branch.
-
-```bash
-substrate merge [options] [run-id]
-```
-
-- **Options**: `--dry-run`, `--abort-on-conflict`.
-- **Behavior**: Validates that all tasks passed integration verify, checks for scope violations, and fast-forwards or merges the run branch.
-
-```bash
-substrate merge
-```
-
-### undo
-
-Reverts the most recently merged run batch.
-
-```bash
-substrate undo [options]
-```
-
-- **Options**: `--hard`.
-- **Behavior**: Locates the merge commit produced by the previous `substrate merge` and safely reverts the changes while preserving unstaged working tree edits.
-
-```bash
-substrate undo
-```
-
-### discard
-
-Cancels a run, cleans up working branches, and deletes task worktrees.
-
-```bash
-substrate discard [options] [run-id]
-```
-
-- **Options**: `--force`.
-- **Behavior**: Kills any active child harness processes, marks the run cancelled in the event log, and removes worktree directories under `.substrate/worktrees/`.
-
-```bash
-substrate discard --force
-```
-
-### models
-
-Lists configured models, pricing rates, and routing mappings.
-
-```bash
-substrate models [options]
-```
-
-- **Options**: `--output-format text|json`.
-- **Behavior**: Dumps the effective pricing table and routing ladder configured in settings.
-
-```bash
-substrate models
-```
-
-### agents
-
-Lists registered agent definitions and specialized role configurations.
-
-```bash
-substrate agents [options]
-```
-
-- **Behavior**: Scans project `.substrate/agents/` and global definitions, showing allowed tools, system prompts, and model bindings.
-
-```bash
+```text
 substrate agents
+substrate agents import --from claude|opencode
 ```
 
-### backends
+- `agents` prints one line per role that has a prompt file (the built-in set is in `assets/agents/`): the role, where its prompt came from (`project`, `user` or `built-in`) and the file path. A project file at `.substrate/agents/<role>.md` overrides the user and built-in files for that role.
+- `agents import --from <claude|opencode>` converts definitions from `.claude/agents` or `.opencode/agents` in the project into `.substrate/agents/`. An agent whose name already exists in `.substrate/agents/` is skipped, never overwritten. It prints `Imported` and `Skipped` lists. A missing source directory exits 2. Other errors exit 1.
+- `agents import` has no path, overwrite or directory options. Passing one is rejected with `Unknown option`, exit 2. `--dry-run` is accepted and does nothing.
+- The source directory is fixed: `.claude/agents` for `claude`, `.opencode/agents` for `opencode`. The target is fixed: `.substrate/agents`.
 
-Displays adapter capabilities, version pins, and local CLI status.
+## backends
 
-```bash
-substrate backends [options]
+```text
+substrate backends [--output-format json]
 ```
 
-- **Behavior**: Queries each registered backend adapter (`claude`, `opencode`, `agy`, `fake`), runs `validateEnvironment()`, and displays version pin matches and capability flags.
+Prints each adapter's version pin, installed version and status, and the capabilities of each harness (`claude`, `opencode`, `agy`).
 
-```bash
-substrate backends
+## sessions
+
+```text
+substrate sessions [--output-format json]
 ```
 
-### sessions
+Lists recorded sessions with their id, creation time, mode, run count and latest prompt, from `.substrate/sessions/`. The command has no way to limit the number of rows. Text output prints a header and one line per session. JSON output prints `{"sessions":[...]}`.
 
-Lists interactive and headless agent sessions recorded in the session store.
+## config
 
-```bash
-substrate sessions [options]
+```text
+substrate config list
+substrate config get <key>
+substrate config set <key> <value> [--local]
 ```
 
-- **Options**: `--limit <n>`, `--output-format text|json`.
-- **Behavior**: Queries `.substrate/sessions/` and prints session IDs, timestamps, goals, total tokens, and exit statuses.
-
-```bash
-substrate sessions --limit 10
-```
-
-### config
-
-Inspects or modifies settings key-value pairs.
-
-```bash
-substrate config <get|set|list> [key] [value]
-```
-
-- **Commands**:
-  - `config list`: Prints the fully merged configuration object.
-  - `config get <key>`: Prints a specific dotted key path (e.g. `budgets.run.max_usd`).
-  - `config set <key> <value>`: Updates a configuration key in `.substrate/settings.json`.
+- `list` prints the merged configuration as JSON.
+- `get` prints one value by dotted key path. An unknown key prints `undefined` and exits 0.
+- `set` writes the value into `.substrate/settings.json`. With `--local` it writes `.substrate/settings.local.json` instead. It prints `Set <key> = <value>`.
+- A bad operation exits 2 (`Unknown config operation`). `set` with missing arguments exits 2 with its usage line.
 
 ```bash
 substrate config get budgets.run.max_usd
 substrate config set concurrency.workers 4
 ```
 
-### doctor
+## doctor
 
-Checks every condition a run depends on and says how to fix each one.
-
-```bash
-substrate doctor [--output-format text|json]
+```text
+substrate doctor [--output-format json]
 ```
 
-- **Checks**: Node.js >= 22, git >= 2.30, each CLI harness version against its pin (`pin_matches`), `settings.json` loads, every profile model appears in that provider's `models` answer, and bwrap, which is WARN only because the sandbox is off by default.
-- **Text output**: one `[PASS|WARN|FAIL] <name>: <detail>` line per check, followed by a `fix: <how_to_fix_it>` line for anything that is not a pass.
-- **JSON output**: the keys already defined by R1.8 (`node`, `git`, `bubblewrap`, `adapters`) plus the `checks` list.
-- **Exit code**: 1 when any check is FAIL, otherwise 0. A provider that is not installed is FAIL only when a profile or a default names it; otherwise it is WARN.
+Checks what a run depends on and prints one line per check, with a `fix:` line under each one that is not a pass:
 
-```bash
-substrate doctor
+- Node.js version (`>= 22`) and git version (`>= 2.30`).
+- Each provider's installed version against its pin. A mismatch is `FAIL`.
+- Whether `settings.json` loads.
+- Profile entries: each profile model must appear in its provider's model list.
+- bubblewrap, reported as `WARN` when missing. The sandbox is off by default.
+- A provider that is not installed is `FAIL` when a profile or default names it, and `WARN` otherwise.
+
+`--output-format json` prints the node, git, bubblewrap and adapter versions and a `checks` array. Exit `0` when no check is `FAIL`, `1` otherwise.
+
+## init
+
+```text
+substrate init [--force]
+substrate init --provider <claude|opencode|agy> --plan <model[:effort]> --work <model[:effort]> [--fast <model[:effort]>]
 ```
 
-### init
-
-Creates the runtime directories and writes only the settings that differ from the built-in defaults, so the built-in pricing table is used rather than a copied placeholder.
-
-```bash
-substrate init [--force] [--provider P] [--plan model[:effort]] [--work model[:effort]] [--fast model[:effort]]
-```
-
-- **Options**: `P` is `claude`, `opencode` or `agy`. `effort` is one of `low`, `medium`, `high`, `xhigh` or `max`. `--plan` and `--work` are required together, and any slot flag requires `--provider`. `--force` overwrites an existing file; without it an existing file is kept and reported as `kept <path>`.
-- **Behavior**: Creates the `.substrate/` subdirectories `runs`, `worktrees`, `state`, `sessions`, `ledger` and `archive`; writes `.substrate/.gitignore` with `runs/`, `worktrees/`, `state/`, `sessions/`, `ledger/` and `settings.local.json`; and writes the charter stub when `charter.md` is absent. `settings.json` contains only the keys that differ from the defaults (`profiles` and `defaults`), never pricing. `.git/info/exclude` is not written, because git ignores `.substrate/` through the generated `.gitignore`.
-- **No slot flags**: lists the installed providers and the model ids each one reports, and writes nothing.
-- **Exit code**: 0 on success, 2 when a model is not listed by its provider, when a provider is not installed, or when the slot flags are incomplete.
+- Creates the runtime directories under `.substrate/`: `runs`, `worktrees`, `state`, `sessions`, `ledger` and `archive`.
+- Writes `.substrate/.gitignore`, which ignores `runs/`, `worktrees/`, `state/`, `sessions/`, `ledger/` and `settings.local.json`.
+- Writes the charter stub `.substrate/charter.md` when it is absent. An existing charter is never overwritten, even with `--force`.
+- Without slot flags, it prints the installed providers and the model ids each one reports. It writes nothing else.
+- With slot flags, it writes the profile into `.substrate/settings.json`: `profiles.<provider>.plan`, `.work` and `.fast`, and the `defaults` for that provider. `--provider` is required with any slot flag, and `--plan` and `--work` must come together. A model id that the provider does not list exits 2 with the valid ids. An effort must be one of `low`, `medium`, `high`, `xhigh` or `max`.
+- An existing `settings.json` or `.gitignore` is kept and reported as `kept <path>`. `--force` overwrites them.
 
 ```bash
 substrate init --provider claude --plan opus:high --work sonnet:medium
 ```
 
-### bench
+## charter
 
-Runs benchmark evaluation harness across architectural comparison Arms A through D.
-
-```bash
-substrate bench [options]
-```
-
-- **Options**:
-  - `--arms <A,B,C,D>`: Comma-separated list of arms to evaluate.
-  - `--tasks <task...>`: Specific benchmark task IDs to run.
-  - `--repetitions <n>`: Number of repetitions per arm/task combination (default: 3).
-  - `--max-budget <usd>`: Cumulative budget limit for the benchmark suite.
-  - `--format <text|json|markdown>`: Format of output evaluation report.
-  - `--output <file>`: Write formatted benchmark report to specified file path.
-  - `--dry-run`: Validate setup and tasks without invoking LLM harnesses.
-
-```bash
-substrate bench --arms A,C,D --repetitions 3 --output build/bench-report.md
-```
-
-### agents-import
-
-Imports foreign agent definitions from Claude Code or OpenCode format into Substrate.
-
-```bash
-substrate agents-import [options]
-# Alias: substrate agents:import
-```
-
-- **Options**:
-  - `--from <claude|opencode>`: Source harness format to import from.
-  - `--path <dir>`: Path to foreign agent definitions directory.
-  - `--overwrite`: Overwrite existing agent files in `.substrate/agents/`.
-- **Behavior**: Translates tool permissions, prompt templates, and model parameters into standardized Substrate agent manifests.
-
-```bash
-substrate agents-import --from claude
-```
-
-### history
-
-Lists archived runs for the current version, or across all versions with `--all-versions`.
-
-```bash
-substrate history [--all-versions] [--output-format json]
-```
-
-- **Options**:
-  - `--all-versions`: List archived runs across all archive versions.
-  - `--output-format json`: Output structured JSON payload.
-- **Behavior**: Lists current version's runs from `.substrate/archive/<version>/INDEX.md`, or every version with `--all-versions`. Text format prints one line per run (`<run_id> | <status> | <goal> | <ended_at>`). When no archive exists, prints `no archived runs` and exits 0.
-
-### archive
-
-Archives a finished, failed, or cancelled run into `.substrate/archive/<version>/<run_id>/`.
-
-```bash
-substrate archive <run_id>
-```
-
-- **Arguments**:
-  - `<run_id>`: The run ID to archive.
-- **Behavior**: Re-archives the run by creating or overwriting `.substrate/archive/<version>/<run_id>/` with `summary.md`, `manifest.yaml`, `tasks/`, `decisions.md`, and `usage.json`, and records one entry in `INDEX.md`. If the run is still in progress, exits 1 with `Error: run <id> is not terminal`. If the run ID is unknown, exits 2.
-
-### gc
-
-Garbage-collects raw run directory data for runs that are already archived.
-
-```bash
-substrate gc [--older-than 30d]
-```
-
-- **Options**:
-  - `--older-than <duration>`: Age threshold (e.g. `30d`, `7d`). Default is `30d`.
-- **Behavior**: Removes `.substrate/runs/<run_id>/` only for runs that have an archive record and whose archive `summary.md` mtime is older than the cut-off. Prints `removed <n> run(s)`. Never deletes an unarchived run, a worktree, or a branch.
-
-### charter
-
-Views or manages the project charter and version.
-
-```bash
+```text
 substrate charter show
 substrate charter set <file|->
 substrate charter bump <version>
 ```
 
-- **Subcommands**:
-  - `show`: Prints `.substrate/charter.md`. Exits 2 if missing.
-  - `set <file|->`: Sets `.substrate/charter.md` content from a file or stdin, preserving any existing version frontmatter. Refuses empty content (exit 2).
-  - `bump <version>`: Updates the project version (must match `^v\d+$`), keeping charter body, and initializes `.substrate/archive/<version>/INDEX.md` if not present.
+- `show` prints `.substrate/charter.md`. It exits 2 when there is no charter.
+- `set` replaces the charter body from a file, or from stdin with `-`. Empty content exits 2 (`charter content cannot be empty`). A missing file exits 2.
+- `bump` sets the project version. The version must match `^v\d+$`, otherwise it exits 2. It keeps the charter text, writes the version into the charter frontmatter, and creates `.substrate/archive/<version>/` with an `INDEX.md` when that does not exist yet.
+
+## history
+
+```text
+substrate history [--all-versions] [--output-format json]
+```
+
+Lists archived runs for the current charter version, or for every version with `--all-versions`. Text output prints one line per run: `<run_id> | <status> | <goal> | <ended_at>`. With no archived runs it prints `no archived runs` and exits 0. JSON output prints `{"versions":[...]}`.
+
+## archive
+
+```text
+substrate archive <run-id>
+```
+
+Writes a finished, failed or cancelled run into `.substrate/archive/<version>/<run-id>/` and adds it to the version's `INDEX.md`. A run still in progress exits 1 (`run <id> is not terminal`). An unknown run exits 2.
+
+## gc
+
+```text
+substrate gc [--older-than <duration>]
+```
+
+Deletes the raw data directory `.substrate/runs/<run-id>/` for runs that already have an archive record, when that archive's `summary.md` is older than the threshold. The default threshold is `30d`. An invalid duration exits 2. It prints `removed <n> run(s)`. It never deletes an unarchived run, a worktree or a branch.
+
+## bench
+
+```text
+substrate bench [task-glob ...]
+```
+
+Runs the benchmark suite in `bench/` against the task files that match the globs, relative to the current directory. With no glob it uses `bench/tasks/**`.
+
+- For each task and each arm it copies the task's fixture into a temporary directory, runs its setup and verify commands there, and removes the directory. No model is called.
+- The cost of each attempt is a constant per arm: A `0.5`, B `0.1`, C `0.3` and D `0.01` USD. The printed costs and rates therefore are not measurements.
+- Only the task globs reach the command. `--dry-run` is not passed through, so it does not prevent the attempts. The other bench options (`--arms`, `--repetitions`, `--format`, `--output`, `--max-budget`, `--concurrency`, `--tasks`, `--top-model`, `--cheap-model`, `--local-model`) are dropped by the dispatcher. A value after one of them is read as a task glob, which fails with `No benchmark tasks found matching pattern(s)`.
+- Exit `0` on success, `1` on error.

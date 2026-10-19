@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createE2ERepo } from "./repo.js";
@@ -108,6 +108,16 @@ export function runSubstrate(options: RunSubstrateOptions): RunSubstrateResult {
     options.beforeRun(repo);
   }
 
+  const runsBase = join(repo.dir, ".substrate", "runs");
+  const listRunDirs = (): string[] =>
+    existsSync(runsBase)
+      ? readdirSync(runsBase, { withFileTypes: true })
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name)
+          .sort()
+      : [];
+  const dirsBefore = new Set(listRunDirs());
+
   const timeout = options.timeoutMs ?? 120000;
   const proc = spawnSync(process.execPath, [substrateMjs, ...options.args], {
     cwd: repo.dir,
@@ -131,15 +141,25 @@ export function runSubstrate(options: RunSubstrateOptions): RunSubstrateResult {
   const stdout = proc.stdout ?? "";
   const stderr = proc.stderr ?? "";
 
-  const runsBase = join(repo.dir, ".substrate", "runs");
   let runDir: string | null = null;
   let events: Array<{ v: number; seq: number; ts: string; run_id: string; type: string; data: unknown }> = [];
 
   if (existsSync(runsBase)) {
-    const entries = readdirSync(runsBase, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .sort();
+    // Run ids are random, so "lexically last" is not "newest" when a repo holds
+    // more than one run. Prefer the directories this invocation created; a
+    // resume creates none, so it falls back to all of them. Among the
+    // candidates the newest events.jsonl wins.
+    const all = listRunDirs();
+    const created = all.filter((name) => !dirsBefore.has(name));
+    const candidates = created.length > 0 ? created : all;
+    const touched = (name: string): number => {
+      try {
+        return statSync(join(runsBase, name, "events.jsonl")).mtimeMs;
+      } catch {
+        return 0;
+      }
+    };
+    const entries = [...candidates].sort((a, b) => touched(a) - touched(b) || (a < b ? -1 : 1));
     if (entries.length > 0) {
       runDir = join(runsBase, entries[entries.length - 1]);
       const eventsFile = join(runDir, "events.jsonl");

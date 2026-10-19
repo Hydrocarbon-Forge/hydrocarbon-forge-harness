@@ -1,0 +1,1 @@
+export const CONFIG_DIR_ENV = "SUBSTRATE_CONFIG_DIR";

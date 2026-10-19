@@ -1,221 +1,96 @@
-# Harness Adapter Architecture and Protocol Reference
+# Harness Adapters
 
-Substrate coordinates external AI agent harnesses without privileged backends. Substrate does not maintain internal model weights or call LLM inference APIs directly. Instead, all reasoning and code generation tasks are delegated to external command-line agent tools—specifically **Claude Code** (`claude`), **OpenCode** (`opencode`), and **Antigravity** (`agy`).
-
----
-
-## Symmetric Peer Philosophy
-
-In Substrate, every external harness is treated as an interchangeable peer runner:
-
-1. **Zero Privileged Runtimes**: No harness receives special internal API hooks or hidden capabilities. Every harness communicates via child process standard I/O streams (`stdin`, `stdout`, `stderr`).
-2. **Standardized Process Supervision**: The Substrate process supervisor launches child CLI harnesses, applies environmental controls, injects permission constraints, and enforces timeout and budget kills.
-3. **Normalized Event Streaming**: Disparate stream formats (such as Claude's NDJSON stream, OpenCode's JSON events, and Antigravity's stream events) are parsed by normalizers into unified, strongly typed `BackendEvent` sequences.
+Substrate does not call model APIs itself. Every model call is made by an external command-line harness, one headless process per session. The three harnesses are Claude Code (`claude`), OpenCode (`opencode`) and Antigravity (`agy`). Each one has an adapter in `src/backends/adapters/`, and the registry in `src/backends/registry.ts` creates them from settings.
 
 ---
 
-## Adapter Interface Contracts
+## Summary
 
-Every harness adapter implements the `HarnessAdapter` interface defined in `src/contracts/index.ts`.
+| Adapter | Harness | Built-in pin | Pin override | Models listed from | Denied tools reported by |
+|---|---|---|---|---|---|
+| `claude` | `claude` | 2.1.301 | `backends.claude.version_pin` | built-in aliases plus model ids from settings and the price table (no process is run) | the structured stream |
+| `opencode` | `opencode` | 2.0.21 | `backends.opencode.version_pin` | the `opencode` models subcommand, plus the local provider models from settings | not reported as a signal |
+| `agy` | `agy` | 1.4.0 | `backends.agy.version_pin` is used by `substrate doctor` only | the `agy` models subcommand | the error stream |
 
-### `HarnessAdapter`
-
-```ts
-export interface HarnessAdapter {
-  readonly capabilities: Capabilities;
-  validateEnvironment(): Promise<EnvReport>;
-  spawn(req: SpawnRequest): SessionHandle;
-}
-```
-
-- `capabilities`: Static declaration of feature flags, version pins, and concurrency limits.
-- `validateEnvironment()`: Probes the local operating system to verify binary presence, executable permissions, and version alignment.
-- `spawn(req)`: Launches a child harness session conforming to the requested parameters and returns a handle.
-
-### `Capabilities`
-
-Defines the feature matrix supported by a given backend harness:
-
-```ts
-export interface Capabilities {
-  name: "claude" | "opencode" | "agy" | "fake";
-  version_pin: string;
-  effort: boolean;
-  structured_output: boolean;
-  budget_flag: boolean;
-  cost_reported: boolean;
-  resume: boolean;
-  permission_denial_signal: "event" | "stderr" | "none";
-  sandbox_flag: boolean;
-  native_subagents_headless: boolean;
-  max_concurrency?: number;
-}
-```
-
-- `version_pin`: Authoritative version tested against (e.g. `claude: 2.1.301`, `opencode: 2.0.21`, `agy: 1.4.0`).
-- `effort`: Whether the harness supports native reasoning effort flags (`--effort`).
-- `cost_reported`: Whether the harness returns explicit dollar costs or requires token pricing computation.
-- `permission_denial_signal`: How tool denials are communicated (`"event"` in structured stream, `"stderr"` scan, or `"none"`).
-
-### `SpawnRequest`
-
-Parameters provided to an adapter to launch a worker or planner session:
-
-```ts
-export interface SpawnRequest {
-  role: "governor" | "planner" | "worker" | "test-writer" | "reviewer";
-  cwd: string;
-  prompt: string;
-  system_append?: string;
-  model: string;
-  effort?: "low" | "medium" | "high" | "xhigh" | "max";
-  permission: {
-    allow: string[];
-    deny: string[];
-  };
-  json_schema?: Record<string, unknown>;
-  budget: {
-    max_usd?: number;
-    max_tokens?: number;
-    timeout_min?: number;
-    max_turns?: number;
-    timeout_ms: number;
-  };
-  env?: Record<string, string>;
-  add_dirs?: string[];
-  session?: {
-    id?: string;
-    resume?: string;
-    fork?: boolean;
-  };
-}
-```
-
-### `SessionHandle` and `SessionResult`
-
-The active process handle and final result contract:
-
-```ts
-export interface SessionHandle {
-  pid: number;
-  events: AsyncIterable<BackendEvent>;
-  result(): Promise<SessionResult>;
-  kill(reason: "budget" | "timeout" | "cancel"): Promise<void>;
-}
-
-export interface SessionResult {
-  ok: boolean;
-  session_id: string;
-  final_text: string;
-  usage: UsageRecord;
-  exit_code: number | null;
-  denials: Array<{ tool: string; reason?: string }>;
-  killed_for?: "budget" | "timeout" | "cancel";
-}
-```
-
-### `BackendEvent`
-
-Unified discriminated union emitted asynchronously during session execution:
-
-| Event Type | Fields | Description |
-|---|---|---|
-| `session.started` | `session_id` | Emitted when harness session initializes. |
-| `assistant.text` | `text` | Streamed text output from the assistant model. |
-| `tool.call` | `id`, `name`, `input_summary` | Assistant invoked a tool (e.g. `Bash`, `Write`). |
-| `tool.result` | `id`, `ok`, `output_summary` | Execution result returned from tool call. |
-| `permission.denied` | `tool`, `reason` | A tool call was blocked by permission policy. |
-| `usage` | `record`, `cumulative` | Token usage and cost record. |
-| `subagent` | `parent_id`, `raw` | Harness spawned internal child subagent. |
-| `error` | `kind`, `message` | Typed error (`rate_limit`, `auth`, `crash`, `timeout`, `protocol`). |
-| `session.result` | `ok`, `stop_reason`, `final_text`, `usage`, `exit_code` | Session terminal event. |
+`bin` for each harness comes from `backends.<name>.bin`, and the default is the harness name. `max_concurrency` for each harness comes from `backends.<name>.max_concurrency`, and the scheduler applies it only to the backend named by `roles.worker.backend` (see [config.md](config.md)).
 
 ---
 
-## Mandatory Adapter Obligations (§11.1)
+## Adapter Interface
 
-All Substrate harness adapters must strictly fulfill 11 core obligations:
+Every adapter implements `HarnessAdapter` from `src/contracts/index.ts`:
 
-1. **Explicit Model and Effort Passing**:  
-   Always pass `--model` explicitly (and `--effort` where supported). Never allow the external harness to default to unspecified or changing upstream models.
-2. **Structured Result Parsing**:  
-   Never treat child process exit code alone as success. An external harness may exit with code 0 despite a soft tool denial or partial execution failure. Always read and validate the structured result payload.
-3. **Raw Stream Persistence**:  
-   Persist all raw, unparsed NDJSON and stdout streams to `.substrate/runs/<run_id>/raw/` before or alongside normalization. This guarantees an audit trail for debugging and replay.
-4. **Normalized Denial Reporting**:  
-   Detect and emit typed `permission.denied` events. For Claude, inspect `permission_denials` in the structured result. For Antigravity, scan stderr for soft-deny patterns.
-5. **Computed Cost Fallbacks**:  
-   When a harness reports token counts without dollar figures (e.g. Antigravity or local servers), compute USD spend using the authoritative `PricingTable` in settings.
-6. **Session Resume Support**:  
-   Implement session continuation (`session.resume`) allowing the engine to resume existing harness sessions across heal and replan cycles.
-7. **Worktree Isolation**:  
-   Strictly enforce that the child process working directory (`cwd`) is pinned to the isolated Git worktree assigned to the task.
-8. **Scrubbed Environment**:  
-   Sanitize the child process environment. Forward only allowlisted system variables and redact secrets, API keys, and sensitive tokens from logs and packets.
-9. **Version Pin Verification**:  
-   In `validateEnvironment()`, invoke the installed CLI with `--version` and compare against `version_pin`. Report version drift in `substrate doctor`.
-10. **Concurrency Caps**:  
-    Enforce per-backend concurrency limits (`max_concurrency`) to avoid triggering provider rate limits or system thrashing.
-11. **Typed Error Classification**:  
-    Categorize unexpected harness behaviors into typed `error` events: `rate_limit`, `auth`, `crash`, `timeout`, or `protocol`.
+- `capabilities`: a static `Capabilities` record with the harness name, its pin, and feature flags (effort, budget flag, cost reporting, resume, denial signal, and an optional `max_concurrency`).
+- `validateEnvironment()`: runs the harness's version query and compares the result with the pin. The result is an environment report with `ok`, `pin_matches`, `version` and `problems`.
+- `listModels()`: lists model ids for `substrate models`.
+- `spawn(req)`: starts one session and returns a handle with an event stream, a `result()` promise and a `kill(reason)` method. The reason is `budget`, `timeout` or `cancel`.
 
----
+A `SpawnRequest` carries the role, the working directory, the prompt, optional text appended to the system prompt, the model, the effort, the allow and deny lists, the budget, an optional environment, an optional raw output directory, and session information (an id to start with, an id to resume, or a fork flag).
 
-## Conformance Testing
+### Events
 
-Substrate enforces behavioral consistency across backends using a shared test suite (`test/conformance/suite.ts`).
+Every adapter normalizes its output into these `BackendEvent` types:
 
-### Running Conformance Tests
+| Event | Meaning |
+|---|---|
+| `session.started` | The session has a session id. |
+| `assistant.text` | Text from the model. |
+| `tool.call` | The model called a tool. |
+| `tool.result` | A tool returned. |
+| `permission.denied` | A tool call was denied. |
+| `usage` | A usage record with tokens and cost. |
+| `subagent` | The harness started a child session. |
+| `error` | A typed error: `rate_limit`, `auth`, `crash`, `timeout` or `protocol`. |
+| `session.result` | The final result: `ok`, `final_text`, `exit_code`, usage, and an optional stop reason. |
 
-The conformance runner validates adapter compliance against both real and simulated harnesses:
-
-```ts
-import { runAdapterConformanceSuite } from "./test/conformance/suite.js";
-import { ClaudeAdapter } from "./src/backends/adapters/claude.js";
-
-runAdapterConformanceSuite("ClaudeAdapter", () => new ClaudeAdapter(), {
-  live: process.env.SUBSTRATE_LIVE === "1",
-  timeoutMs: 30000,
-  maxCostUsd: 1.0,
-});
-```
-
-The conformance battery validates:
-- Capabilities schema compliance.
-- Environment validation (`validateEnvironment()`).
-- Event streaming order and termination.
-- Tool denial detection and `permission.denied` emission.
-- Process supervisor kill mechanics on budget and timeout caps.
-- Session resume fidelity.
+The `claude` adapter writes the raw stream of a session to `<session id>.ndjson` in the request's raw directory when one is given.
 
 ---
 
-## Reference Implementation: `FakeAdapter`
+## `claude`
 
-For deterministic unit and integration testing without network calls or external CLI tools, Substrate provides `FakeAdapter` in `test/conformance/fake-adapter.ts`.
+`src/backends/adapters/claude.ts`
 
-`FakeAdapter` simulates harness behaviors through scripted scenarios:
+- **Pin.** `2.1.301` unless `backends.claude.version_pin` is set. The check is exact string equality with the version the binary reports.
+- **Environment check.** Runs the binary's version query with a 5 second timeout.
+- **Model list.** Four aliases (`haiku`, `sonnet`, `opus`, `fable`) followed by every model id that settings name in `roles` or `routing`, or that the price table has. Claude has no list command, so no process is run.
+- **Spawn.** Runs `claude` in print mode with stream JSON output and verbose logging. It passes:
+  - the model, and the effort when one is set;
+  - a session id to start with or a session id to resume (the id must be a UUID; a request without one is an error);
+  - the appended system text, when present;
+  - a permission mode of "do not ask", with prompts turned off;
+  - the request's allow list as allowed tools, and its deny list plus the Agent tool as disallowed tools;
+  - a USD cap, when the budget sets one above zero.
+- **Environment.** The child process gets a fixed set of variables (`PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`) and the request's environment.
+- **Cost.** Reported by the harness (`cost_reported` is true).
 
-```ts
-import { FakeAdapter } from "./test/conformance/fake-adapter.js";
+## `opencode`
 
-const adapter = new FakeAdapter();
-const handle = adapter.spawn({
-  role: "worker",
-  cwd: "/tmp/worktree",
-  prompt: "scenario:soft_deny",
-  model: "fake-model",
-  permission: { allow: ["Read"], deny: ["Bash"] },
-  budget: { timeout_ms: 5000 },
-});
-```
+`src/backends/adapters/opencode.ts`
 
-### Supported Test Scenarios
+- **Pin.** `2.0.21` unless `backends.opencode.version_pin` is set. The check passes when the version output contains the pin.
+- **Environment check.** Runs the binary's version query with a 5 second timeout.
+- **Model list.** Runs the `opencode` models subcommand in standalone mode with a 30 second timeout. Local provider models from settings are added to the list. If the subcommand fails and no local provider is configured, the listing is an error.
+- **Spawn.** Runs the `run` subcommand in standalone mode with JSON output, the model passed with `-m`, and the agent file created for the session. A session is resumed with `-s`, and a fork is requested with the fork option. The prompt is the last argument.
+- **Model string.** The model is the id from the profile or the role. When an effort is set, `#<effort>` is appended. A local model key is mapped to `<provider id>/<key>` (see [local-model.md](local-model.md)).
+- **Per-run files.** Before a session, the adapter writes an agent file under `.opencode/agents/` in the request's working directory, with the deny list as permissions. When a local provider or the legacy `customBaseUrl` is set, it also writes `opencode.json` there. Both files are removed when the session finishes or is killed. The working directory is the task's worktree.
+- **Local model without an endpoint.** When the model names a local provider model and no endpoint is set, the session fails at once with a `protocol` error and exit code 1. The error text currently names `backends.opencode.extra.base_url`; the key the code reads for the endpoint is `backends.opencode.provider.base_url`.
+- **Max concurrency.** The adapter reports `max_concurrency` 2 by default. The engine does not read that value; the scheduler reads `backends.<name>.max_concurrency` instead.
+- **Cost.** Where the harness output does not give a dollar figure, cost is computed from the price table. A model with no rates is recorded with cost source `unknown`.
 
-- `scenario:success`: Emits assistant text, mock tool calls, usage records, and cleanly exits 0.
-- `scenario:resume`: Simulates session resumption from a previous state.
-- `scenario:soft_deny`: Simulates tool denial and emits `permission.denied`.
-- `scenario:hang`: Simulates a hung child process, validating supervisor timeout kills.
-- `scenario:crash`: Simulates an unexpected process exit with code 1.
-- `scenario:budget_overshoot`: Simulates token spend exceeding requested budget limits.
-- `scenario:rate_limit`: Simulates upstream API 429 rate limit responses.
+## `agy`
+
+`src/backends/adapters/agy.ts`
+
+- **Pin.** `1.4.0`, fixed in the adapter. `backends.agy.version_pin` is read by `substrate doctor` for its comparison, but the adapter's own check always uses `1.4.0`.
+- **Environment check.** Runs the binary's version query with a 5 second timeout. The check passes only when the trimmed output equals the pin exactly.
+- **Model list.** Runs the `models` subcommand with a 30 second timeout.
+- **Spawn.** Runs `agy` in print mode with stream JSON output, the model, and the effort when it is `low`, `medium` or `high` (other values are dropped with a warning). It uses accept-edits mode, a print timeout of `0s` so a headless run never waits for input, and the conversation id to resume when one is given. When the request has appended system text, the prompt is `SYSTEM RULES`, then the appended text, then `TASK`, then the prompt.
+- **Denied tools.** A headless run cannot ask for permission, so a denied tool is reported on the error stream. The exit code is still 0.
+- **Cost.** Not reported by the harness. Cost is computed from the price table.
+
+---
+
+## Testing
+
+The shared conformance suite is `test/conformance/suite.ts`, and `test/conformance/fake-adapter.ts` is a scripted adapter for tests. Neither is part of the user-facing CLI.

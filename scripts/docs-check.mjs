@@ -37,6 +37,194 @@ function collectMarkdownFiles(dir, skip = []) {
   return results;
 }
 
+const DOC_RULES = ["DOC-FLAG", "DOC-CMD", "DOC-ENV", "DOC-KEY"];
+
+/**
+ * Recursively lists files under dir whose names end with one of exts, sorted by path.
+ */
+function walkFiles(dir, exts) {
+  const results = [];
+  if (!fs.existsSync(dir)) return results;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...walkFiles(full, exts));
+    } else if (entry.isFile() && exts.some((ext) => entry.name.endsWith(ext))) {
+      results.push(full);
+    }
+  }
+  return results.sort();
+}
+
+/**
+ * Splits markdown into lines, marking which ones sit inside a fenced code block.
+ */
+function markdownLines(content) {
+  const rows = [];
+  let inFence = false;
+  content.split("\n").forEach((text, i) => {
+    if (text.trim().startsWith("```")) {
+      inFence = !inFence;
+      rows.push({ line: i + 1, text, code: false, fence: true });
+    } else {
+      rows.push({ line: i + 1, text, code: inFence, fence: false });
+    }
+  });
+  return rows;
+}
+
+/**
+ * Returns the reference documents the DOC-FLAG, DOC-CMD and DOC-ENV rules read.
+ */
+function docRuleFiles(rootDir) {
+  const refDir = path.join(rootDir, "docs", "reference");
+  const refFiles = fs.existsSync(refDir)
+    ? fs.readdirSync(refDir).filter((n) => n.endsWith(".md")).sort().map((n) => path.join(refDir, n))
+    : [];
+  return [path.join(rootDir, "README.md"), ...refFiles].filter((f) => fs.existsSync(f));
+}
+
+/**
+ * The command modules beside the dispatcher (src/cli/*.ts, not commands/) that
+ * src/cli/dispatcher.ts itself loads, such as bench. A module the dispatcher
+ * never loads registers nothing, so it is not a command.
+ */
+function dispatcherLoadedModules(rootDir) {
+  const dispatcher = path.join(rootDir, "src", "cli", "dispatcher.ts");
+  const files = [];
+  if (!fs.existsSync(dispatcher)) return files;
+  const loaded = fs.readFileSync(dispatcher, "utf8");
+  for (const m of loaded.matchAll(/import\(\s*[`"']\.\/([a-z0-9-]+)\.js[`"']\s*\)/g)) {
+    const full = path.join(rootDir, "src", "cli", `${m[1]}.ts`);
+    if (fs.existsSync(full)) files.push(full);
+  }
+  return files;
+}
+
+/**
+ * Collects the command names and aliases registered in src/cli/commands/*.ts
+ * and in the modules the dispatcher loads.
+ */
+function registeredCommands(rootDir) {
+  const names = new Set();
+  const dir = path.join(rootDir, "src", "cli", "commands");
+  const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith(".ts")).sort().map((n) => path.join(dir, n)) : [];
+  files.push(...dispatcherLoadedModules(rootDir));
+  for (const file of files) {
+    const content = fs.readFileSync(file, "utf8");
+    const nameMatch = /^ {2}name:\s*["']([a-z0-9:_-]+)["']/m.exec(content);
+    if (nameMatch) names.add(nameMatch[1]);
+    const aliasMatch = /^ {2}aliases:\s*\[([^\]]*)\]/m.exec(content);
+    if (aliasMatch) {
+      for (const a of aliasMatch[1].matchAll(/["']([a-z0-9:_-]+)["']/g)) names.add(a[1]);
+    }
+  }
+  return names;
+}
+
+/**
+ * Reads the CLI_OPTIONS keys from src/cli/dispatcher.ts and the literal flag and
+ * quoted names used by the other files under src/cli/.
+ */
+function knownCliFlags(rootDir) {
+  const cliDir = path.join(rootDir, "src", "cli");
+  const dispatcher = path.join(cliDir, "dispatcher.ts");
+  const keys = new Set();
+  const literals = new Set();
+  if (fs.existsSync(dispatcher)) {
+    const content = fs.readFileSync(dispatcher, "utf8");
+    const block = /CLI_OPTIONS\s*=\s*\{([\s\S]*?)\}\s*as const/.exec(content);
+    if (block) {
+      for (const m of block[1].matchAll(/^\s*"?([a-z][a-z0-9-]*)"?\s*:\s*\{/gm)) keys.add(m[1]);
+    }
+  }
+  for (const file of walkFiles(cliDir, [".ts", ".js"])) {
+    if (file === dispatcher) continue;
+    const content = fs.readFileSync(file, "utf8");
+    for (const m of content.matchAll(/--([a-z][a-z0-9-]*)/g)) literals.add(m[1]);
+    for (const m of content.matchAll(/["']([a-z][a-z0-9-]*)["']/g)) literals.add(m[1]);
+  }
+  return { keys, literals };
+}
+
+/**
+ * Runs the DOC-FLAG, DOC-CMD, DOC-ENV and DOC-KEY rules. Violations are pushed into
+ * diagnostics; the return value counts the checks made per rule.
+ */
+function checkDocRules(rootDir, diagnostics) {
+  const checks = Object.fromEntries(DOC_RULES.map((r) => [r, 0]));
+  const report = (rule, file, line, message) => {
+    diagnostics.push({ file, line, rule, message });
+  };
+
+  const commands = registeredCommands(rootDir);
+  const flags = knownCliFlags(rootDir);
+  const srcFiles = walkFiles(path.join(rootDir, "src"), [".ts", ".js"]);
+  const srcText = srcFiles.map((f) => fs.readFileSync(f, "utf8")).join("\n");
+
+  for (const file of docRuleFiles(rootDir)) {
+    const rows = markdownLines(fs.readFileSync(file, "utf8"));
+    for (const row of rows) {
+      // DOC-FLAG: every --flag token, prose or code, must be a known CLI option.
+      for (const m of row.text.matchAll(/(?<![\w-])--([a-z][a-z0-9-]*)/g)) {
+        checks["DOC-FLAG"]++;
+        if (!flags.keys.has(m[1]) && !flags.literals.has(m[1])) {
+          report("DOC-FLAG", file, row.line, `flag "--${m[1]}" is not in CLI_OPTIONS or src/cli/`);
+        }
+      }
+
+      // DOC-ENV: every SUBSTRATE_ variable must appear literally in src/.
+      for (const m of row.text.matchAll(/(?<![A-Za-z0-9_])SUBSTRATE_[A-Z_]+/g)) {
+        checks["DOC-ENV"]++;
+        if (!srcText.includes(m[0])) {
+          report("DOC-ENV", file, row.line, `environment variable ${m[0]} does not appear in src/`);
+        }
+      }
+
+      // DOC-CMD: `substrate <word>` in code only. A word must be a registered command or alias.
+      // Quoted or dash-led words are a run prompt or a flag, and `substrate/` paths never match.
+      if (row.fence) continue;
+      const segments = row.code ? [row.text] : [...row.text.matchAll(/`([^`]*)`/g)].map((s) => s[1]);
+      for (const segment of segments) {
+        for (const m of segment.matchAll(/(?<![\w/.-])substrate[ \t]+([A-Za-z][\w:-]*)/g)) {
+          checks["DOC-CMD"]++;
+          if (!commands.has(m[1])) {
+            report("DOC-CMD", file, row.line, `substrate ${m[1]} is not a registered command or alias in src/cli/commands/`);
+          }
+        }
+      }
+    }
+  }
+
+  // DOC-KEY: dotted keys in the first cell of a table row in config.md.
+  const configDoc = path.join(rootDir, "docs", "reference", "config.md");
+  if (fs.existsSync(configDoc)) {
+    const keyLeafTexts = srcFiles
+      .filter((f) => {
+        const rel = path.relative(rootDir, f).split(path.sep).join("/");
+        return !rel.startsWith("src/contracts/") && !rel.startsWith("src/config/") && rel !== "src/cli/commands/config.ts";
+      })
+      .map((f) => fs.readFileSync(f, "utf8"))
+      .join("\n");
+    for (const row of markdownLines(fs.readFileSync(configDoc, "utf8"))) {
+      if (!row.text.trim().startsWith("|") || /^\|?\s*:?-{3,}/.test(row.text.trim())) continue;
+      const firstCell = row.text.trim().split("|")[1] ?? "";
+      const keyMatch = /`([A-Za-z_][A-Za-z0-9_*]*(?:\.[A-Za-z0-9_*]+)+)`/.exec(firstCell);
+      if (!keyMatch || keyMatch[1].includes("*")) continue;
+      const key = keyMatch[1];
+      const leaf = key.split(".").pop();
+      const escaped = leaf.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const readPattern = new RegExp(`\\.${escaped}\\b|\\["${escaped}"\\]|\\['${escaped}'\\]`);
+      checks["DOC-KEY"]++;
+      if (!readPattern.test(keyLeafTexts)) {
+        report("DOC-KEY", configDoc, row.line, `settings key "${key}" is not read as property "${leaf}" in src/`);
+      }
+    }
+  }
+
+  return checks;
+}
+
 /**
  * Main documentation check function.
  */
@@ -220,13 +408,10 @@ export async function checkDocs(opts = {}) {
     }
   }
 
-  for (const extraFile of ["src/cli/bench.ts", "src/cli/agents-import.ts"]) {
-    const fullExtra = path.join(rootDir, extraFile);
-    if (fs.existsSync(fullExtra)) {
-      const c = fs.readFileSync(fullExtra, "utf8");
-      const m = nameRegex.exec(c);
-      if (m) cliCommands.add(m[1]);
-    }
+  for (const fullExtra of dispatcherLoadedModules(rootDir)) {
+    const c = fs.readFileSync(fullExtra, "utf8");
+    const m = nameRegex.exec(c);
+    if (m) cliCommands.add(m[1]);
   }
 
   for (const cmd of cliCommands) {
@@ -297,28 +482,63 @@ export async function checkDocs(opts = {}) {
     }
   }
 
+  const checks = checkDocRules(rootDir, diagnostics);
+
   return {
     ok: diagnostics.length === 0,
     checkedFiles,
     checkedLinks,
+    checks,
     diagnostics,
   };
+}
+
+/**
+ * Parses the script arguments. Only --root is accepted; it defaults to the repository root.
+ */
+function parseArgs(args) {
+  let root = defaultRoot;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--root" && i + 1 < args.length) {
+      root = path.resolve(args[++i]);
+    }
+  }
+  return root;
 }
 
 // CLI runner execution
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   try {
-    const res = await checkDocs();
-    if (!res.ok) {
-      for (const d of res.diagnostics) {
-        console.error(`${d.file}${d.line ? `:${d.line}` : ""}: [${d.rule}] ${d.message}`);
-      }
+    const rootDir = parseArgs(process.argv.slice(2));
+    const res = await checkDocs({ rootDir });
+    const legacy = res.diagnostics
+      .filter((d) => !DOC_RULES.includes(d.rule))
+      .sort((a, b) => `${a.file}`.localeCompare(`${b.file}`) || (a.line ?? 0) - (b.line ?? 0));
+    const docViolations = res.diagnostics
+      .filter((d) => DOC_RULES.includes(d.rule))
+      .map((d) => ({ ...d, rel: path.relative(rootDir, d.file).split(path.sep).join("/") }))
+      .sort((a, b) => a.rel.localeCompare(b.rel) || (a.line ?? 0) - (b.line ?? 0) || DOC_RULES.indexOf(a.rule) - DOC_RULES.indexOf(b.rule));
+
+    for (const d of legacy) {
+      console.error(`${d.file}${d.line ? `:${d.line}` : ""}: [${d.rule}] ${d.message}`);
+    }
+    for (const d of docViolations) {
+      console.log(`${d.rule} ${d.rel}:${d.line} ${d.message}`);
+    }
+
+    console.log(`Documentation check: ${res.checkedFiles} files checked, ${res.checkedLinks} links verified.`);
+    for (const rule of DOC_RULES) {
+      console.log(`  ${rule} checks: ${res.checks[rule]}`);
+    }
+    const total = legacy.length + docViolations.length;
+    if (total > 0) {
+      console.log(`FAIL: ${total} violation(s)`);
       process.exit(1);
     }
-    console.log(`Documentation check passed: ${res.checkedFiles} files checked, ${res.checkedLinks} links verified.`);
+    console.log("OK");
     process.exit(0);
   } catch (err) {
-    console.error(`Documentation check failed with error: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
+    console.error(`Documentation check failed with error: ${err instanceof Error ? err.stack : String(err)}`);
+    process.exit(2);
   }
 }

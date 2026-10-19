@@ -1,407 +1,259 @@
 # Configuration Reference
 
-Substrate uses JSONC (JSON with Comments and trailing commas) configuration files to control model routing, external harness parameters, resource budgets, execution permissions, sandbox policies, and Git worktree management.
+Substrate reads its settings from JSONC files (JSON with comments and trailing commas), from a few environment variables, and from command flags. The settings schema is `Settings` in `src/contracts/index.ts`. It is strict: an unknown top-level key makes the load fail with exit 2.
 
 ---
 
-## Configuration Files and Layout
+## Configuration Files
 
-Substrate discovers configuration across multiple scopes:
+| Layer | File | Where it is found |
+|---|---|---|
+| User | `settings.json` | `~/.config/substrate/`, or the directory named by `SUBSTRATE_CONFIG_DIR` |
+| Project | `.substrate/settings.json` | the project directory |
+| Local | `.substrate/settings.local.json` | the project directory (`substrate init` adds it to the `.gitignore` it writes) |
+| Explicit | any file | `--settings <file>`, or `SUBSTRATE_SETTINGS` when the flag is absent |
 
-- **User Global Configuration**: `~/.config/substrate/settings.json`
-- **Project Configuration**: `.substrate/settings.json`
-- **Project Local Overrides**: `.substrate/settings.local.json` (recommended for `.gitignore`)
-- **Custom Configuration File**: Explicitly specified with `--settings <path>`
-
----
-
-## Precedence Hierarchy
-
-Substrate resolves configuration values using a strict 7-layer precedence order. Higher layers override values defined in lower layers:
-
-1. **Layer 1: Embedded Defaults (`DEFAULT_SETTINGS`)**  
-   Hardcoded fallback defaults built into the Substrate engine.
-2. **Layer 2: User Global Settings**  
-   Loaded from `~/.config/substrate/settings.json` (or the directory in `SUBSTRATE_CONFIG_DIR`).
-3. **Layer 3: Project Repository Settings**  
-   Loaded from `.substrate/settings.json` at the project repository root.
-4. **Layer 4: Project Local Overrides**  
-   Loaded from `.substrate/settings.local.json`. Use this for machine-specific overrides, such as local model IP addresses or personal API overrides.
-5. **Layer 5: Explicit Settings File**  
-   Supplied via the `--settings <file>` CLI option.
-6. **Layer 6: Environment Variables**  
-   Environment variables prefixed with `SUBSTRATE_*` overriding specific runtime attributes.
-7. **Layer 7: Command-Line Flags**  
-   Highest priority flags passed directly to CLI invocations (e.g., `--model`, `--max-budget-usd`, `--permission-mode`).
+The project directory is `SUBSTRATE_PROJECT_DIR` when that variable is set. Otherwise it is the current directory; some commands pass the repository root instead. A missing user, project, local or explicit file is skipped, except that an explicit file that does not exist is an error. A file that is not valid JSONC, or whose top level is not an object, is an error (exit 2).
 
 ---
 
-## Object Merging Rules
+## Precedence
 
-When combining settings across layers:
+The loader starts from the built-in defaults (`DEFAULT_SETTINGS` in `src/config/index.ts`) and applies these layers in this order. Each later layer overrides the earlier ones:
 
-- **Plain Objects**: Merged recursively key-by-key. Nested dictionary values from higher layers override matching keys from lower layers while preserving unmatched keys.
-- **Arrays**: Replaced completely. Array values in an overlay do not concatenate with base arrays.
-- **Primitives**: Numbers, strings, booleans, and `null` values replace lower layer values directly.
-- **Pricing Table (`pricing`)**: The `pricing` table object is replaced in its entirety as an atomic unit to ensure price table consistency.
+1. **Built-in defaults.** `DEFAULT_SETTINGS`, listed in each section below.
+2. **User file.**
+3. **Project file.**
+4. **Local file.**
+5. **Explicit file.** `--settings` wins over `SUBSTRATE_SETTINGS`; only one of the two is read.
+6. **Environment variables that set settings:** `SUBSTRATE_MAX_BUDGET_USD`, `SUBSTRATE_MODEL` and `SUBSTRATE_WORKER_MODEL`.
+7. **Command flags.** Each command builds these from its flags. For example, `run` maps `--model` to the planner (or to the worker in solo mode), `--worker-model` to the worker, `--effort` to the planner effort and `--max-budget-usd` to `budgets.run.max_usd`.
+
+`SUBSTRATE_PERMISSION_MODE` and `SUBSTRATE_OUTPUT_FORMAT` are not settings. They supply the default permission mode and output format for `run` and `plan` when the matching flag is absent.
+
+### Merge rules
+
+- Objects merge key by key, recursively. A value from a higher layer replaces the same key from a lower layer.
+- Arrays and primitive values replace the lower-layer value. They are not concatenated.
+- `null` replaces the lower-layer value; the schema then decides whether that is valid.
+- A `pricing` object from a higher layer replaces the lower-layer `pricing` as a whole.
+- The merged result is validated against the schema. A value that fails validation is an error (exit 2) that names the key.
+- `backends.opencode.provider` may be set only in the local file. An explicit file whose path ends in `settings.local.json` also counts as local. Setting the key anywhere else is an error (exit 2), even if the value is otherwise valid.
+- Every name in `defaults` must have an entry in `profiles`. Otherwise the load fails (exit 2).
+
+---
+
+## The `config` Command
+
+- `substrate config list` prints the merged settings as JSON.
+- `substrate config get <key>` prints one value by dotted path.
+- `substrate config set <key> <value>` writes the project file. With `--local` it writes the local file. It validates the merged result before writing.
+
+`config set` does not apply the provider rule itself. Without `--local`, `backends.opencode.provider` is written to the project file, the command still exits 0, and every later load then fails (exit 2). Always pass `--local` for the provider key. The endpoint setup is described in [local-model.md](local-model.md).
 
 ---
 
 ## Environment Variables
 
-Substrate recognizes the following standard environment variables:
+Only the variables below are read by the code.
 
 | Variable | Type | Description |
 |---|---|---|
-| `SUBSTRATE_LIVE` | Boolean (`1` or `0`) | Enables live external harness invocations during test batteries and benchmark runs. |
-| `SUBSTRATE_SETTINGS` | File path | Path to an explicit JSONC settings file. |
-| `SUBSTRATE_CONFIG_DIR` | Directory path | Path overriding the default user config directory (`~/.config/substrate`). |
-| `SUBSTRATE_PROJECT_DIR` | Directory path | Path overriding the project root directory. |
-| `SUBSTRATE_PERMISSION_MODE` | String literal | Overrides permission policy (`default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`). |
-| `SUBSTRATE_MAX_BUDGET_USD` | Number string | Caps total run expenditure in USD (e.g., `10.50`). |
-| `SUBSTRATE_OUTPUT_FORMAT` | String literal | Controls default stdout format (`text`, `json`, `stream-json`). |
-| `SUBSTRATE_MODEL` | String | Overrides primary model used for planning and solo modes. |
-| `SUBSTRATE_WORKER_MODEL` | String | Overrides the worker model across all task routing classes. |
+| `SUBSTRATE_CONFIG_DIR` | Directory | Replaces `~/.config/substrate` as the user settings directory. The user prompt directory is taken from it too. |
+| `SUBSTRATE_PROJECT_DIR` | Directory | Replaces the project directory for the `.substrate/` settings files. The OpenCode adapter also reads it to find `settings.local.json`. |
+| `SUBSTRATE_SETTINGS` | File path | Explicit settings file (layer 5). The `--settings` flag takes precedence over it. |
+| `SUBSTRATE_MAX_BUDGET_USD` | Number | Sets `budgets.run.max_usd` (layer 6). A value that is not a number makes every command that loads settings exit 2. |
+| `SUBSTRATE_MODEL` | String | Sets `roles.planner.model` (layer 6). |
+| `SUBSTRATE_WORKER_MODEL` | String | Sets `roles.worker.model` (layer 6). |
+| `SUBSTRATE_PERMISSION_MODE` | String | Default permission mode for `run` and `plan` when `--permission-mode` is absent. Allowed values: `default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`. Any other value makes every command that loads settings exit 2. |
+| `SUBSTRATE_OUTPUT_FORMAT` | String | Default output format for `run` and `plan` when `--output-format` is absent: `text`, `json` or `stream-json`. Any other value is ignored. |
+| `SUBSTRATE_DEBUG` | `1` | When set to `1`, debug log lines are written to stderr. |
+
+---
+
+## Settings Key Index
+
+Each row is one dotted key the engine reads. A `*` segment stands for any name, such as a provider name or a task class. Schema keys that the engine does not read are described in the section that owns them, not in this table.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `budgets.run.max_usd` | number | Spend cap for a whole run in USD. Default 5. |
+| `budgets.run.max_tokens` | number | Token cap for a whole run. Unset by default. |
+| `budgets.task.max_usd` | number | Spend cap for one task in USD. Default 0.5. |
+| `budgets.task.max_tokens` | number | Token cap for one task. Unset by default. |
+| `budgets.task.timeout_min` | number | Timeout for one task, in minutes. Falls back to 30 when unset. |
+| `budgets.task.max_turns` | number | Turn cap for one task. Unset by default. |
+| `budgets.l1_replans_per_task` | integer | Maximum L1 replans (heal and retry attempts) for one task. Default 2. |
+| `budgets.l2_per_run` | integer | Maximum L2 full re-plans for one run. Default 2. |
+| `budgets.planner_format_retries` | integer | Planner retries after an invalid plan. Default 2. |
+| `budgets.approval_threshold_usd` | number | Estimated cost above which approval is required. Default 2. |
+| `concurrency.workers` | integer | Maximum number of tasks running at once. Default 3. |
+| `defaults.planner_provider` | string | Provider whose `plan` profile slot routes the planner. |
+| `defaults.worker_provider` | string | Provider whose profile routes worker tasks and the escalation chain. |
+| `git.on_scope_violation` | `revert` or `fail` | What happens when a worker changes files outside its allowed paths. Default `revert`. |
+| `git.auto_merge` | boolean | When `true`, a run that finishes with exit code 0 is merged with the same code the merge command uses. Default `false`. |
+| `instructions.workers` | `none` or `project` | When `project`, the planner request lists the project instruction files that exist (`CLAUDE.md`, `AGENTS.md`, `SUBSTRATE.md`). Default `none`. |
+| `pricing.asOf` | string | Date the price table was last refreshed. |
+| `pricing.sources` | array of strings | URLs that document the rates. |
+| `sandbox.enabled` | boolean | When `true`, verify commands run inside `bwrap` where it is available. `run`, `plan` and `resume` refuse to start when it is `true` and `bwrap` is missing. Default `false`. |
+| `usage.global` | boolean | When `true`, usage records are also appended to the global usage ledger. Default `true`. |
+| `roles.planner.backend` | string | Backend of the planner route. Default `claude`. |
+| `roles.planner.model` | string | Model of the planner route. Default `claude-sonnet-5-5`. |
+| `roles.planner.effort` | effort level | Effort of the planner route. Default `medium`. |
+| `roles.worker.backend` | string | Backend of the solo worker. Also the backend whose `max_concurrency` the scheduler applies. Default `claude`. |
+| `roles.worker.model` | string | Model of the solo worker. Default `claude-sonnet-5-5`. |
+| `routing.escalation` | array of strings | Model ids for escalation when no worker profile is set. Default `haiku`, `sonnet`, `opus`. |
+| `routing.*.backend` | string | Backend of the route for one task class. |
+| `routing.*.model` | string | Model of the route for one task class. |
+| `routing.*.effort` | effort level | Effort of the route for one task class. |
+| `profiles.*.plan.model` | string | Model of a provider's `plan` slot. |
+| `profiles.*.work.model` | string | Model of a provider's `work` slot. |
+| `profiles.*.fast.model` | string | Model of a provider's `fast` slot. |
+| `backends.*.bin` | string | Executable name or path of a harness. |
+| `backends.*.version_pin` | string | Version that `substrate doctor` compares the installed harness with. |
+| `backends.*.max_concurrency` | integer | Cap on simultaneous processes for the backend named by `roles.worker.backend`. |
+| `pricing.models.*.input_per_mtok` | number | Input rate in USD per million tokens. |
+| `pricing.models.*.output_per_mtok` | number | Output rate in USD per million tokens. |
+| `pricing.models.*.cache_read_per_mtok` | number | Cache read rate in USD per million tokens. |
+| `pricing.models.*.cache_write_per_mtok` | number | Cache write rate in USD per million tokens. |
 
 ---
 
 ## Settings Schema Reference
 
-Below is the complete specification for all top-level keys in `Contracts.Settings`.
-
 ### `backends`
 
-Configures the external peer CLI harnesses managed by the process supervisor.
+Per-harness settings. The keys are harness names: `claude`, `opencode` and `agy`.
+
+Default: none (`{}`). Without an entry, `bin` is the harness name (`claude`, `opencode` or `agy`). The built-in version pins are `2.1.301` for `claude`, `2.0.21` for `opencode` and `1.4.0` for `agy`.
+
+- `bin`: the executable name or path. The registry reads it for all three harnesses.
+- `version_pin`: the version that `substrate doctor` compares with the installed version, for all three harnesses. The `claude` and `opencode` adapters also use it in their own environment check. The `agy` adapter's own check always uses its built-in `1.4.0`.
+- `max_concurrency`: the scheduler caps simultaneous processes for the backend named by `roles.worker.backend` only. When unset, no per-backend cap applies. The adapter's reported capability is not read by the engine.
+- `extra`: a free-form record. The only key the code reads is `customBaseUrl`, for OpenCode. Other keys are accepted and ignored.
+- `provider`: the OpenCode local endpoint. It may be set only in the local file. See [local-model.md](local-model.md).
 
 ```json
 {
   "backends": {
-    "claude": {
-      "bin": "claude",
-      "version_pin": "2.1.301",
-      "max_concurrency": 4,
-      "extra": { "omitClaudeMd": true }
-    },
-    "opencode": {
-      "bin": "opencode",
-      "version_pin": "2.0.21",
-      "max_concurrency": 2
-    },
-    "agy": {
-      "bin": "agy",
-      "version_pin": "1.4.0",
-      "max_concurrency": 3
-    }
+    "claude": { "version_pin": "2.1.301" },
+    "opencode": { "bin": "opencode" }
   }
 }
 ```
-
-- `bin` *(string, optional)*: Executable name or absolute binary path. Defaults to the backend identifier.
-- `version_pin` *(string, optional)*: Semantic or exact version string checked during `substrate doctor`.
-- `max_concurrency` *(integer, optional)*: Maximum simultaneous child processes allowed for this backend.
-- `extra` *(record, optional)*: Harness-specific configuration parameters.
 
 ### `roles`
 
-Defines routes and configurations for foundational orchestration roles.
+The planner and worker routes. Each route has `backend`, `model` and an optional `effort`.
 
-```json
-{
-  "roles": {
-    "planner": {
-      "backend": "claude",
-      "model": "claude-sonnet-5-5",
-      "effort": "medium"
-    },
-    "reviewer": {
-      "enabled": true,
-      "backend": "claude",
-      "model": "claude-haiku-5-5"
-    },
-    "governor": {
-      "enabled": true,
-      "endpoint": "http://127.0.0.1:8080/v1",
-      "model": "local-governor",
-      "enable_thinking": false,
-      "timeout_s": 30,
-      "max_clarifying_turns": 3
-    }
-  }
-}
-```
+Default: planner and worker are both `claude` / `claude-sonnet-5-5` / `medium`.
 
-- `planner` *(Route)*: Backend, model, and effort level used to generate task manifests and specifications.
-- `reviewer` *(Route, optional)*: Optional independent validation role that verifies task diffs prior to acceptance.
-- `governor` *(object, optional)*: Optional front-door triage role running against a local or remote OpenAI-compatible endpoint.
+- `planner`: the planner route when `defaults.planner_provider` is not set.
+- `worker`: in solo mode, its `backend` and `model` replace the task route for the single worker. Because this default is always present, solo mode uses claude unless `roles.worker` is set. Its `effort` is not read. Its `backend` is also the backend the scheduler caps with `max_concurrency`.
+- `reviewer`: accepted by the schema and not read by this version.
+- `governor`: accepted by the schema. It is not used on the default path in this version (DECISIONS A2 retires the governor), and this reference does not document its behaviour.
 
 ### `routing`
 
-Maps task classifications to specific harness routes, or defines model escalation ladders.
+Per-class routes, plus the escalation list.
 
-```json
-{
-  "routing": {
-    "feature": {
-      "backend": "claude",
-      "model": "claude-sonnet-5-5",
-      "effort": "medium",
-      "budget": { "max_usd": 1.0 }
-    },
-    "fix": {
-      "backend": "claude",
-      "model": "claude-haiku-5-5",
-      "effort": "low"
-    },
-    "escalation": ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
-  }
-}
-```
+Default: `feature` is `claude` / `claude-sonnet-5-5` / `medium`, and `escalation` is `["haiku", "sonnet", "opus"]`.
 
-- Each named property corresponds to a `TaskClass` (e.g. `feature`, `fix`, `refactor`, `test`, `chore`, `docs`).
-- `escalation` *(array of strings)*: Sequence of model names used when recovering from verification failures.
+- `routing.<class>`: a route for one task class (for example `feature`, `tests`, `refactor`). Only `backend`, `model` and `effort` are read. A `budget` entry is accepted and not read.
+- An explicit `routing.<class>` entry takes precedence over a profile slot for that class. The built-in `feature` entry is always present, so a profile does not route the `feature` class unless `routing.feature` is changed.
+- `escalation`: a list of model ids. It is used for escalation only when no worker profile is set (`defaults.worker_provider` names no profile). With a worker profile, the chain is the profile's `fast`, `work` and `plan` models, in that order, without repeats.
 
 ### `profiles`
 
-Per-provider model slots. Each provider entry names the models a role uses for that provider.
+Per-provider model slots. Each provider name maps to `plan`, `work` and an optional `fast` slot. A slot is `{ "model": "<id>", "effort": "<level>" }`; `effort` is optional. `plan` and `work` are required.
 
 ```json
 {
   "profiles": {
     "claude": {
-      "plan": { "model": "claude-opus-5-5", "effort": "max" },
-      "work": { "model": "claude-sonnet-5-5", "effort": "medium" },
-      "fast": { "model": "claude-haiku-5-5", "effort": "low" }
+      "plan": { "model": "claude-sonnet-5-5", "effort": "high" },
+      "work": { "model": "claude-sonnet-5-5", "effort": "medium" }
     }
   }
 }
 ```
 
-- `plan` *(ProfileSlot)*: Slot used by the planner role and by the `debug` and `review` task classes.
-- `work` *(ProfileSlot)*: Slot used by worker tasks, by the `tests`, `feature` and `refactor` task classes, and as the fallback for a class that has no slot.
-- `fast` *(ProfileSlot, optional)*: Slot used by the `search`, `mechanical` and `boilerplate` task classes; those classes use `work` when it is absent.
-- A profile is used only when `defaults` names it, or when a task class has no explicit `routing.<class>` entry: an explicit routing entry always wins over a slot.
+- `plan` routes the planner (when `defaults.planner_provider` names the provider). It also routes the `debug` and `review` classes.
+- `work` routes the `tests`, `feature` and `refactor` classes, and is the fallback for every other class.
+- `fast` routes the `search`, `mechanical` and `boilerplate` classes. Those classes use `work` when `fast` is absent.
+- A profile routes worker tasks only when `defaults.worker_provider` names it and the task class has no explicit `routing.<class>` entry.
 
 ### `defaults`
 
-Names the provider whose profile each role uses. A default that names a provider with no profile is a settings validation error.
+Which provider's profile routes the planner and the workers.
 
-```json
-{
-  "defaults": {
-    "planner_provider": "claude",
-    "worker_provider": "opencode"
-  }
-}
-```
+- `planner_provider`: provider whose `plan` slot routes the planner.
+- `worker_provider`: provider whose profile routes worker tasks and the escalation chain.
 
-- `planner_provider` *(string, optional)*: Provider whose `plan` slot routes the planner. Falls back to `roles.planner` when unset.
-- `worker_provider` *(string, optional)*: Provider whose profile slots route worker tasks and the escalation ladder.
+Each name must have an entry in `profiles`. Otherwise the load fails (exit 2).
 
 ### `pricing`
 
-Authoritative token pricing table used to track usage and calculate dollar expenditures.
+Token rates used to compute cost when a harness does not report dollars.
 
-```json
-{
-  "pricing": {
-    "asOf": "2026-10-16",
-    "sources": ["https://anthropic.com/pricing", "https://openai.com/pricing"],
-    "models": {
-      "claude-sonnet-5-5": {
-        "input_per_mtok": 3.0,
-        "output_per_mtok": 15.0,
-        "cache_read_per_mtok": 0.3,
-        "cache_write_per_mtok": 3.75
-      },
-      "claude-haiku-5-5": {
-        "input_per_mtok": 0.8,
-        "output_per_mtok": 4.0,
-        "cache_read_per_mtok": 0.08,
-        "cache_write_per_mtok": 1.0
-      }
-    }
-  }
-}
-```
+- `asOf`: date the table was last refreshed.
+- `sources`: URLs that document the rates.
+- `models`: per model id, `input_per_mtok` and `output_per_mtok` (required), with optional `cache_read_per_mtok` and `cache_write_per_mtok`. Rates are USD per million tokens.
 
-- `asOf` *(string)*: ISO date when pricing values were last refreshed.
-- `sources` *(array of strings)*: Upstream URLs documenting the token rates.
-- `models` *(record)*: Token pricing rates per million tokens in USD (`input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`, `cache_write_per_mtok`).
+The built-in price table (`src/backends/default-pricing.ts`) is merged with this table one model id at a time: an entry here replaces the built-in entry for the same id, and other built-in ids stay. A model with no rates is recorded with `cost_source` set to `unknown`.
 
 ### `budgets`
 
-Resource constraints and execution guardrails preventing accidental overruns.
+Spend, token and time limits, and retry counts.
+
+Default: `run.max_usd` 5, `task.max_usd` 0.5, `l1_replans_per_task` 2, `l2_per_run` 2, `planner_format_retries` 2, `approval_threshold_usd` 2.
+
+- `run`: `max_usd` and `max_tokens` are read. `max_wall_min` is accepted and is not enforced by the engine. `--max-budget-usd` and `SUBSTRATE_MAX_BUDGET_USD` set `run.max_usd`.
+- `task`: `max_usd`, `max_tokens`, `timeout_min` (30 when unset) and `max_turns` are read.
+- `l1_replans_per_task`, `l2_per_run`, `planner_format_retries` and `approval_threshold_usd` are read as described in the index.
 
 ```json
 {
   "budgets": {
-    "run": {
-      "max_usd": 15.0,
-      "max_tokens": 5000000,
-      "max_wall_min": 60
-    },
-    "task": {
-      "max_usd": 1.5,
-      "max_tokens": 500000,
-      "timeout_min": 15,
-      "max_turns": 30
-    },
-    "l1_replans_per_task": 2,
-    "l2_per_run": 2,
-    "planner_format_retries": 2,
-    "approval_threshold_usd": 5.0
+    "run": { "max_usd": 5 },
+    "task": { "max_usd": 0.5, "timeout_min": 30 }
   }
 }
 ```
-
-- `run`: Total spend limits for an entire multi-task execution run (`max_usd`, `max_tokens`, `max_wall_min`).
-- `task`: Default limits applied to individual worker tasks (`max_usd`, `max_tokens`, `timeout_min`, `max_turns`).
-- `l1_replans_per_task` *(integer)*: Maximum healing and retry attempts allowed for a single task before failing.
-- `l2_per_run` *(integer)*: Maximum full-manifest re-planning cycles allowed for an entire run.
-- `planner_format_retries` *(integer)*: Retries granted to the planner if it produces invalid JSON or schema errors.
-- `approval_threshold_usd` *(number)*: Estimated cost threshold that triggers mandatory human approval before proceeding.
 
 ### `concurrency`
 
-Controls execution parallelism.
-
-```json
-{
-  "concurrency": {
-    "workers": 3
-  }
-}
-```
-
-- `workers` *(integer)*: Maximum number of worker tasks allowed to execute simultaneously across all worktrees.
+- `workers`: the maximum number of tasks running at once. Default 3.
 
 ### `permissions`
 
-Declarative tool-calling permissions enforced across worker sessions.
-
-```json
-{
-  "permissions": {
-    "allow": ["Bash", "Read", "Write", "Glob"],
-    "deny": [
-      "Agent",
-      "Agent(*)",
-      "Bash(git commit*)",
-      "Bash(git push*)",
-      "Bash(git checkout*)",
-      "Bash(git reset*)",
-      "Bash(git rebase*)",
-      "Bash(git clean*)",
-      "Bash(git stash*)",
-      "Bash(git merge*)",
-      "WebFetch",
-      "WebFetch(*)"
-    ],
-    "ask": ["Bash(curl*)"]
-  }
-}
-```
-
-- `allow` *(array of strings)*: Whitelist of allowed tool names or glob patterns.
-- `deny` *(array of strings)*: Prohibited tool patterns. Substrate automatically rejects these calls without prompting.
-- `ask` *(array of strings, optional)*: Tool patterns requiring explicit interactive approval.
+- `allow`, `deny` and `ask` are accepted. The engine does not read them. Worker and planner tool rules are fixed in code (`src/roles/worker.ts` and `src/engine/actions/plan.ts`), so these lists do not change what a worker or planner may do in this version.
 
 ### `sandbox`
 
-Operating system sandbox isolation for worker task execution.
-
-```json
-{
-  "sandbox": {
-    "enabled": true,
-    "network": "deny"
-  }
-}
-```
-
-- `enabled` *(boolean)*: When true on Linux hosts, runs worker processes inside a Bubblewrap (`bwrap`) container.
-- `network` *(string: `"deny"` \| `"allow"`)*: Controls network namespace access inside the sandbox container.
+- `enabled`: default `false`. When `true`, verify commands run inside `bwrap` where it is available. When it is `true` and `bwrap` is not installed, `run`, `plan` and `resume` refuse to start with an error.
+- `network`: accepted by the schema and not read by this version. Verify commands always get a fixed network setting in the code.
 
 ### `git`
 
-Git repository integration and worktree management policies.
+Default: `on_scope_violation` `revert`, `branch_prefix` `substrate/`, `auto_merge` `false`.
 
-```json
-{
-  "git": {
-    "on_scope_violation": "revert",
-    "branch_prefix": "substrate/",
-    "auto_merge": false
-  }
-}
-```
-
-- `on_scope_violation` *(string: `"revert"` \| `"fail"`)*: Action taken when a worker modifies files outside its task spec write/create allowances.
-- `branch_prefix` *(string)*: Prefix applied to temporary Git branches created for execution runs.
-- `auto_merge` *(boolean)*: When true, automatically fast-forwards or merges completed run branches into the working branch if all verifications pass.
+- `on_scope_violation`: `revert` or `fail`. It is read when a worker changes files outside its allowed paths.
+- `auto_merge`: when `true`, a run that finishes with exit code 0 is merged with the same code the merge command uses.
+- `branch_prefix`: accepted by the schema and not read by this version. Branch names are fixed in code.
 
 ### `instructions`
 
-Controls how project-level instruction files are injected into worker prompts.
-
-```json
-{
-  "instructions": {
-    "workers": "project"
-  }
-}
-```
-
-- `workers` *(string: `"none"` \| `"project"`)*: When `"none"`, workers receive only task spec frontmatter and rules. When `"project"`, workers also ingest repository instructions (e.g. `CLAUDE.md`, `AGENTS.md`).
-
-### `execution`
-
-Execution dispatcher strategy.
-
-```json
-{
-  "execution": {
-    "strategy": "direct"
-  }
-}
-```
-
-- `strategy` *(string: `"direct"` \| `"dispatcher"`)*: `"direct"` spawns individual external harness processes for each worker task via the process supervisor. `"dispatcher"` reserves future support for orchestrating subagents through a single parent harness.
-
-### `hooks`
-
-Lifecycle shell hooks triggered before and after orchestration phases.
-
-```json
-{
-  "hooks": {
-    "pre-plan": [
-      { "command": "npm run lint:precheck", "timeout_s": 30 }
-    ],
-    "post-task": [
-      { "command": "git diff --stat", "timeout_s": 10 }
-    ],
-    "pre-merge": [
-      { "command": "npm run check:boundaries", "timeout_s": 60 }
-    ]
-  }
-}
-```
-
-- Supported hook phases: `pre-plan`, `post-plan`, `pre-task`, `post-task`, `pre-merge`, `post-merge`.
-- Each hook entry defines a `command` string and an optional `timeout_s` execution limit.
+- `workers`: `none` (default) or `project`. The key is named for workers, but the code reads it in the planner: when it is `project`, the planner request lists the project instruction files that exist (`CLAUDE.md`, `AGENTS.md`, `SUBSTRATE.md`).
 
 ### `usage`
 
-Global usage mirror configuration.
+- `global`: default `true`. When `true`, each usage record is also appended to `$XDG_STATE_HOME/substrate/usage.jsonl`, or to `~/.local/state/substrate/usage.jsonl` when `XDG_STATE_HOME` is not set. The project ledger is always written under `.substrate/ledger/`.
 
-```json
-{
-  "usage": {
-    "global": true
-  }
-}
-```
+### `execution`
 
-- `global` *(boolean, default `true`)*: When `true`, usage records are mirrored to the global user state ledger file (`$XDG_STATE_HOME/substrate/usage.jsonl` or `~/.local/state/substrate/usage.jsonl`). When `false`, usage is only written to the project ledger (`.substrate/ledger/usage.jsonl`).
+- `strategy`: default `direct`. The schema accepts `direct` and `dispatcher`. The engine does not read this key; `direct` is the only behaviour in this version.
 
+### `hooks`
+
+- Accepted by the schema and not executed. No code outside `src/hooks/` calls the hook runner, so hook entries have no effect in this version.

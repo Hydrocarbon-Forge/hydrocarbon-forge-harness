@@ -30,6 +30,8 @@ Evidence base: `research/01-harness-conventions.md` (Claude Code / OpenCode / An
 
 ## 1. Vision, scope, non-goals
 
+> **Superseded by DECISIONS.md** (in part): the TUI and the governor front door described in this section (DECISIONS A2, A5; no TUI).
+
 **Substrate** is a deterministic orchestration engine, packaged as a CLI/TUI that looks and behaves like Claude Code, OpenCode and Antigravity CLI (`agy`), that pairs one expensive **Planner** with many cheap **Workers**. It does not implement a coding agent loop of its own: it drives the three existing harnesses as *backends* (one headless process per task, in an isolated git worktree), validates everything they produce with code, and merges only what passes.
 
 **Substrate is its own product, not a wrapper around any one harness.** Claude Code, OpenCode and Antigravity are peer *runners*: any role (planner, test-writer, worker, reviewer) may run on any of them, and one run may mix them (for example planning on one harness and implementation on another). Substrate has no model-calling runtime of its own for planning or implementation; a local model is reached by adding it as an OpenCode provider.
@@ -62,6 +64,8 @@ Each invariant names its enforcement mechanism. An invariant enforced only by pr
 ---
 
 ## 3. Architecture
+
+> **Superseded by DECISIONS.md** (in part): the "governor" box in the diagram (DECISIONS A2) and the TUI and hooks boxes (no TUI, no hooks).
 
 ```text
 ┌─ SURFACE ───────────────────────────────────────────────────────────────┐
@@ -127,6 +131,8 @@ Each invariant names its enforcement mechanism. An invariant enforced only by pr
 
 ### 4.2 Commands
 
+> **Superseded by DECISIONS.md** (in part): the governor and TUI wording in the command table (DECISIONS A2; bare `substrate` prints help, and a first word that is not a command is a prompt).
+
 | Command | Purpose |
 |---|---|
 | `substrate [prompt]` | Interactive TUI; optional initial prompt (like `claude "q"`). ~~The prompt goes to the governor (front door) unless `--mode` or `--no-governor` is given~~ **Superseded (DECISIONS A2): there is no governor on the default path; the prompt goes to the deterministic router, then `plan`.** |
@@ -163,13 +169,22 @@ Each invariant names its enforcement mechanism. An invariant enforced only by pr
 A **session** record (`.substrate/sessions/<session_id>.json`) lists its runs, prompts and mode. `--resume <session_id>` reopens the thread; `substrate resume <run_id>` resumes the *run* (engine replays `events.jsonl`). `-c/--continue` = most recent session in this directory. Backend sessions are internal.
 
 ### 4.6 Output and exit codes
+
+> **Superseded by DECISIONS.md** (in part): the `stream-json` event names; the engine event names in Appendix D are canonical (resolved-contradictions table). The exit codes are unchanged.
+
 - `text` — human summary. `json` — one final object. `stream-json` — NDJSON, key `type`: `system.init`, `run.state`, `plan.ready`, `task.started`, `task.verified`, `task.failed`, `batch.merged`, `usage`, `result`. The final `result` event mirrors Claude's shape: `type:"result"`, `subtype` (`success|error_failed|error_budget|error_needs_human`), `is_error`, `session_id`, `run_id`, `num_tasks`, `total_cost_usd`, `usage{by_role}`, `duration_ms`.
 - Exit codes: `0` success · `1` run failed · `2` usage/config error · `3` needs human (approval in `dontAsk`, permission denial, escalation L3) · `4` budget exhausted · `130` SIGINT · `143` SIGTERM.
 
 ### 4.7 Interactive UX (v0.3)
+
+> **Superseded by DECISIONS.md**: there is no TUI and no slash commands; `src/tui/` is deleted (R0.7).
+
 Slash commands: `/help /mode /plan /run /status /tasks /cost /models /agents /permissions /config /resume /sessions /undo /doctor /init /clear /exit /hooks`. Keybindings follow Claude Code conventions: `Enter` submit · `Esc` graceful interrupt (engine pauses the run) · `Shift+Tab` cycle permission mode · `Ctrl+C` ×2 exit · `Ctrl+T` toggle task board · `Ctrl+O` verbose feed · `@` file mention · `!` shell passthrough. *These keybindings are from memory, not research; spike S5 (P0.6) verifies them before P5.3.* Status line: model/tier · run state · tasks done/total · cost vs cap. Approval dialogs for plan, cost and merge gates; session picker for `/resume`.
 
 ### 4.8 Hooks (v0.3)
+
+> **Superseded by DECISIONS.md**: hooks are not built in this version (DECISIONS, Out of scope).
+
 Events: `PreRun`, `PostPlan` (may block), `PreTask`, `PostTask`, `PreMerge` (may block), `PostMerge`, `RunFinished`, `Notification`. Command hooks receive JSON on stdin; exit `0` = continue, `2` = block (stderr fed back). Same contract shape as Claude Code hooks.
 
 ---
@@ -202,6 +217,8 @@ Side states: `PAUSED(reason ∈ PauseReason)`, `FAILED`, `CANCELLED`. `PAUSED` i
 
 ### 6.1 Roles
 
+> **Superseded by DECISIONS.md** (in part): the Governor row (DECISIONS A2).
+
 > The Governor row below is superseded (DECISIONS A2).
 | Role | Default tier | Reads | Writes | Notes |
 |---|---|---|---|---|
@@ -216,6 +233,8 @@ The Planner assigns each task a **class** from the configured set; the engine ma
 
 ### 6.3 Governor (the front door) and router
 
+> **Superseded by DECISIONS.md**: the governor is retired from the default path (DECISIONS A2, A5); a local model is only an OpenCode worker route.
+
 > **SUPERSEDED (DECISIONS A2, A5).** The governor is retired from the default path. Only the deterministic router rules (rule 2 below) remain in use. Read the rest of this section as history.
 
 The governor is how a project **starts**: what you type in the prompt box, or pass to `substrate -p`, goes to the local model first, unless explicit flags (`--mode`, `--no-governor`) select the deterministic path. It may (a) ask up to `max_clarifying_turns` short clarifying questions, (b) choose mode, task class and planner route (schema-constrained output), (c) start and control runs through a **fixed typed tool set** (`start_run`, `plan_only`, `resume_run`, `run_status`, `show_cost`, `cancel_run`, `ask_user`; Appendix A) whose calls the engine validates and executes, and (d) narrate status and give advisory semantic lint. It **cannot plan, implement, edit the repo, or change caps, verdicts or state**: planning and implementation belong to the harnesses and everything else to the engine (I1). This is the one place Substrate itself calls a model, directly, with no harness in between. Conversation state lives in the session record.
@@ -224,6 +243,8 @@ Order of decision (first match wins): (1) explicit flags; (2) deterministic rule
 ---
 
 ## 7. Contracts (summary)
+
+> **Superseded by DECISIONS.md** (in part): the `contracts/` layout and the worktree path; the resolved-contradictions table gives `.substrate/worktrees/<run_id>/<task_id>-g<n>/`.
 
 Full declarations: **Appendix A** (authoritative; workers implement them as zod schemas with inferred types). Artifact layout:
 
@@ -270,6 +291,8 @@ Task specs are **materialized** into the worktree at `.substrate-task/TASK.md` (
 ---
 
 ## 10. Budgets, safety, sandbox
+
+> **Superseded by DECISIONS.md** (in part): the sandbox and network-denial bullets (DECISIONS A6: security hardening is out of scope; worker network is not denied).
 
 - **Budgets** (all from settings; planner may request lower, never higher): per run (`max_usd`, `max_tokens`, `max_wall_min`), per task (`max_usd`, `max_tokens`, `timeout_min`, `max_turns`), replan caps (§5). Usage comes from the adapter (`reported`) or is computed from token counts × the pricing table (`computed`, required for `agy`, which reports tokens only). The governor checks on every `usage` event and kills the process group at 100 %, warns at 80 %. Native flags (`--max-budget-usd` on Claude) are belt-and-braces, never the mechanism.
 - **Pre-flight estimate:** after linting, the engine estimates cost from class medians in the ledger (settings defaults on first run) plus a retry factor; above `budgets.approval_threshold_usd` it requires approval regardless of mode except `bypassPermissions`.
@@ -327,6 +350,8 @@ Deterministic checks (App. C, `L001–L027`) run in code over `manifest.yaml`, t
 
 ## 15. Repository layout and stack
 
+> **Superseded by DECISIONS.md** (in part): the `tui/` entries and the import-boundary rule for them (no TUI; `src/tui/` is deleted by R0.7).
+
 Repo root = this directory.
 
 ```text
@@ -357,6 +382,8 @@ bench/
 ---
 
 ## 16. Implementation roadmap — work packages
+
+> **Superseded by DECISIONS.md** (in part): work package P5.3 (TUI) and the gate G5 "P6.2 findings" clause (no TUI; security is out of scope). The rest of this section is historical.
 
 **Reading the table.** *Tier*: H = Haiku 5.5, S = Sonnet 5.5, O = Opus 5.5 · *Eff*: lo/med/hi · *TF* (tests-first): `y` = a separate test-writer subagent writes the tests first; they must fail at base and become `protected` for the implementer · *Sz*: S/M/L (sets the worker's tool-call cap) · *Rel*: release cut line. Spike rows (P0.2–P0.6) are researcher tasks with hard tool-call caps and produce `docs/spikes/*.md` plus fixtures. `Verify` commands are what the orchestrator runs itself; `npm test -- <path>` filters vitest by path. Every row also requires `npm run typecheck` and `npm run check:boundaries` to stay green.
 
@@ -457,6 +484,8 @@ Dispatcher-mode experiment (native subagent fan-out where a backend proves relia
 
 ## 18. Decision log and assumptions
 
+> **Superseded by DECISIONS.md** (in part): OD3 (governor front door) and A10 (network denied for workers) (DECISIONS A2, A6).
+
 **Confirmed by the user:** the name **Substrate**; the engine is **TypeScript**; Substrate is its own product and supports Claude Code, Antigravity and OpenCode as peer runners for planning or implementation (no privileged backend, no model runtime of its own); the design must closely mirror those three harnesses; research and detail-heavy design work goes to Haiku 5.5 high-effort subagents; the original implementation was driven by an orchestrating agent that used subagents (retired; see `docs/archive/bootstrap/`).
 
 **Resolved by the user:** all three adapters ship in v0.1 (OD2); ~~the local model is called directly by Substrate and is how a project starts~~ **(OD3 superseded by DECISIONS A2: the governor is retired)**.
@@ -484,6 +513,8 @@ Dispatcher-mode experiment (native subagent fan-out where a backend proves relia
 ---
 
 ## Appendix A — Contract declarations (authoritative; declarations only)
+
+> **Superseded by DECISIONS.md** (in part): the `GovernorTool` and `RoutingDecision` declarations (DECISIONS A2).
 
 ```ts
 // ===== identifiers & enums =====
@@ -624,6 +655,8 @@ export interface RoutingDecision { mode: "solo" | "plan"; task_class?: TaskClass
 ```
 
 ## Appendix B — Example settings and routing (configuration values, not code)
+
+> **Superseded by DECISIONS.md** (in part): the `governor` settings entry and the sandbox network setting (DECISIONS A2, A6).
 
 *Illustrative and Claude-only for brevity. `substrate init` builds the real routing from the harnesses `doctor` detects, and any role may use any backend: for example `planner` on `agy`, `mechanical`/`boilerplate` workers on `opencode` with the local model, `feature` workers on `claude`. Model ids for `opencode` and `agy` come from `opencode models` / `agy models`.*
 

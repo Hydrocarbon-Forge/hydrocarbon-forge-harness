@@ -1,269 +1,69 @@
-> **Status (2026-10-17): under remediation.** Parts of this README describe intended behavior that is not implemented yet (the `SUBSTRATE_*` environment layer, `bench`/`agents-import`, several flags, and a working `bin/substrate.mjs`). The accurate state and the plan to fix it are in [`docs/plan/PROGRESS.md`](docs/plan/PROGRESS.md); contributors start at [`START-HERE.md`](START-HERE.md). This notice is removed by work package R5.1.
-
 # Substrate
 
-Substrate is a deterministic orchestration engine that drives external peer agent harnesses (Claude Code, OpenCode, Antigravity) without privileged backends. It provides structured task planning, isolated git worktrees, automated verification gates, append-only event logging, and cost accounting, while delegating code generation and reasoning to external command-line agent harnesses running as unprivileged peers.
+Substrate is a command-line tool that gets coding work done cheaply and reliably. A caller (an AI agent or a person) gives it a coding request. One strong **planner** model turns the request into a plan. Cheaper **worker** models carry out the plan's tasks, one headless process of an existing harness per task, each in its own git worktree. The engine (ordinary code, not an AI) runs real verify commands on every task and merges only the tasks that pass. Substrate also reports which models exist, and the tokens and cost each model used.
 
----
+Substrate drives three existing harnesses: Claude Code (`claude`), OpenCode (`opencode`) and Antigravity (`agy`).
 
-## Architecture Overview
+## Requirements
 
-Substrate treats all AI coding agents as symmetric, interchangeable peers. Substrate does not include an embedded language model runtime or proprietary cloud backend. Instead, it supervises external CLI harnesses through standardized process adapters.
+- Node.js 22 or newer
+- git 2.30 or newer, and a git repository to work in
+- At least one of the harness CLIs. `substrate doctor` says which ones are missing.
+- bubblewrap (`bwrap`) only if you turn the sandbox on. It is off by default.
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                    Substrate Engine Core                     │
-│                                                              │
-│  ┌────────────────┐   ┌────────────────┐   ┌──────────────┐  │
-│  │   State Core   │   │ Git Workspace  │   │ Usage Ledger │  │
-│  │ JSONL Event Log│   │ Task Worktrees │   │  Cost & USD  │  │
-│  │ DAG Scheduler  │   │ Scope Checker  │   │  Token Caps  │  │
-│  │ Ladder Reducer │   │   Merge Gate   │   │ Pricing Table│  │
-│  └────────────────┘   └────────────────┘   └──────────────┘  │
-└───────────────────────────────┬──────────────────────────────┘
-                                │ Process Supervisor
-        ┌───────────────────────┼───────────────────────┐
-        ▼                       ▼                       ▼
-┌──────────────┐        ┌──────────────┐        ┌──────────────┐
-│ Claude Code  │        │   OpenCode   │        │ Antigravity  │
-│  Adapter     │        │   Adapter    │        │  Adapter     │
-│ (`claude`)   │        │ (`opencode`) │        │   (`agy`)    │
-└──────────────┘        └──────────────┘        └──────────────┘
+## Install and build
+
+The package is private and is not published. Run it from the repository:
+
+```bash
+npm install          # its prepare script runs "npm run bundle", which writes dist/substrate.mjs
+node bin/substrate.mjs --help
 ```
 
-### Core Subsystems
-
-1. **State Core**:
-   - **JSONL Event Log**: Append-only event store recording every engine decision, tool invocation, and backend event.
-   - **DAG Scheduler**: Computes dependency graphs and dispatches independent worker tasks concurrently.
-   - **Ladder Reducer**: Manages escalating model attempts across L1 task replanning and L2 run re-architecting.
-   - **Ledger**: Tracks exact token usage (input, output, cache read/write, reasoning) and USD costs per role, task, and model.
-
-2. **Git Workspace**:
-   - **Task Worktrees**: Spawns isolated Git worktrees per task to eliminate workspace collisions between parallel workers.
-   - **Scope Checker**: Strictly enforces the declarative write and create file allowances specified in task specs.
-   - **Merge Gate**: Validates all task acceptance verify commands before merging task branches into the run branch.
-
-3. **Backends & Adapters**:
-   - **Process Supervisor**: Spawns and monitors external harness processes with timeout, cancellation, and signal forwarding.
-   - **Normalizers**: Translates disparate NDJSON and stdout streams into unified typed `BackendEvent` streams.
-   - **Adapters**: Concrete implementations for Claude Code (`claude`), OpenCode (`opencode`), Antigravity (`agy`), and deterministic simulation (`fake`).
-
-4. **Roles**:
-   - **Governor**: Optional local triage front door that clarifies ambiguous goals and routes tasks.
-   - **Planner**: Deconstructs goals into typed DAG manifests and declarative task specifications.
-   - **Worker**: Executes implementation tasks inside isolated worktrees under strict tool permissions.
-   - **Reviewer / Test-Writer**: Independent roles validating work products before acceptance.
-
-5. **Surface**:
-   - **Headless CLI**: Scriptable command-line interface with text, JSON, and NDJSON streaming outputs.
-
----
-
-## Prerequisites
-
-- **Node.js**: Version 22.0.0 or higher.
-- **Git**: Version 2.30.0 or higher.
-- **Peer CLI Harness**: At least one of the following installed and authenticated in your `PATH`:
-  - [Claude Code](https://github.com/anthropics/claude-code) (`claude`)
-  - [OpenCode](https://github.com/opencode-ai/opencode) (`opencode`)
-  - [Antigravity](https://github.com/google/antigravity) (`agy`)
-
----
+`bin/substrate.mjs` loads `dist/substrate.mjs`. Rebuild with `npm run bundle` after a source change.
 
 ## Quickstart
 
-### 1. Install Substrate
+In the examples below, `substrate` stands for `node bin/substrate.mjs`. Run them inside a git repository.
 
 ```bash
-git clone https://github.com/HydrocarbonForge/substrate.git
-cd substrate
-npm install
+substrate init                                              # creates .substrate/ and its .gitignore
+substrate doctor                                            # checks Node, git, harness versions and pins
+substrate models                                            # lists the models of each installed provider
+substrate init --provider claude --plan opus:high --work sonnet:medium   # choose the planner and worker models
+substrate run "Add a request rate limiter to the server"    # runs a real plan and spends tokens
 ```
 
-### 2. Initialize Project Configuration
+`init` with no slot flags writes nothing but the runtime directories, the `.gitignore` and the charter stub. `doctor` exits 1 when a check fails, and each failed check prints a `fix:` line.
 
-Scaffold project settings in `.substrate/settings.json`:
+## Commands
 
-```bash
-bin/substrate.mjs init
-```
+| Command | What it does |
+|---|---|
+| `run` | Plan, run workers, verify and merge a goal. Also takes a JSON request file. |
+| `plan` | Run the planner only and stop before any worker starts. |
+| `resume` | Continue a paused or interrupted run, or answer its questions with `--answers`. |
+| `status`, `tasks`, `report` | Inspect a run: its state, its tasks, a diagnostic report. |
+| `verify` | Re-run one task's verify commands in its worktree. |
+| `merge`, `undo`, `discard` | Merge a finished run, revert the last merged batch, or remove a run. |
+| `models` | List models per provider, with prices and profile slots. `--stats` shows per-model results. |
+| `usage` (alias `cost`) | Tokens and cost from the usage ledger, grouped by model, provider, role, run, task, class or day. |
+| `agents`, `backends`, `sessions` | List agent prompts, harness versions and capabilities, and recorded sessions. |
+| `config` | Read or set a value in the project's settings. |
+| `doctor`, `init` | Check the environment. Create the `.substrate/` workspace and profiles. |
+| `charter`, `history`, `archive`, `gc` | Project charter and versions. Archive finished runs and clean up their raw data. |
+| `bench` | Run the benchmark tasks in `bench/`. See the limits described in the CLI reference. |
 
-### 3. Verify Environment Health
+Every command, option and exit code is in [docs/reference/cli.md](docs/reference/cli.md).
 
-Run the diagnostic suite to confirm installed CLI tools, version pins, and sandbox readiness:
+## Configuration
 
-```bash
-bin/substrate.mjs doctor
-```
+Settings come from several layers. The layers, their order and every settings key are in [docs/reference/config.md](docs/reference/config.md). Harness adapters and their version pins are in [docs/reference/adapters.md](docs/reference/adapters.md), and the local model route is in [docs/reference/local-model.md](docs/reference/local-model.md).
 
-### 4. Execute Your First Run
+## For AI agent callers
 
-Execute a goal prompt in headless mode:
+If you are an agent that calls Substrate, read [docs/reference/caller-guide.md](docs/reference/caller-guide.md) first. It shows how to check readiness, choose models, send a request, answer questions from a paused run, read usage, and what each exit code means.
 
-```bash
-bin/substrate.mjs run "Add health check endpoint to HTTP server"
-```
+## Contributing
 
-Or start the interactive terminal interface:
-
-```bash
-bin/substrate.mjs "Refactor authentication middleware"
-```
-
----
-
-## CLI Usage Guide
-
-Substrate provides both headless automation and interactive modes.
-
-### Headless Execution
-
-Use the `run` command or the `-p` / `--print` flag for headless execution in CI or automation pipelines:
-
-```bash
-# Execute with default settings
-bin/substrate.mjs run "Implement user login endpoint"
-
-# Headless run with stream-json output
-bin/substrate.mjs run --output-format stream-json "Fix database migration typo"
-```
-
-### Planning Without Execution
-
-To generate a task manifest and lint specifications without dispatching worker tasks:
-
-```bash
-bin/substrate.mjs plan "Refactor payment processing module"
-```
-
-### Common Execution Flags
-
-- `-p`, `--print`: Execute headlessly and write output to stdout/stderr.
-- `--output-format <format>`: Format output as `text`, `json`, or `stream-json`.
-- `--model <model>`: Specify primary model for planning or solo mode.
-- `--worker-model <model>`: Override model used by worker tasks.
-- `--effort <level>`: Reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`).
-- `--sandbox`: Enforce bubblewrap sandbox isolation.
-- `--max-budget-usd <amount>`: Set maximum USD spend limit for the run.
-- `--permission-mode <mode>`: Configure tool permission policy (`default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`).
-- `--no-governor`: Bypass local governor triage and proceed directly to planning.
-
-### Session Continuation and Resumption
-
-```bash
-# Continue the most recent session
-bin/substrate.mjs run --continue
-
-# Resume a specific session or run ID from event log
-bin/substrate.mjs resume --session-id s_1234567890
-
-# Fork an existing session into a new branch
-bin/substrate.mjs run --resume r_ABCDEF123456 --fork-session
-```
-
-For complete documentation of all 20 subcommands and options, see the [CLI Reference](docs/reference/cli.md).
-
----
-
-## Configuration Summary
-
-Substrate resolves configuration using a strict 7-layer precedence hierarchy:
-
-1. **Embedded Defaults**: Internal fallback settings (`DEFAULT_SETTINGS`).
-2. **User Global Settings**: `~/.config/substrate/settings.json`.
-3. **Project Settings**: `.substrate/settings.json`.
-4. **Project Local Overrides**: `.substrate/settings.local.json` (git-ignored).
-5. **CLI Settings File**: Specified via `--settings <file>`.
-6. **Environment Variables**: Overrides prefixed with `SUBSTRATE_*`.
-7. **CLI Flags**: Command-line arguments (e.g., `--model`, `--max-budget-usd`).
-
-### Example Configuration (`.substrate/settings.json`)
-
-```json
-{
-  "backends": {
-    "claude": {
-      "bin": "claude",
-      "version_pin": "2.1.301",
-      "max_concurrency": 4
-    }
-  },
-  "roles": {
-    "planner": {
-      "backend": "claude",
-      "model": "claude-sonnet-5-5",
-      "effort": "medium"
-    }
-  },
-  "routing": {
-    "feature": {
-      "backend": "claude",
-      "model": "claude-sonnet-5-5",
-      "effort": "medium"
-    },
-    "escalation": ["haiku", "sonnet", "opus"]
-  },
-  "budgets": {
-    "run": { "max_usd": 10.0 },
-    "task": { "max_usd": 1.5 },
-    "l1_replans_per_task": 2,
-    "l2_per_run": 2,
-    "planner_format_retries": 2,
-    "approval_threshold_usd": 5.0
-  },
-  "concurrency": {
-    "workers": 3
-  },
-  "permissions": {
-    "allow": ["Bash", "Read", "Write"],
-    "deny": ["Agent", "Bash(git push*)"]
-  },
-  "sandbox": {
-    "enabled": true,
-    "network": "deny"
-  },
-  "git": {
-    "on_scope_violation": "revert",
-    "branch_prefix": "substrate/",
-    "auto_merge": false
-  },
-  "instructions": {
-    "workers": "project"
-  },
-  "execution": {
-    "strategy": "direct"
-  }
-}
-```
-
-For full schema details, merging rules, and environment variable references, see the [Configuration Reference](docs/reference/config.md).
-
----
-
-## Benchmark Summary
-
-Substrate includes an evaluation harness comparing four architectural paradigms across reproducible software engineering tasks:
-
-- **Arm A (Unconstrained Baseline)**: A single unconstrained agent working directly in the project root with full git and tool access.
-- **Arm B (Spec-Guided Solo)**: A single agent operating sequentially under declarative task specifications.
-- **Arm C (Substrate Decomposed Workers)**: Substrate DAG orchestration executing isolated tasks with automated verify gates using a single model.
-- **Arm D (Substrate Heterogeneous Routing)**: Full Substrate system with frontier planner decomposition and cost-optimized worker routing.
-
-### Running Benchmarks
-
-```bash
-# Run benchmark suite across all arms
-bin/substrate.mjs bench --arms A,B,C,D --repetitions 3
-
-# Run benchmark in dry-run mode
-bin/substrate.mjs bench --dry-run
-```
-
----
-
-## Detailed References
-
-- [Configuration Reference](docs/reference/config.md): Complete schema documentation for `settings.json`, environment variables, and merge semantics.
-- [CLI Reference](docs/reference/cli.md): Reference covering all 20 CLI commands, flags, and exit codes.
-- [Adapter Guide](docs/reference/adapters.md): Harness adapter architecture, protocol obligations, and test conformance.
+Contributors start at [START-HERE.md](START-HERE.md). Binding design decisions are in [docs/plan/DECISIONS.md](docs/plan/DECISIONS.md).
