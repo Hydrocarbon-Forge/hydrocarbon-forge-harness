@@ -387,11 +387,23 @@ describe("cli: run-control flags (R1.8)", () => {
       stderr,
     });
 
-    expect(code).toBe(0);
     const lines = stdout.getOutput().split("\n").filter((l) => l.trim().length > 0);
     expect(lines).toHaveLength(1);
     const parsed = JSON.parse(lines[0]);
     expect(parsed.node).toBeTypeOf("object");
     expect(parsed.git).toBeTypeOf("object");
+
+    // R2.10 keeps the R1.8 keys and adds the checks as a list. The exit code is
+    // 1 when any check fails, so the assertion follows the report rather than a
+    // pinned machine state.
+    expect(Object.keys(parsed)).toEqual(["node", "git", "bubblewrap", "adapters", "checks"]);
+    expect(Array.isArray(parsed.checks)).toBe(true);
+    for (const check of parsed.checks) {
+      expect(["PASS", "WARN", "FAIL"]).toContain(check.status);
+      expect(check.detail).toBeTypeOf("string");
+    }
+
+    const failed = parsed.checks.some((check: { status: string }) => check.status === "FAIL");
+    expect(code).toBe(failed ? 1 : 0);
   });
 });

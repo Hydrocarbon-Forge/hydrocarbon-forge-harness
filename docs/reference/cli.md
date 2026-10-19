@@ -304,13 +304,16 @@ substrate config set concurrency.workers 4
 
 ### doctor
 
-Verifies system environment health, CLI harness versions, and sandboxing prerequisites.
+Checks every condition a run depends on and says how to fix each one.
 
 ```bash
-substrate doctor
+substrate doctor [--output-format text|json]
 ```
 
-- **Behavior**: Checks Node.js version (>= 22), Git version (>= 2.30), Bubblewrap availability (`bwrap`), presence of peer CLI harnesses, and version pin drift. Exits 0 if all checks pass.
+- **Checks**: Node.js >= 22, git >= 2.30, each CLI harness version against its pin (`pin_matches`), `settings.json` loads, every profile model appears in that provider's `models` answer, and bwrap, which is WARN only because the sandbox is off by default.
+- **Text output**: one `[PASS|WARN|FAIL] <name>: <detail>` line per check, followed by a `fix: <how_to_fix_it>` line for anything that is not a pass.
+- **JSON output**: the keys already defined by R1.8 (`node`, `git`, `bubblewrap`, `adapters`) plus the `checks` list.
+- **Exit code**: 1 when any check is FAIL, otherwise 0. A provider that is not installed is FAIL only when a profile or a default names it; otherwise it is WARN.
 
 ```bash
 substrate doctor
@@ -318,17 +321,19 @@ substrate doctor
 
 ### init
 
-Scaffolds a new `.substrate/` configuration directory and template settings.
+Creates the runtime directories and writes only the settings that differ from the built-in defaults, so the built-in pricing table is used rather than a copied placeholder.
 
 ```bash
-substrate init [options]
+substrate init [--force] [--provider P] [--plan model[:effort]] [--work model[:effort]] [--fast model[:effort]]
 ```
 
-- **Options**: `--force` to overwrite existing configuration.
-- **Behavior**: Creates `.substrate/settings.json` and `.substrate/settings.local.json`, populating them with sensible defaults and detecting available CLI harnesses.
+- **Options**: `P` is `claude`, `opencode` or `agy`. `effort` is one of `low`, `medium`, `high`, `xhigh` or `max`. `--plan` and `--work` are required together, and any slot flag requires `--provider`. `--force` overwrites an existing file; without it an existing file is kept and reported as `kept <path>`.
+- **Behavior**: Creates the `.substrate/` subdirectories `runs`, `worktrees`, `state`, `sessions`, `ledger` and `archive`; writes `.substrate/.gitignore` with `runs/`, `worktrees/`, `state/`, `sessions/`, `ledger/` and `settings.local.json`; and writes the charter stub when `charter.md` is absent. `settings.json` contains only the keys that differ from the defaults (`profiles` and `defaults`), never pricing. `.git/info/exclude` is not written, because git ignores `.substrate/` through the generated `.gitignore`.
+- **No slot flags**: lists the installed providers and the model ids each one reports, and writes nothing.
+- **Exit code**: 0 on success, 2 when a model is not listed by its provider, when a provider is not installed, or when the slot flags are incomplete.
 
 ```bash
-substrate init
+substrate init --provider claude --plan opus:high --work sonnet:medium
 ```
 
 ### bench

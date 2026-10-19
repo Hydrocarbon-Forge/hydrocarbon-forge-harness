@@ -1023,7 +1023,7 @@ describe("cli: inspection and lifecycle commands", () => {
   });
 
   describe("init command", () => {
-    it("detects backends, creates .substrate directories, writes settings.json, and appends to .git/info/exclude", async () => {
+    it("creates the .substrate directories and .gitignore, and writes settings.json only for slot flags", async () => {
       const initCommand = await loadCommand("../../../src/cli/commands/init.js", "initCommand");
 
       const testRepo = createTestRepo("sub-cli-init-");
@@ -1043,18 +1043,28 @@ describe("cli: inspection and lifecycle commands", () => {
         expect(exitCode).toBe(0);
 
         // Check created directories
-        expect(existsSync(join(testRepo.dir, ".substrate", "sessions"))).toBe(true);
-        expect(existsSync(join(testRepo.dir, ".substrate", "state"))).toBe(true);
-        expect(existsSync(join(testRepo.dir, ".substrate", "runs"))).toBe(true);
-        expect(existsSync(join(testRepo.dir, ".substrate", "worktrees"))).toBe(true);
-        expect(existsSync(join(testRepo.dir, ".substrate", "settings.json"))).toBe(true);
-
-        // Check .git/info/exclude
-        const excludeFile = join(testRepo.dir, ".git", "info", "exclude");
-        if (existsSync(excludeFile)) {
-          const excludeContent = readFileSync(excludeFile, "utf8");
-          expect(excludeContent).toMatch(/\.substrate/);
+        for (const dir of ["runs", "worktrees", "state", "sessions", "ledger", "archive"]) {
+          expect(existsSync(join(testRepo.dir, ".substrate", dir))).toBe(true);
         }
+
+        // R2.10: no slot flags means nothing differs from the built-in defaults,
+        // so settings.json is not written.
+        expect(existsSync(join(testRepo.dir, ".substrate", "settings.json"))).toBe(false);
+
+        const gitignore = readFileSync(join(testRepo.dir, ".substrate", ".gitignore"), "utf8");
+        expect(gitignore.split("\n").filter((line) => line.length > 0)).toEqual([
+          "runs/",
+          "worktrees/",
+          "state/",
+          "sessions/",
+          "ledger/",
+          "settings.local.json",
+        ]);
+
+        // R2.10: init no longer appends to .git/info/exclude.
+        const excludeFile = join(testRepo.dir, ".git", "info", "exclude");
+        const excludeContent = existsSync(excludeFile) ? readFileSync(excludeFile, "utf8") : "";
+        expect(excludeContent).not.toMatch(/\.substrate/);
       } finally {
         testRepo.cleanup();
       }
