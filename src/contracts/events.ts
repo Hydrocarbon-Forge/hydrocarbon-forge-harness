@@ -307,6 +307,7 @@ export const TaskFailedEvent = member(
       attempt: z.number().optional(),
       failure_class: FailureClass,
       can_replan: z.boolean().optional(),
+      detail: z.string().optional(),
     })
     .strict()
 );

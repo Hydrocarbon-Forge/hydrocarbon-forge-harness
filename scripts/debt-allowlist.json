@@ -52,19 +52,31 @@
       "until": "R5.3"
     },
     {
-      "path": "src/roles/worker.ts",
-      "until": "R3.3"
-    },
-    {
       "path": "src/store/index.ts",
       "until": "R5.3"
     },
     {
-      "path": "src/verify/index.ts",
+      "path": "src/roles/prompts/worker.ts",
       "until": "R5.3"
     }
   ],
-  "events": [],
+  "events": [
+    {
+      "type": "task.scope.checked",
+      "kind": "consumed-not-emitted",
+      "until": "R5.3"
+    },
+    {
+      "type": "task.verify.started",
+      "kind": "consumed-not-emitted",
+      "until": "R5.3"
+    },
+    {
+      "type": "task.verify.finished",
+      "kind": "consumed-not-emitted",
+      "until": "R5.3"
+    }
+  ],
   "events_observe_only": [
     "batch.started",
     "bisect.started",
@@ -582,6 +594,11 @@
       "until": "DEFERRED"
     },
     {
+      "symbol": "buildWorkerPrompt",
+      "path": "src/roles/prompts/worker.ts",
+      "until": "R5.3"
+    },
+    {
       "symbol": "buildReviewerPrompt",
       "path": "src/roles/prompts/reviewer.ts",
       "until": "R5.3"
@@ -595,11 +612,6 @@
       "symbol": "appendRouteOutcome",
       "path": "src/roles/router.ts",
       "until": "DEFERRED"
-    },
-    {
-      "symbol": "runWorker",
-      "path": "src/roles/worker.ts",
-      "until": "R3.3"
     },
     {
       "symbol": "getDefaultVerify",

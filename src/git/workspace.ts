@@ -30,6 +30,23 @@ export function getTaskBranch(
   return `substrate/tasks/${runId}/${taskId}-g${generation}`;
 }
 
+/**
+ * True when `git worktree list` registers this path as a worktree. A plain
+ * directory with the same name is a crash leftover, not a worktree.
+ */
+function isRegisteredWorktree(repoRoot: string, worktreePath: string): boolean {
+  const out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  for (const line of out.split("\n")) {
+    if (!line.startsWith("worktree ")) continue;
+    const candidate = line.slice("worktree ".length).trim().replace(/^"|"$/g, "");
+    if (resolve(candidate) === resolve(worktreePath)) return true;
+  }
+  return false;
+}
+
 export interface WorkspaceManager {
   createRunBranch(
     repoRoot: string,
@@ -138,23 +155,24 @@ export class WorkspaceManagerImpl implements WorkspaceManager {
       repoRoot,
       ".substrate",
       "worktrees",
+      runId,
       `${spec.id}-g${generation}`
     );
 
-    // Stale worktree directory cleanup
     if (existsSync(worktreePath)) {
-      try {
-        execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
-          cwd: repoRoot,
-          encoding: "utf8",
-          stdio: "pipe",
-        });
-      } catch {
-        // Stale non-worktree dir
+      if (isRegisteredWorktree(repoRoot, worktreePath)) {
+        // Resume or heal: the worktree is returned as it is. It is never removed.
+        return {
+          worktreePath,
+          branch,
+          baseRef: effectiveBaseRef,
+          taskId: spec.id,
+          generation,
+        };
       }
-      if (existsSync(worktreePath)) {
-        rmSync(worktreePath, { recursive: true, force: true });
-      }
+
+      // A plain directory left by a crash is not a worktree: clean it up.
+      rmSync(worktreePath, { recursive: true, force: true });
       try {
         execFileSync("git", ["worktree", "prune"], {
           cwd: repoRoot,
@@ -172,20 +190,19 @@ export class WorkspaceManagerImpl implements WorkspaceManager {
     }).trim();
 
     if (branchExists) {
-      execFileSync("git", ["worktree", "add", worktreePath, branch], {
-        cwd: repoRoot,
-        encoding: "utf8",
-      });
-    } else {
-      execFileSync(
-        "git",
-        ["worktree", "add", "-b", branch, worktreePath, effectiveBaseRef],
-        {
-          cwd: repoRoot,
-          encoding: "utf8",
-        }
+      throw new Error(
+        `Task branch ${branch} already exists and is not reused: ${worktreePath}`
       );
     }
+
+    execFileSync(
+      "git",
+      ["worktree", "add", "-b", branch, worktreePath, effectiveBaseRef],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+      }
+    );
 
     return {
       worktreePath,

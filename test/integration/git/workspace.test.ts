@@ -196,7 +196,9 @@ describe("git: WorkspaceManager - run and task branch management", () => {
     expect(info.branch).toBe(`substrate/tasks/${runId}/TaskA-g1`);
     expect(info.taskId).toBe("TaskA");
     expect(info.generation).toBe(1);
-    expect(info.worktreePath).toBe(join(repo.dir, ".substrate", "worktrees", "TaskA-g1"));
+    expect(info.worktreePath).toBe(
+      join(repo.dir, ".substrate", "worktrees", runId, "TaskA-g1")
+    );
     expect(existsSync(info.worktreePath)).toBe(true);
 
     // Verify branch was created in git
@@ -226,7 +228,7 @@ describe("git: WorkspaceManager - run and task branch management", () => {
     await manager.createRunBranch(repo.dir, runId, "main");
 
     const spec = makeSpec("TaskStale");
-    const staleDir = join(repo.dir, ".substrate", "worktrees", "TaskStale-g1");
+    const staleDir = join(repo.dir, ".substrate", "worktrees", runId, "TaskStale-g1");
     mkdirSync(staleDir, { recursive: true });
     writeFileSync(join(staleDir, "stale_file.txt"), "leftover from crash", "utf8");
 

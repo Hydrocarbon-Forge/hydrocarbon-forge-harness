@@ -8,10 +8,10 @@ import { DEFAULT_SETTINGS } from "../../../src/config/index.js";
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
 import {
   createMockAdapter,
-  createEventCollector,
   sampleValidTaskSpecFrontmatter,
   sampleValidTaskSpecMarkdown,
 } from "./fixtures.js";
+import type { WorkerEmit } from "../../../src/roles/worker.js";
 
 export interface WorkerRunOptions {
   runId: Contracts.RunId;
@@ -24,8 +24,10 @@ export interface WorkerRunOptions {
   settings: Contracts.Settings;
   adapter: Contracts.HarnessAdapter;
   baseRef: string;
+  rawDir: string;
   setupCommands?: Contracts.Command[];
-  onEvent?: (event: Contracts.EngineEvent) => void;
+  /** Events go out through the action's typed emit (R3.3). */
+  onEvent?: WorkerEmit;
 }
 
 let runWorker: (opts: WorkerRunOptions) => Promise<Contracts.WorkerReport>;
@@ -37,6 +39,36 @@ beforeAll(async () => {
 
 function makeRunId(): Contracts.RunId {
   return "r_234567ABCDEF";
+}
+
+/** Collector for the worker's emit callback, which takes (type, data). */
+function createEmitCollector(runId: string): {
+  events: Array<{ type: string; data: unknown }>;
+  onEvent: WorkerEmit;
+  byType: (type: string) => Array<{ type: string; data: unknown }>;
+  first: (type: string) => { type: string; data: unknown } | undefined;
+} {
+  const events: Array<{ type: string; data: unknown }> = [];
+  return {
+    events,
+    onEvent<T extends string>(type: T, data: unknown) {
+      events.push({ type, data });
+      return {
+        v: 1,
+        seq: events.length,
+        ts: new Date().toISOString(),
+        run_id: runId,
+        type,
+        data,
+      } as Contracts.EngineEvent;
+    },
+    byType(type: string) {
+      return events.filter((e) => e.type === type);
+    },
+    first(type: string) {
+      return events.find((e) => e.type === type);
+    },
+  };
 }
 
 describe("Worker Runner (src/roles/worker.ts)", () => {
@@ -79,7 +111,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
   describe("worktree setup and isolated worker session spawning", () => {
     it("provisions worktree, materializes spec, spawns worker session with restricted permissions and passes on valid change", async () => {
       const runId = makeRunId();
-      const collector = createEventCollector();
+      const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({
         id: "T1",
         write: ["src/feature.ts"],
@@ -109,6 +141,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         settings: DEFAULT_SETTINGS,
         adapter,
         baseRef: "main",
+        rawDir: runDir,
         onEvent: collector.onEvent,
       });
 
@@ -143,7 +176,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
 
     it("executes setup commands in worktree, and fails task if a setup command fails", async () => {
       const runId = makeRunId();
-      const collector = createEventCollector();
+      const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({ id: "T1" });
 
       const adapter = createMockAdapter();
@@ -159,6 +192,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         settings: DEFAULT_SETTINGS,
         adapter,
         baseRef: "main",
+        rawDir: runDir,
         setupCommands: [{ run: "exit 1", timeout_s: 10 }],
         onEvent: collector.onEvent,
       });
@@ -174,7 +208,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
   describe("scope checking and protected file invariants", () => {
     it("detects modification of protected files, skips L0 heal, and fails immediately with protected_modified", async () => {
       const runId = makeRunId();
-      const collector = createEventCollector();
+      const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({
         id: "T1",
         protected: ["contracts/types.ts"],
@@ -205,6 +239,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         settings: DEFAULT_SETTINGS,
         adapter,
         baseRef: "main",
+        rawDir: runDir,
         onEvent: collector.onEvent,
       });
 
@@ -218,7 +253,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
 
     it("fails task immediately with scope_violation when on_scope_violation is 'fail'", async () => {
       const runId = makeRunId();
-      const collector = createEventCollector();
+      const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({
         id: "T1",
         write: ["src/feature.ts"],
@@ -248,6 +283,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         },
         adapter,
         baseRef: "main",
+        rawDir: runDir,
         onEvent: collector.onEvent,
       });
 
@@ -258,7 +294,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
 
     it("reverts out-of-scope files cleanly when on_scope_violation is 'revert' and proceeds to verify", async () => {
       const runId = makeRunId();
-      const collector = createEventCollector();
+      const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({
         id: "T1",
         write: ["src/feature.ts"],
@@ -293,6 +329,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         },
         adapter,
         baseRef: "main",
+        rawDir: runDir,
         onEvent: collector.onEvent,
       });
 
@@ -307,7 +344,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
   describe("acceptance verification and engine-driven L0 healing", () => {
     it("executes L0 healing resume when first verify fails, and passes task if attempt 2 succeeds", async () => {
       const runId = makeRunId();
-      const collector = createEventCollector();
+      const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({
         id: "T1",
         write: ["src/feature.ts"],
@@ -342,6 +379,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         settings: DEFAULT_SETTINGS,
         adapter,
         baseRef: "main",
+        rawDir: runDir,
         onEvent: collector.onEvent,
       });
 
@@ -355,7 +393,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
 
     it("fails task after L0 heal if attempt 2 also fails verification (healing cap = 1)", async () => {
       const runId = makeRunId();
-      const collector = createEventCollector();
+      const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({
         id: "T1",
         verify: [{ run: "exit 1", timeout_s: 10 }],
@@ -379,6 +417,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         settings: DEFAULT_SETTINGS,
         adapter,
         baseRef: "main",
+        rawDir: runDir,
         onEvent: collector.onEvent,
       });
 
@@ -414,6 +453,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         settings: DEFAULT_SETTINGS,
         adapter: crashAdapter,
         baseRef: "main",
+        rawDir: runDir,
       });
 
       expect(report.status).toBe("failed");
