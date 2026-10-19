@@ -303,8 +303,38 @@ export function foldLayers(layers: SettingsLayers): Record<string, unknown> {
   return merged;
 }
 
+function hasOpencodeProvider(obj: unknown): boolean {
+  if (!obj || typeof obj !== "object") return false;
+  const backends = (obj as Record<string, unknown>).backends;
+  if (!backends || typeof backends !== "object") return false;
+  const opencode = (backends as Record<string, unknown>).opencode;
+  if (!opencode || typeof opencode !== "object") return false;
+  return (opencode as Record<string, unknown>).provider !== undefined;
+}
+
+export function assertNoProviderOutsideLocal(layers: SettingsLayers): void {
+  const nonLocalSlots: Array<Record<string, unknown> | undefined> = [
+    layers.user?.value,
+    layers.project?.value,
+    layers.env,
+    layers.flags,
+  ];
+  if (layers.explicit && !layers.explicit.path.endsWith("settings.local.json")) {
+    nonLocalSlots.push(layers.explicit.value);
+  }
+  for (const slot of nonLocalSlots) {
+    if (hasOpencodeProvider(slot)) {
+      throw new Error(
+        "backends.opencode.provider may only be set in .substrate/settings.local.json"
+      );
+    }
+  }
+}
+
 export async function loadSettings(options: LoadSettingsOptions = {}): Promise<Contracts.Settings> {
-  const merged = foldLayers(await settingsLayers(options));
+  const layers = await settingsLayers(options);
+  assertNoProviderOutsideLocal(layers);
+  const merged = foldLayers(layers);
   const settings = Contracts.Settings.parse(merged);
   validateProfiles(settings);
   return settings;

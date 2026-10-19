@@ -3,6 +3,7 @@ import {
   constants,
   existsSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -22,6 +23,8 @@ import type {
   PricingTable,
   SpawnRequest,
   UsageRecord,
+  OpenCodeProvider,
+  Settings,
 } from "../../contracts/index.js";
 import { ModelInfo } from "../../contracts/index.js";
 import { readNdjsonStream } from "../ndjson.js";
@@ -48,6 +51,9 @@ export interface OpenCodeAdapterOptions {
     reasoning: number;
   } | null>;
   modelsTimeoutMs?: number;
+  provider?: OpenCodeProvider;
+  settings?: Settings;
+  maxConcurrency?: number;
 }
 
 /** Timeout for the `opencode models` call, in milliseconds. */
@@ -190,6 +196,55 @@ export function mapEffortToVariant(model: string, effort?: Effort): string {
   return `${model}#${effort}`;
 }
 
+export function loadLocalProviderFromDisk(dir?: string): OpenCodeProvider | undefined {
+  const dirs = [
+    dir,
+    process.env.SUBSTRATE_PROJECT_DIR,
+    process.cwd(),
+  ].filter((d): d is string => Boolean(d));
+
+  for (const d of dirs) {
+    try {
+      const localFile = resolve(d, ".substrate", "settings.local.json");
+      if (existsSync(localFile)) {
+        const content = readFileSync(localFile, "utf8");
+        const parsed = JSON.parse(content);
+        const prov = parsed?.backends?.opencode?.provider;
+        if (prov && typeof prov === "object" && typeof prov.base_url === "string") {
+          return {
+            id: prov.id ?? "local",
+            npm: prov.npm ?? "@ai-sdk/openai-compatible",
+            base_url: prov.base_url,
+            models: prov.models ?? {},
+          };
+        }
+      }
+    } catch {}
+  }
+  return undefined;
+}
+
+export function mapOpenCodeModel(
+  model: string,
+  provider?: OpenCodeProvider,
+  effort?: Effort
+): string {
+  let mapped = model;
+  if (provider && provider.models) {
+    const providerId = provider.id || "local";
+    const [modelWithoutVariant, variant] = model.split("#");
+    if (modelWithoutVariant in provider.models) {
+      mapped = `${providerId}/${modelWithoutVariant}${variant ? "#" + variant : ""}`;
+    } else if (modelWithoutVariant.startsWith(`${providerId}/`)) {
+      const subKey = modelWithoutVariant.slice(providerId.length + 1);
+      if (subKey in provider.models) {
+        mapped = `${providerId}/${subKey}${variant ? "#" + variant : ""}`;
+      }
+    }
+  }
+  return mapEffortToVariant(mapped, effort);
+}
+
 export function generateOpenCodeRunConfigSync(
   req: SpawnRequest,
   options?: OpenCodeAdapterOptions
@@ -230,7 +285,33 @@ export function generateOpenCodeRunConfigSync(
   writeFileSync(agentFilePath, agentContent, "utf8");
 
   let providerConfigPath: string | null = null;
-  if (options?.customBaseUrl) {
+  const provider =
+    options?.provider ??
+    options?.settings?.backends?.opencode?.provider ??
+    loadLocalProviderFromDisk(req.cwd);
+
+  if (provider && provider.base_url) {
+    const providerId = provider.id || "local";
+    const providerConfig = {
+      provider: {
+        [providerId]: {
+          npm: provider.npm || "@ai-sdk/openai-compatible",
+          options: {
+            baseURL: provider.base_url,
+            apiKey: "",
+          },
+          models: provider.models ?? {},
+          ...(options?.contextWindow ? { limit: { context: options.contextWindow } } : {}),
+        },
+      },
+    };
+    providerConfigPath = resolve(configDir, "opencode.json");
+    writeFileSync(
+      providerConfigPath,
+      JSON.stringify(providerConfig, null, 2),
+      "utf8"
+    );
+  } else if (options?.customBaseUrl) {
     const providerConfig = {
       provider: {
         local: {
@@ -353,19 +434,40 @@ function openCodeFamilyEfforts(id: string, line: string): string[] {
 }
 
 export class OpenCodeAdapter implements HarnessAdapter {
-  readonly capabilities: Capabilities = OPENCODE_CAPABILITIES;
+  readonly capabilities: Capabilities;
 
   private readonly binPath: string;
   private readonly versionPin: string;
   private readonly options: OpenCodeAdapterOptions;
+  private readonly provider?: OpenCodeProvider;
 
   constructor(options?: OpenCodeAdapterOptions) {
     this.options = options ?? {};
     this.binPath = options?.binPath ?? "opencode";
     this.versionPin = options?.versionPin ?? "2.0.21";
+    this.provider =
+      options?.provider ??
+      options?.settings?.backends?.opencode?.provider ??
+      loadLocalProviderFromDisk();
+
+    const maxConcurrency =
+      options?.maxConcurrency ??
+      options?.settings?.backends?.opencode?.max_concurrency ??
+      2;
+
+    this.capabilities = {
+      ...OPENCODE_CAPABILITIES,
+      max_concurrency: maxConcurrency,
+    };
+  }
+
+  mapModel(model: string, effort?: Effort): string {
+    const provider = this.provider ?? loadLocalProviderFromDisk();
+    return mapOpenCodeModel(model, provider, effort);
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    let models: ModelInfo[] = [];
     try {
       const { stdout } = await execFileAsync(
         this.binPath,
@@ -376,10 +478,32 @@ export class OpenCodeAdapter implements HarnessAdapter {
           timeout: this.options.modelsTimeoutMs ?? MODELS_TIMEOUT_MS,
         }
       );
-      return parseOpenCodeModels(stdout);
+      models = parseOpenCodeModels(stdout);
     } catch (err) {
-      throw new Error(`opencode models failed: ${(err as Error).message}`);
+      if (!this.provider?.models || Object.keys(this.provider.models).length === 0) {
+        throw new Error(`opencode models failed: ${(err as Error).message}`);
+      }
     }
+
+    if (this.provider?.models) {
+      const providerId = this.provider.id || "local";
+      for (const [key, val] of Object.entries(this.provider.models)) {
+        models.push({
+          id: key,
+          display: val["name"] || key,
+          efforts: [],
+          source: "cli",
+        });
+        models.push({
+          id: `${providerId}/${key}`,
+          display: val["name"] || `${providerId}/${key}`,
+          efforts: [],
+          source: "cli",
+        });
+      }
+    }
+
+    return models;
   }
 
   async validateEnvironment(): Promise<EnvReport> {
@@ -468,9 +592,17 @@ export class OpenCodeAdapter implements HarnessAdapter {
   }
 
   spawn(req: SpawnRequest): SessionHandle {
+    const provider = this.provider ?? loadLocalProviderFromDisk(req.cwd);
+    const hasBaseUrl = Boolean(provider?.base_url || this.options.customBaseUrl);
     const isLocal =
-      req.model.includes("llama") || req.model.startsWith("local");
-    if (isLocal && !this.options.customBaseUrl) {
+      req.model.includes("llama") ||
+      req.model.startsWith("local") ||
+      Boolean(
+        provider?.models &&
+          (req.model in provider.models ||
+            (provider.id && req.model.startsWith(`${provider.id}/`)))
+      );
+    if (isLocal && !hasBaseUrl) {
       const sessionId: SessionId =
         req.session?.resume ??
         req.session?.id ??
@@ -517,9 +649,12 @@ export class OpenCodeAdapter implements HarnessAdapter {
       };
     }
 
-    const config = generateOpenCodeRunConfigSync(req, this.options);
+    const config = generateOpenCodeRunConfigSync(req, {
+      ...this.options,
+      provider: provider ?? this.options.provider,
+    });
 
-    const modelWithVariant = mapEffortToVariant(req.model, req.effort);
+    const modelWithVariant = this.mapModel(req.model, req.effort);
     const args: string[] = [
       "run",
       "--standalone",

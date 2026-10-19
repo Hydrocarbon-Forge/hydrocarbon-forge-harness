@@ -379,12 +379,30 @@ export const Profile = z.object({
 }).strict();
 export type Profile = z.infer<typeof Profile>;
 
+const OpenCodeProvider = z.object({
+  id: z.string().default("local"),
+  npm: z.literal("@ai-sdk/openai-compatible").default("@ai-sdk/openai-compatible"),
+  base_url: z.string().refine((url) => {
+    try {
+      const u = new URL(url);
+      return u.protocol === "http:" || u.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, { message: "base_url must use http or https scheme" }),
+  models: z.record(z.string(), z.object({
+    name: z.string().optional(),
+  }).strict()).default({}),
+}).strict();
+export type OpenCodeProvider = z.infer<typeof OpenCodeProvider>;
+
 export const Settings = z.object({
   backends: z.record(z.string(), z.object({
     bin: z.string().optional(),
     version_pin: z.string().optional(),
     max_concurrency: z.number().optional(),
     extra: z.record(z.string(), z.unknown()).optional(),
+    provider: OpenCodeProvider.optional(),
   }).strict()),
   roles: z.object({
     planner: Route,
