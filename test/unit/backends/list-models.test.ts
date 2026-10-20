@@ -270,6 +270,10 @@ describe("registry passes the settings model ids to Claude", () => {
       { id: "fable", efforts: CLAUDE_EFFORTS, source: "static" },
       { id: "openai/gpt-5.4", efforts: CLAUDE_EFFORTS, source: "settings" },
       { id: "fable-5", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-fable-5-1", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-opus-5-5", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-sonnet-5-5", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-haiku-5-5", efforts: CLAUDE_EFFORTS, source: "settings" },
       { id: "anthropic/claude-opus-4-6-thinking", efforts: CLAUDE_EFFORTS, source: "settings" },
     ]);
   });
@@ -282,9 +286,14 @@ describe("registry passes the settings model ids to Claude", () => {
     };
     const models = await listedModels(createAdapters(settings).claude);
     // R6.5: DEFAULT_SETTINGS no longer holds routing.feature, so the built-in claude
-    // model is not a settings id. Only the ids the settings name are passed through.
+    // model is not a settings id. The ids the settings name are passed through, then the
+    // Claude 5 family ids (R7.6), all with the settings source.
     expect(models.filter((model) => model.source === "settings")).toEqual([
       { id: "fable-5", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-fable-5-1", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-opus-5-5", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-sonnet-5-5", efforts: CLAUDE_EFFORTS, source: "settings" },
+      { id: "claude-haiku-5-5", efforts: CLAUDE_EFFORTS, source: "settings" },
     ]);
   });
 });

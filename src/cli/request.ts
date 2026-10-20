@@ -70,6 +70,8 @@ async function getCatalog(
     adapters,
     refresh: false,
     cacheFile: modelCacheFile(repoRoot),
+    // Validation runs before the repository and .substrate exist; it must not create them.
+    writeCache: false,
   })) as unknown as ModelCatalog;
 }
 

@@ -91,6 +91,35 @@ describe("R7.4: requested planner and worker models reach every role", () => {
     }
   });
 
+  it("R7.6: plan mode with the Claude 5 ids: planner claude-sonnet-5-5, every task claude-haiku-5-5", () => {
+    const dir = mkdtempSync(join(tmpdir(), "substrate-r76-plan-"));
+    const argvLog = join(dir, "argv.log");
+    const claude = claudeWrapper(dir, argvLog);
+    const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });
+    const t2 = taskSpec({ id: "T2", write: ["src/b.txt"], verify: "grep -q t2-done src/b.txt" });
+    const scenarioCalls = [
+      planCall(contractFiles(manifestFor("Claude 5 models", ["T1", "T2"]), { "tasks/T1.md": t1, "tasks/T2.md": t2 })),
+      { edits: { "src/a.txt": "seed a\nt1-done\n" }, reply: "T1 done\nDONE" },
+      { edits: { "src/b.txt": "seed b\nt2-done\n" }, reply: "T2 done\nDONE" },
+    ];
+    const res = runSubstrate({
+      files: SEED,
+      scenario: { calls: scenarioCalls },
+      settings: { ...CONFLICTING_SETTINGS, backends: { claude: { bin: claude } } },
+      args: [...RUN_ARGS, "--plan", "claude:claude-sonnet-5-5", "--work", "claude:claude-haiku-5-5", "Two tasks with Claude 5 models"],
+    });
+    try {
+      expect(res.exitCode, diagnostics(res)).toBe(0);
+      const spawns = spawnsOf(res, argvLog);
+      expect(spawns.length, diagnostics(res)).toBe(3);
+      expect(spawns[0].model).toBe("claude-sonnet-5-5");
+      expect(spawns.slice(1).map((s) => s.model)).toEqual(["claude-haiku-5-5", "claude-haiku-5-5"]);
+    } finally {
+      res.cleanup();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("solo: --work's model is the solo worker, beating routing.feature and roles.worker", () => {
     const dir = mkdtempSync(join(tmpdir(), "substrate-r74-solo-"));
     const argvLog = join(dir, "argv.log");

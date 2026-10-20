@@ -60,7 +60,7 @@ export interface CliCommand {
 }
 
 const { createFormatter } = await import(`../output.js`);
-const { reportPreflightError, startPreflight, writeNotice } = await import(`../preflight.js`);
+const { modelPreflight, repoPreflight, reportPreflightError, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
 
 function splitToolList(values: string | string[] | undefined): string[] {
@@ -213,15 +213,12 @@ export const runCommand: CliCommand = {
       return 2;
     }
 
-    // Refuse before any run state exists: the caller must name the models this mode
-    // needs, and the project must be a git repository (an empty one is initialised).
-    const pre = startPreflight("run", { cwd: ctx.cwd, flags: ctx.flags, stdin: ctx.stdin });
-    if (!pre.ok) {
-      reportPreflightError(ctx, pre);
+    // Refuse before any side effect: the caller must name the models this mode needs.
+    // The request is validated next; only then may the project become a git repository.
+    const modelCheck = modelPreflight("run", { cwd: ctx.cwd, flags: ctx.flags, stdin: ctx.stdin });
+    if (!modelCheck.ok) {
+      reportPreflightError(ctx, modelCheck);
       return 2;
-    }
-    if (pre.notice) {
-      writeNotice(ctx, pre.notice);
     }
 
     let mode = ctx.flags.mode ?? "auto";
@@ -274,6 +271,17 @@ export const runCommand: CliCommand = {
         return 2;
       }
       prompt = prompt.trim();
+    }
+
+    // The request is valid. Now the project directory may be initialised (an empty one
+    // gets its base commit); a directory that is not a repository is refused here.
+    const repo = repoPreflight(ctx.cwd);
+    if (!repo.ok) {
+      reportPreflightError(ctx, repo);
+      return 2;
+    }
+    if (repo.notice) {
+      writeNotice(ctx, repo.notice);
     }
 
     // The models named by the request or the flags take precedence over every other route (R7.4).

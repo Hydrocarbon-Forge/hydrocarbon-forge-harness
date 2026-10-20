@@ -72,6 +72,9 @@ describe("E2E models command", () => {
             "agy:gemini-3.8-flash-low",
             "agy:gemini-3.8-flash-medium",
             "agy:gpt-oss-120b-medium",
+            "claude:claude-fable-5-1",
+            "claude:claude-haiku-5-5",
+            "claude:claude-opus-5-5",
             "claude:claude-sonnet-5-5",
             "claude:fable",
             "claude:haiku",
@@ -152,6 +155,9 @@ describe("E2E models command", () => {
           "opus",
           "fable",
           "claude-sonnet-5-5",
+          "claude-fable-5-1",
+          "claude-opus-5-5",
+          "claude-haiku-5-5",
         ]);
 
         // The filter applies to the cache write too: only the scoped provider is stored.

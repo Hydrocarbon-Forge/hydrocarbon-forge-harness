@@ -115,19 +115,24 @@ function modelMessage(command: PreflightCommand, mode: string, missing: RoleName
 }
 
 /**
- * Checks, in order, that the caller named the models this command needs and that the
- * project directory is a usable git repository. Both run before any run directory,
- * .substrate directory, git action or backend process exists.
+ * Checks that the caller named the models this command needs. Pure: it reads flags and
+ * the request payload only, and creates nothing. Run it first.
  */
-export function startPreflight(command: PreflightCommand, input: PreflightInput): PreflightResult {
+export function modelPreflight(command: PreflightCommand, input: PreflightInput): PreflightResult {
   const mode = command === "plan" ? "plan" : (input.flags.mode ?? readPayload(input)?.mode ?? "auto");
   const missing = missingModelRoles(command, input);
   if (missing.length > 0) {
     return modelMessage(command, mode, missing);
   }
+  return { ok: true };
+}
 
-  // A request that cannot be read is left to loadRequest, which reports it as invalid_request.
-  const repo = ensureRepository(input.cwd);
+/**
+ * Checks that the project directory is a usable git repository, initialising an empty
+ * one. Run it only after the request is valid: it is the first step that writes.
+ */
+export function repoPreflight(cwd: string): PreflightResult {
+  const repo = ensureRepository(cwd);
   if (!repo.ok) {
     return { ok: false, message: repo.message };
   }

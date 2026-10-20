@@ -67,6 +67,8 @@ export interface BuildCatalogOptions {
   refresh: boolean;
   cacheFile: string;
   now?: Date;
+  /** false: rebuild the entries without writing the cache file (request validation creates nothing). */
+  writeCache?: boolean;
 }
 
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -188,7 +190,7 @@ export async function buildCatalog(options: BuildCatalogOptions): Promise<ModelC
   }
 
   const generatedAt = cacheUsable && !built ? cache!.generated_at : now.toISOString();
-  if (built) {
+  if (built && options.writeCache !== false) {
     // Entries for providers outside this run's scope are preserved from the cache file.
     const preserved = (cache?.providers ?? []).filter((p) => !entries.some((e) => e.provider === p.provider));
     const merged = [...entries, ...preserved].sort(

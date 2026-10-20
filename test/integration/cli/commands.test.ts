@@ -674,6 +674,10 @@ describe("cli: inspection and lifecycle commands", () => {
         "opus\tlow,medium,high,xhigh,max\tunpriced\t-",
         "fable\tlow,medium,high,xhigh,max\tunpriced\t-",
         "gemini-3.8-flash-low\tlow,medium,high,xhigh,max\t0.75/3.75 per Mtok\troles.worker",
+        "claude-fable-5-1\tlow,medium,high,xhigh,max\tunpriced\t-",
+        "claude-opus-5-5\tlow,medium,high,xhigh,max\t4/20 per Mtok\t-",
+        "claude-sonnet-5-5\tlow,medium,high,xhigh,max\t2/10 per Mtok\t-",
+        "claude-haiku-5-5\tlow,medium,high,xhigh,max\t0.1/0.5 per Mtok\t-",
         "== opencode (installed, version 2.0.21, pin 2.0.21 matches) ==",
         "opencode/deepseek-v4.1-flash-free\t-\tunpriced\t-",
         "== agy (installed, version 1.4.2, pin 1.4.2 matches) ==",
@@ -685,6 +689,10 @@ describe("cli: inspection and lifecycle commands", () => {
         "gpt-oss-120b-medium\tmedium\tunpriced\t-",
         "",
         "== all models ==",
+        "claude\tclaude-fable-5-1\tlow,medium,high,xhigh,max\tunpriced\t-",
+        "claude\tclaude-haiku-5-5\tlow,medium,high,xhigh,max\t0.1/0.5 per Mtok\t-",
+        "claude\tclaude-opus-5-5\tlow,medium,high,xhigh,max\t4/20 per Mtok\t-",
+        "claude\tclaude-sonnet-5-5\tlow,medium,high,xhigh,max\t2/10 per Mtok\t-",
         "claude\tfable\tlow,medium,high,xhigh,max\tunpriced\t-",
         "claude\tgemini-3.8-flash-low\tlow,medium,high,xhigh,max\t0.75/3.75 per Mtok\troles.worker",
         "claude\thaiku\tlow,medium,high,xhigh,max\t1/5 per Mtok\troles.planner",
@@ -715,7 +723,7 @@ describe("cli: inspection and lifecycle commands", () => {
       const haiku = catalog.providers[0].models.find((m) => m.id === "haiku");
       expect(haiku?.price_per_mtok).toEqual({ input: 1, output: 5 });
       expect(haiku?.slots).toEqual(["roles.planner"]);
-      expect(catalog.all_models[0]).toMatchObject({ provider: "claude", id: "fable", price_per_mtok: null });
+      expect(catalog.all_models[0]).toMatchObject({ provider: "claude", id: "claude-fable-5-1", price_per_mtok: null });
 
       const cachePath = join(tmpDir, ".substrate", "state", "models.json");
       expect(existsSync(cachePath)).toBe(true);

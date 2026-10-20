@@ -3,7 +3,7 @@ import type {
   HarnessAdapter,
   Settings,
 } from "../contracts/index.js";
-import { ClaudeAdapter } from "./adapters/claude.js";
+import { ClaudeAdapter, CLAUDE_FAMILY_IDS } from "./adapters/claude.js";
 import { OpenCodeAdapter } from "./adapters/opencode.js";
 import { AgyAdapter } from "./adapters/agy.js";
 import { pricingTableFor } from "./pricing.js";
@@ -12,8 +12,9 @@ export type AdapterMap = Partial<Record<BackendName, HarnessAdapter>>;
 
 /**
  * Model ids known without asking a harness: the model strings in settings.roles
- * and settings.routing (routes and route lists), then the price table keys, in
- * that order. Deduplication happens in the Claude adapter, first occurrence wins.
+ * and settings.routing (routes and route lists), the Claude 5 family ids, then the
+ * settings price table keys, in that order. Deduplication happens in the Claude
+ * adapter, first occurrence wins.
  */
 function knownModelIds(settings: Settings): string[] {
   const ids: string[] = [];
@@ -30,6 +31,7 @@ function knownModelIds(settings: Settings): string[] {
       ids.push(entry.model);
     }
   }
+  ids.push(...CLAUDE_FAMILY_IDS);
   if (settings.pricing.models) {
     ids.push(...Object.keys(settings.pricing.models));
   }

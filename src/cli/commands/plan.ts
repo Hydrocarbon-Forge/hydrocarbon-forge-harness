@@ -56,7 +56,7 @@ export interface CliCommand {
 }
 
 const { createFormatter } = await import(`../output.js`);
-const { reportPreflightError, startPreflight, writeNotice } = await import(`../preflight.js`);
+const { modelPreflight, repoPreflight, reportPreflightError, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
 const { buildSettingsOverrides } = await import(`./run.js`);
 
@@ -64,13 +64,11 @@ export const planCommand: CliCommand = {
   name: "plan",
   description: "Plan changes for a goal without executing modifications",
   async execute(ctx: CommandContext): Promise<number> {
-    const pre = startPreflight("plan", { cwd: ctx.cwd, flags: ctx.flags, stdin: ctx.stdin });
-    if (!pre.ok) {
-      reportPreflightError(ctx, pre);
+    // Models first, then the request, and only then the repository (see run.ts).
+    const modelCheck = modelPreflight("plan", { cwd: ctx.cwd, flags: ctx.flags, stdin: ctx.stdin });
+    if (!modelCheck.ok) {
+      reportPreflightError(ctx, modelCheck);
       return 2;
-    }
-    if (pre.notice) {
-      writeNotice(ctx, pre.notice);
     }
 
     const mode = "plan";
@@ -113,6 +111,16 @@ export const planCommand: CliCommand = {
         return 2;
       }
       prompt = prompt.trim();
+    }
+
+    // The request is valid; the project may now become a git repository.
+    const repo = repoPreflight(ctx.cwd);
+    if (!repo.ok) {
+      reportPreflightError(ctx, repo);
+      return 2;
+    }
+    if (repo.notice) {
+      writeNotice(ctx, repo.notice);
     }
 
     // The planner named by the request or the flags takes precedence (R7.4).

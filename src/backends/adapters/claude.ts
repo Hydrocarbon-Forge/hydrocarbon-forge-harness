@@ -53,6 +53,19 @@ export interface ClaudeAdapterOptions {
 /** Documented Claude aliases (S1): the only ids the adapter reports on its own. */
 const CLAUDE_ALIASES = ["haiku", "sonnet", "opus", "fable"];
 
+/**
+ * The Claude 5 family ids Substrate accepts for the claude harness, besides the aliases.
+ * Each id is listed the same way as a settings model (source "settings"). Prices come from
+ * the price table; an id with no price entry (claude-fable-5-1 today) is accepted and its
+ * cost is reported as unknown.
+ */
+export const CLAUDE_FAMILY_IDS = [
+  "claude-fable-5-1",
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+];
+
 /** Efforts every alias and every known id accepts, in the order the CLI takes them. */
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 

@@ -26,6 +26,8 @@ interface Scratch {
 
 // Each scratch tree has a shim directory in front of the fake harnesses. The shims append
 // one line per spawn and then exec the fake, so a spawn count is observable without a real binary.
+// Model-id validation first probes each installed harness (`--version`, and `models` for the
+// catalog). Those run no model work and are not logged; every other spawn is.
 function makeScratch(): Scratch {
   const root = mkdtempSync(join(tmpdir(), "substrate-r72-"));
   const project = join(root, "project");
@@ -39,7 +41,7 @@ function makeScratch(): Scratch {
     const file = join(shim, name);
     writeFileSync(
       file,
-      `#!/bin/sh\necho "${name}" >> "${spawnLog}"\nexec "${join(FAKE_BIN, name)}" "$@"\n`,
+      `#!/bin/sh\ncase "$1" in --version|models) ;; *) echo "${name}" >> "${spawnLog}" ;; esac\nexec "${join(FAKE_BIN, name)}" "$@"\n`,
       "utf8"
     );
     chmodSync(file, 0o755);
