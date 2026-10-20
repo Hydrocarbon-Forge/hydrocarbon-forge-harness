@@ -1,11 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import YAML from "yaml";
 import type {
   Engine,
   EngineEvent,
   HarnessAdapter,
-  Manifest,
   RunId,
   RunOptions,
   RunSummary,
@@ -104,18 +102,9 @@ export function recoverInFlightRun(runDir: string, repoRoot: string): void {
 
   let nextSeq = events[events.length - 1].seq + 1;
 
-  // Read manifest to get all task IDs if available
-  const manifestPath = join(runDir, "manifest.yaml");
-  let allTaskIds: TaskId[] = [];
-  if (existsSync(manifestPath)) {
-    try {
-      const manifest = YAML.parse(readFileSync(manifestPath, "utf8")) as Manifest;
-      allTaskIds = (manifest.tasks ?? []).map((t) => t.id as TaskId);
-    } catch {}
-  }
-  if (allTaskIds.length === 0) {
-    allTaskIds = Object.keys(state.tasks) as TaskId[];
-  }
+  // Only tasks already in the replayed state can be VERIFYING or SCOPE_CHECK, so the
+  // state's task ids are the ones step 1 needs.
+  const allTaskIds = Object.keys(state.tasks) as TaskId[];
 
   if (state.state === "EXECUTING") {
     // 1. Crash immediately after writing task.verify.finished but before task.passed:
@@ -146,44 +135,10 @@ export function recoverInFlightRun(runDir: string, repoRoot: string): void {
       }
     }
 
-    // 2. Check if batch.started was emitted before crash
-    const hasBatchStarted = events.some((e) => e.type === "batch.started");
-    if (!hasBatchStarted && allTaskIds.length > 0) {
-      const batchEvt: EngineEvent = {
-        v: 1,
-        seq: nextSeq++,
-        ts: new Date().toISOString(),
-        run_id: state.run_id,
-        type: "batch.started",
-        data: { batch: allTaskIds },
-      };
-      appendFileSync(eventsPath, JSON.stringify(batchEvt) + "\n", "utf8");
-      state = reduce(state, batchEvt);
-    }
-
-    // 3. For any unverified task interrupted during execution (RUNNING, SCOPE_CHECK, VERIFYING)
-    // or unstarted (PENDING), resume starts a fresh worker session by emitting task.ready
-    for (const taskId of allTaskIds) {
-      const t = state.tasks[taskId];
-      const taskState = t?.state ?? "PENDING";
-      if (
-        taskState === "PENDING" ||
-        taskState === "RUNNING" ||
-        taskState === "SCOPE_CHECK" ||
-        taskState === "VERIFYING"
-      ) {
-        const readyEvt: EngineEvent = {
-          v: 1,
-          seq: nextSeq++,
-          ts: new Date().toISOString(),
-          run_id: state.run_id,
-          type: "task.ready",
-          data: { task_id: taskId },
-        };
-        appendFileSync(eventsPath, JSON.stringify(readyEvt) + "\n", "utf8");
-        state = reduce(state, readyEvt);
-      }
-    }
+    // Steps removed (R6.3): the helper used to append batch.started and task.ready for
+    // PENDING and in-flight tasks here. The engine's resume writes task.ready for RUNNING,
+    // SCOPE_CHECK and VERIFYING tasks itself (engine.ts resume), and the scheduler releases
+    // PENDING roots (unreleasedRootTasks, effects.ts). The chaos scenarios now run that path.
   }
 }
 

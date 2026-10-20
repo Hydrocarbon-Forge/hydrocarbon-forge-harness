@@ -102,7 +102,7 @@ The reviewer role needs a new engine phase (DECISIONS A2). Item 16 (the mechanic
 
 ## 14. Test gaps and test-helper masking
 
-- The test helper `recoverInFlightRun` in `test/integration/chaos/helpers.ts` appends `batch.started` and `task.ready` before it resumes. That hid the S11 resume bug from the in-process chaos scenario. The matrix row, which runs the real CLI, found it and the fix is in place. The helper should stop writing those events.
+- FIXED (R6.3): `recoverInFlightRun` in `test/integration/chaos/helpers.ts` no longer appends `batch.started` or `task.ready` before it resumes. Those events hid the S11 resume bug from the in-process chaos scenario, and the engine's resume now releases PENDING roots and re-queues in-flight tasks itself. The helper keeps only the recorded verify pass (`task.passed` after `task.verify.finished`), which the engine does not write on resume; `npx vitest run test/integration/chaos` passes 10 of 10 without the removed writes.
 - The removed `loadPlan` tests covered its file-read error paths. Those paths have no live test now.
 - Worktree tests print `fatal: update_ref failed` and `Needed a single revision` lines while passing. Not investigated.
 - The bisect path calls the merge without a preflight. A conflict during a live bisect would throw instead of emitting an event. Read from the code, not run, and no test covers it.
