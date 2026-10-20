@@ -42,12 +42,12 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 - Impact: no current caller sets `options.env` for a spawn request, so there is no live effect today. A future caller would silently lose HOME.
 - Direction: merge the given keys over the inherited environment, or document the replacement semantics and keep it that way.
 
-## 7. The opencode adapter writes config files into the task worktree
+## 7. The opencode adapter writes config files into the task worktree (OPEN, diff stays clean)
 
-- What: the opencode adapter writes `opencode.json` and an agent file into the request directory, which is the task worktree. R4.3 behaviour 2 forbids writes into the worktree.
-- Where: `src/backends/adapters/opencode.ts` (the config path is set near the provider configuration code).
-- Impact: the files can end up in a task's diff, which the scope check then sees.
-- Direction: write the files into the run directory and point the harness at them, after checking how opencode finds its project directory (the PWD fix of R5.2 relies on the run directory).
+- Verified in R6.2: `generateOpenCodeRunConfigSync` in `src/backends/adapters/opencode.ts` (`configDir = req.cwd`, L264-341) writes the agent file to `<cwd>/.opencode/agents/<name>.md` and `opencode.json` to `<cwd>`. For a worker `<cwd>` is the task worktree `.substrate/worktrees/<run>/<task>/`; the planner passes `cwd: opts.runDir` (`src/roles/planner.ts` L428, L617), so planner files land in the run directory. The files exist in the worktree while opencode runs, and cleanup removes them when the session ends, which leaves an empty `.opencode/agents/` directory.
+- Why the diff stays clean: `src/git/workspace.ts` adds `.opencode/` to the worktree's `info/exclude`, and `src/git/scope.ts` skips `.opencode/`. `test/e2e/opencode-worktree.test.ts` checks `git status --porcelain`, the merged tree and the diff from the root commit after a worker run.
+- What is still wrong: R4.3 behaviour 2 says the config is never written into the worktree, and that is still not true. Moving it needs a documented way to point opencode at a config directory. `docs/spikes/S2-opencode.md` and `research/01-harness-conventions.md` record none, so the code is unchanged.
+- Direction: find that documented mechanism (or confirm one in opencode's docs with a live check, which needs owner approval), then write the files outside the worktree and update the fake dialect in lockstep.
 
 ## 8. Cost rates for effort-suffixed model ids are an approximation
 
