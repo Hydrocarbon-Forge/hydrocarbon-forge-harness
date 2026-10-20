@@ -343,6 +343,8 @@ export const TaskFailedEvent = member(
       failure_class: FailureClass,
       can_replan: z.boolean().optional(),
       detail: z.string().optional(),
+      // One line, at most 2000 characters: the reason the failure happened.
+      message: z.string().max(2000).optional(),
     })
     .strict()
 );

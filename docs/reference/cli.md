@@ -65,6 +65,7 @@ Runs a goal end to end: plans it (unless `--mode solo`), starts workers in git w
 - **Permissions**: `--permission-mode default|plan|acceptEdits|dontAsk|bypassPermissions`. The run default is `dontAsk`. This is Substrate's approval gate. It does not change how the harness is launched: harnesses always run with permissions bypassed (owner decision 2026-10-19).
 - **History**: `--history-all` includes archived runs from every charter version in the planner's context.
 - **Exit codes**: see the table above. A run that needs answers exits `3` and prints a `needs_input` result with its questions. Answer them with `resume --answers`.
+- **Failures**: in text mode each failed task prints one stderr line, `[task <id>] failed: <failure_class>: <message>`. A planner failure has no task id, so its line reads `[task ] failed: ...`. The message is one line of at most 2000 characters. A crashed planner session names its exit code and the harness's own error, and a plan that never validates lists its diagnostics. The `failure_class` is unchanged. Json output carries the same message on the `task.failed` event in `events`.
 
 ```bash
 substrate run --request - --output-format json < request.json

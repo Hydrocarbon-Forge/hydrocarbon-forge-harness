@@ -104,7 +104,8 @@
           "type": "string",
           "enum": [
             "reported",
-            "computed"
+            "computed",
+            "unknown"
           ]
         },
         "at": {

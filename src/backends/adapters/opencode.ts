@@ -28,7 +28,7 @@ import type {
 } from "../../contracts/index.js";
 import { ModelInfo } from "../../contracts/index.js";
 import { readNdjsonStream } from "../ndjson.js";
-import { spawnSupervisedProcess } from "../process.js";
+import { harnessStderrDetail, spawnSupervisedProcess } from "../process.js";
 import { normalizeOpenCodeStream } from "../normalize/opencode.js";
 import { log } from "../../util/log.js";
 import { DEFAULT_PRICING } from "../default-pricing.js";
@@ -789,6 +789,23 @@ export class OpenCodeAdapter implements HarnessAdapter {
         const exitRes = await proc.wait();
         if (exitRes.exitCode !== 0 && !fatalErrorSeen && !killedFor) {
           observedOk = false;
+        }
+        // A failed exit carries the harness's own explanation (its stderr tail)
+        // to the caller. A stdout error already explains the failure, so stderr
+        // is added only when it has something to say.
+        const stderrDetail = harnessStderrDetail(exitRes);
+        if (
+          exitRes.exitCode !== 0 &&
+          !killedFor &&
+          !exitRes.timedOut &&
+          !exitRes.killReason &&
+          (!fatalErrorSeen || stderrDetail !== "")
+        ) {
+          yield {
+            type: "error",
+            kind: "crash",
+            message: `opencode exited with code ${exitRes.exitCode}${stderrDetail ? `: ${stderrDetail}` : ""}`,
+          };
         }
       } finally {
         await doCleanup();

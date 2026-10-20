@@ -22,6 +22,36 @@
             "additionalProperties": {
               "type": "object"
             }
+          },
+          "provider": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "npm": {
+                "const": "@ai-sdk/openai-compatible"
+              },
+              "base_url": {
+                "type": "string"
+              },
+              "models": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "base_url"
+            ],
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -31,6 +61,38 @@
       "type": "object",
       "properties": {
         "planner": {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": [
+                "claude",
+                "opencode",
+                "agy",
+                "fake"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "effort": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
+            }
+          },
+          "required": [
+            "backend",
+            "model"
+          ],
+          "additionalProperties": false
+        },
+        "worker": {
           "type": "object",
           "properties": {
             "backend": {
@@ -197,6 +259,97 @@
         ]
       }
     },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            },
+            "required": [
+              "model"
+            ],
+            "additionalProperties": false
+          },
+          "work": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            },
+            "required": [
+              "model"
+            ],
+            "additionalProperties": false
+          },
+          "fast": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            },
+            "required": [
+              "model"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "plan",
+          "work"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "planner_provider": {
+          "type": "string"
+        },
+        "worker_provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "pricing": {
       "type": "object",
       "properties": {
@@ -235,11 +388,6 @@
           }
         }
       },
-      "required": [
-        "asOf",
-        "sources",
-        "models"
-      ],
       "additionalProperties": false
     },
     "budgets": {
@@ -327,12 +475,6 @@
           "items": {
             "type": "string"
           }
-        },
-        "ask": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       },
       "required": [
@@ -398,6 +540,18 @@
       },
       "required": [
         "workers"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "global": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "global"
       ],
       "additionalProperties": false
     },

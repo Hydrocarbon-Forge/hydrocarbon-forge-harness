@@ -52,7 +52,8 @@ class TextFormatter implements OutputFormatter {
     } else if (event.type === "task.merged") {
       this.err.write(`[task ${data.task_id ?? ""}] merged\n`);
     } else if (event.type === "task.failed") {
-      this.err.write(`[task ${data.task_id ?? ""}] failed: ${data.failure_class ?? "-"}\n`);
+      const reason = typeof data.message === "string" && data.message !== "" ? `: ${data.message}` : "";
+      this.err.write(`[task ${data.task_id ?? ""}] failed: ${data.failure_class ?? "-"}${reason}\n`);
     } else if (event.type === "run.paused") {
       if (Array.isArray(data.questions)) {
         this.lastPausedQuestions = data.questions;

@@ -798,6 +798,9 @@ const row13: MatrixRow = {
     try {
       expect(exhausted.exitCode, diagnostics(exhausted)).toBe(1);
       expect(ofType(exhausted, "task.failed")[0]?.data.failure_class).toBe("spec_invalid");
+      expect(String(ofType(exhausted, "task.failed")[0]?.data.message)).toContain(
+        "Planner format retries exhausted after 3 attempts: ",
+      );
       // One attempt plus the two format retries (planner_format_retries defaults to 2).
       expect(ofType(exhausted, "usage.recorded").filter((e) => e.data.role === "planner").length).toBe(3);
     } finally {

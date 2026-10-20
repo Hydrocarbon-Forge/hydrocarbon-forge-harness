@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import YAML from "yaml";
@@ -409,4 +409,45 @@ describe("OpenCode Adapter: Session id mapping", () => {
       "ses_11111111222233334444555555555555"
     );
   });
+});
+
+describe("OpenCode Adapter: a failed exit reports the harness stderr", () => {
+  it("emits a crash error carrying the masked stderr tail when the child exits non-zero", async () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "opencode-stderr-"));
+    try {
+      const bin = resolve(dir, "fake-opencode-fails.sh");
+      writeFileSync(
+        bin,
+        '#!/bin/sh\necho "auth failed for key sk-test1234567890abcd" >&2\nexit 1\n',
+        { mode: 0o755 }
+      );
+      const adapter = new OpenCodeAdapter({ binPath: bin, exportSession: async () => null });
+      const handle = adapter.spawn({
+        role: "planner",
+        cwd: dir,
+        prompt: "plan it",
+        model: "opencode/deepseek-v4.1-flash-free",
+        permission: { allow: [], deny: [] },
+        budget: { timeout_ms: 10000 },
+      });
+
+      const events: BackendEvent[] = [];
+      for await (const evt of handle.events) {
+        events.push(evt);
+      }
+      const res = await handle.result();
+
+      const crash = events.find((e) => e.type === "error" && e.kind === "crash");
+      expect(crash).toBeDefined();
+      const message = crash && crash.type === "error" ? crash.message : "";
+      expect(message).toContain("opencode exited with code 1");
+      expect(message).toContain("auth failed for key");
+      expect(message).toContain("[REDACTED]");
+      expect(message).not.toContain("sk-test1234567890abcd");
+      expect(res.ok).toBe(false);
+      expect(res.exit_code).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20000);
 });

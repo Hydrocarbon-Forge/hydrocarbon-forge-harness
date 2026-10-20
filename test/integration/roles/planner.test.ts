@@ -20,6 +20,7 @@ import {
   runPlanner,
   commitContractStubs,
   finishLine,
+  plannerFailureMessage,
   type PlannerEmit,
 } from "../../../src/roles/planner.js";
 
@@ -337,6 +338,59 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
       expect(outcome.kind).toBe("needs_input");
       if (outcome.kind !== "needs_input") return;
       expect(outcome.questionsPath).toBe(join(runDir, "QUESTIONS.md"));
+    });
+  });
+
+  describe("failure messages for task.failed", () => {
+    it("a session that exits non-zero carries the adapter's error event in its message", async () => {
+      const adapter = createMockAdapter({
+        nextSession: () => ({
+          events: [
+            { type: "session.started", session_id: "mock-session-fail" },
+            {
+              type: "error",
+              kind: "protocol",
+              message: "local provider needs a base URL: set backends.opencode.provider.base_url",
+            },
+            { type: "session.result", ok: false, final_text: "", exit_code: 1 },
+          ],
+          result: { ok: false, exit_code: 1, final_text: "" },
+        }),
+      });
+
+      let caught: unknown;
+      try {
+        await runPlanner(options(adapter));
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(PlannerFailure);
+      expect((caught as PlannerFailure).reason).toBe("session");
+      const message = plannerFailureMessage(caught as PlannerFailure);
+      expect(message).toMatch(/^Planner session failed with exit code 1: harness error: local provider needs a base URL/);
+      expect(message).not.toContain("\n");
+      expect(adapter.spawnedRequests.length).toBe(1);
+    });
+
+    it("a validation failure names its diagnostics on one line after the message", async () => {
+      const adapter = adapterFor([{ reply: "PLAN READY", files: { "manifest.yaml": "invalid: [unclosed" } }]);
+
+      let caught: unknown;
+      try {
+        await runPlanner(options(adapter));
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(PlannerFailure);
+      const failure = caught as PlannerFailure;
+      expect(failure.reason).toBe("format");
+      expect(failure.diagnostics.length).toBeGreaterThan(0);
+      const message = plannerFailureMessage(failure);
+      expect(message.startsWith("Planner format retries exhausted after 3 attempts: ")).toBe(true);
+      expect(message).not.toContain("\n");
+      expect(message).toContain(failure.diagnostics[0].replace(/\s+/g, " ").trim());
     });
   });
 

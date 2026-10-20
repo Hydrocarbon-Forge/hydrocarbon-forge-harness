@@ -2,22 +2,15 @@
 
 ## How to use this file
 
-This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Each item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
+This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Items 1 and 2 are fixed and kept as short notes until the next cleanup. Each open item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
 
-## 1. Planner failure diagnostics never reach task.failed
+## 1. Planner failure diagnostics reach task.failed (FIXED)
 
-- What: when the planner fails after its format retries, the engine emits `task.failed` with only `failure_class` (`spec_invalid`). The reason, for example a manifest parse error, goes to the planner's retry prompt only.
-- Where: `src/engine/actions/plan.ts`, where every non-session planner failure is mapped to `spec_invalid` and its diagnostics are dropped.
-- Impact: a wrong manifest can be diagnosed only by capturing the retry command. Live evidence from the R5.2 smoke showed only the generic failure.
-- Direction: put the planner diagnostics on the `task.failed` event (a schema field, so the event catalog changes). Scenario 13 of the matrix currently asserts only the event class, so it needs an update with the change.
-- Decision: engineering. The event schema change needs owner sign-off because it changes the event catalog.
+- Fixed: `task.failed` carries an optional `message`, one line of at most 2000 characters, next to `failure_class`, which is unchanged. A session failure names the planner's exit code, its final text and the adapter's last error event; a format failure names the attempts and joins the diagnostics with `; `. Text mode prints the message on the `[task ] failed:` line, and json output carries it on the event in `events`. The planner's error events are read in both planner loops (the first planning turn and the answers resume). Documented in `docs/reference/cli.md` and `docs/reference/caller-guide.md`.
 
-## 2. Harness stderr is discarded by the opencode adapter
+## 2. Harness stderr reaches the error event (FIXED)
 
-- What: the opencode adapter reads the harness stderr only in its environment check. On the spawn path, the stderr tail collected by the process layer is not used, so a harness error appears only in the harness's own log file.
-- Where: `src/backends/adapters/opencode.ts` (spawn path); the collected tail is in `src/backends/process.ts`.
-- Impact: the opencode session-id rejection of R5.2 was visible only in opencode's log. The local-route reason now reaches stderr only through the warning line added in R5.2.
-- Direction: pass the stderr tail into the `error` event of the adapter, the same way the claude and agy adapters report errors.
+- Fixed: when the opencode process exits non-zero without being killed, the adapter emits a `crash` error with the last 2 KB of its stderr, masked for `sk-` keys, bearer tokens and `api_key` values (`harnessStderrDetail` in `src/backends/process.ts`). The planner message then carries that text. The claude adapter appends the same masked tail to its existing `crash` error. The agy adapter is unchanged: its stderr is read as a stream, and it still emits no stderr text in errors. The `[substrate] warn:` lines are unchanged.
 
 ## 3. Permissions are bypassed; the allow and deny lists are advisory
 

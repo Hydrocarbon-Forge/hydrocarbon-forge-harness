@@ -113,11 +113,21 @@ const SECRET_PATTERNS = [
   /-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----/g,
 ];
 
+// Keyed secrets keep their label so the reader can still see what was masked.
+const LABELLED_SECRET_PATTERNS: Array<[RegExp, string]> = [
+  [/\bsk-[A-Za-z0-9_-]{8,}/g, "[REDACTED]"],
+  [/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]"],
+  [/(\bapi[_-]?key["']?\s*[=:]\s*["']?)[^\s"',;]+/gi, "$1[REDACTED]"],
+];
+
 export function redactSecrets(text: string, extraSecrets?: string[]): string {
   if (typeof text !== "string") return String(text ?? "");
   let result = text;
   for (const re of SECRET_PATTERNS) {
     result = result.replace(re, "[REDACTED]");
+  }
+  for (const [re, replacement] of LABELLED_SECRET_PATTERNS) {
+    result = result.replace(re, replacement);
   }
   if (Array.isArray(extraSecrets)) {
     for (const secret of extraSecrets) {
@@ -127,6 +137,15 @@ export function redactSecrets(text: string, extraSecrets?: string[]): string {
     }
   }
   return result;
+}
+
+/** Longest free-text message an event may carry (task.failed.message). */
+const MESSAGE_MAX_CHARS = 2000;
+
+/** One line, trimmed, at most MESSAGE_MAX_CHARS characters. */
+export function boundedMessage(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > MESSAGE_MAX_CHARS ? oneLine.slice(0, MESSAGE_MAX_CHARS) : oneLine;
 }
 
 export function nowIsoTimestamp(): string {

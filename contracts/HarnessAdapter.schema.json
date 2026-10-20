@@ -70,6 +70,9 @@
     },
     "spawn": {
       "type": "object"
+    },
+    "listModels": {
+      "type": "object"
     }
   },
   "required": [

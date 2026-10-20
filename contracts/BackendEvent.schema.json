@@ -144,7 +144,8 @@
               "type": "string",
               "enum": [
                 "reported",
-                "computed"
+                "computed",
+                "unknown"
               ]
             },
             "at": {
@@ -270,7 +271,8 @@
               "type": "string",
               "enum": [
                 "reported",
-                "computed"
+                "computed",
+                "unknown"
               ]
             },
             "at": {

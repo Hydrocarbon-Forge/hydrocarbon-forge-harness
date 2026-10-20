@@ -13,7 +13,7 @@ import type {
   SpawnRequest,
   BackendEvent,
 } from "../../contracts/index.js";
-import { spawnSupervisedProcess } from "../process.js";
+import { harnessStderrDetail, spawnSupervisedProcess } from "../process.js";
 import { readNdjsonLines } from "../ndjson.js";
 import {
   normalizeClaudeEvent,
@@ -334,10 +334,11 @@ export class ClaudeAdapter implements HarnessAdapter {
       const hasResultEvent = allEvents.some((e) => e.type === "session.result");
 
       if (!hasResultEvent && !finalKilledFor && exitResult.exitCode !== 0) {
+        const stderrDetail = harnessStderrDetail(exitResult);
         const crashError: BackendEvent = {
           type: "error",
           kind: "crash",
-          message: `Process crashed with exit code ${exitResult.exitCode ?? "null"}`,
+          message: `Process crashed with exit code ${exitResult.exitCode ?? "null"}${stderrDetail ? `: ${stderrDetail}` : ""}`,
         };
         allEvents.push(crashError);
         notifyConsumers();

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { PassThrough, type Readable } from "node:stream";
 import type { SessionHandle } from "../contracts/index.js";
-import { takeTail } from "../util/index.js";
+import { redactSecrets, takeTail } from "../util/index.js";
 
 export interface SupervisedProcessOptions {
   command: string;
@@ -45,6 +45,17 @@ export interface SupervisedProcess {
  * An abort kills the session with reason "cancel". The returned function removes
  * the listener; callers run it once the session has ended.
  */
+/** Bytes of harness stderr kept in an error message. */
+const STDERR_DETAIL_MAX_BYTES = 2048;
+
+/**
+ * The tail of a finished child's stderr, with secrets masked, for an error
+ * message. Empty when the child wrote nothing to stderr.
+ */
+export function harnessStderrDetail(exitRes: ProcessExitResult): string {
+  return takeTail(redactSecrets(exitRes.stderrTail), STDERR_DETAIL_MAX_BYTES).text.trim();
+}
+
 export function bindAbort(signal: AbortSignal | undefined, handle: SessionHandle): () => void {
   if (!signal) {
     return () => {};

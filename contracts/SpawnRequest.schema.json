@@ -93,6 +93,9 @@
         "type": "string"
       }
     },
+    "raw_dir": {
+      "type": "string"
+    },
     "add_dirs": {
       "type": "array",
       "items": {

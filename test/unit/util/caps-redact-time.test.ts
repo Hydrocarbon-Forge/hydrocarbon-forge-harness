@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import * as Contracts from "../../../src/contracts/index.js";
 import {
   HEAL_TAIL_MAX_BYTES,
+  boundedMessage,
   capBytes,
   nowIsoTimestamp,
   redactSecrets,
@@ -101,6 +102,29 @@ describe("util redaction: secrets never leak", () => {
       const out = redactSecrets(`prefix ${s} suffix`, [s]);
       expect(out).not.toContain(s);
     }
+  });
+});
+
+describe("util message bounds and labelled secrets", () => {
+  it("masks sk- keys, bearer tokens and api key values, keeping the label", () => {
+    const text =
+      "provider rejected sk-test1234567890abcd; Authorization: Bearer abcdefgh12345678; api_key=hunter2hunter2 end";
+    const out = redactSecrets(text);
+    expect(out).not.toContain("sk-test1234567890abcd");
+    expect(out).not.toContain("abcdefgh12345678");
+    expect(out).not.toContain("hunter2hunter2");
+    expect(out).toContain("Bearer [REDACTED]");
+    expect(out).toContain("api_key=[REDACTED]");
+  });
+
+  it("does not mask ordinary words that contain sk", () => {
+    expect(redactSecrets("disk-management-tool")).toBe("disk-management-tool");
+  });
+
+  it("boundedMessage is one line, trimmed, and at most 2000 characters", () => {
+    expect(boundedMessage("  first line\n\n  second   line  ")).toBe("first line second line");
+    expect(boundedMessage("x".repeat(2500)).length).toBe(2000);
+    expect(boundedMessage("short")).toBe("short");
   });
 });
 

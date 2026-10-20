@@ -7,7 +7,9 @@ import {
   PlannerFailure,
   commitContractStubs,
   finishLine,
+  plannerFailureMessage,
   runPlanner,
+  sessionFailureMessage,
   type PlannerEmit,
 } from "../../roles/planner.js";
 import { resolvePlannerRoute } from "../../roles/router.js";
@@ -31,6 +33,7 @@ import { adapterFor } from "./shared.js";
 import { bindAbort } from "../../backends/process.js";
 import { runLintAction } from "./approve.js";
 import { log } from "../../util/log.js";
+import { boundedMessage } from "../../util/index.js";
 import { plannerCharter, plannerHistory } from "../../charter/index.js";
 
 function isSafeRelativePath(p: string): boolean {
@@ -176,12 +179,16 @@ export async function runPlanAction(
       const handle = adapter.spawn(spawnReq);
       const unbind = bindAbort(ctx.signal, handle);
       let sawUsageEvent = false;
+      let harnessError: string | undefined;
 
       const res = await (async () => {
         try {
           for await (const evt of handle.events) {
             if (evt.type === "session.started" && evt.session_id) {
               currentSessionId = evt.session_id;
+            }
+            if (evt.type === "error") {
+              harnessError = evt.message;
             }
             if (evt.type === "usage" && evt.record) {
               sawUsageEvent = true;
@@ -214,7 +221,10 @@ export async function runPlanAction(
       if (ctx.signal?.aborted) return;
 
       if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
-        emit("task.failed", { failure_class: "worker_crashed" });
+        emit("task.failed", {
+          failure_class: "worker_crashed",
+          message: boundedMessage(sessionFailureMessage(res.exit_code, res.final_text, harnessError)),
+        });
         emit("run.finished", { exit_code: 1, status: "failed" });
         return;
       }
@@ -336,7 +346,13 @@ export async function runPlanAction(
       return;
     }
 
-    emit("task.failed", { failure_class: "spec_invalid" });
+    emit("task.failed", {
+      failure_class: "spec_invalid",
+      message: boundedMessage(
+        `Planner format retries exhausted after ${maxAttempts} attempts` +
+          (diagnostics.length > 0 ? `: ${diagnostics.join("; ")}` : "")
+      ),
+    });
     emit("run.finished", { exit_code: 1, status: "failed" });
     return;
   }
@@ -388,7 +404,7 @@ export async function runPlanAction(
 
     if (err instanceof PlannerFailure) {
       const failureClass = err.reason === "session" ? "worker_crashed" : "spec_invalid";
-      emit("task.failed", { failure_class: failureClass });
+      emit("task.failed", { failure_class: failureClass, message: plannerFailureMessage(err) });
       emit("run.finished", { exit_code: 1, status: "failed" });
       return;
     }

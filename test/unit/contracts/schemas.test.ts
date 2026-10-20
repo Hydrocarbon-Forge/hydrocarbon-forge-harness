@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import * as Contracts from "../../../src/contracts/index.js";
+import { EngineEventV1 } from "../../../src/contracts/events.js";
 
 // Every Appendix A declaration must exist exactly once as a zod schema.
 // The inferred type must be re-exported under the exact same name
@@ -628,6 +629,22 @@ describe("engine API plus strategy seam and governor", () => {
       type: "run.created",
       data: {},
     });
+  });
+
+  it("task.failed keeps its fields and takes an optional message of at most 2000 characters", () => {
+    const envelope = {
+      v: 1,
+      seq: 3,
+      ts: "2026-10-20T00:00:00.000Z",
+      run_id: VALID_RUN_ID,
+      type: "task.failed",
+    };
+    const accepts = (data: unknown) => EngineEventV1.safeParse({ ...envelope, data }).success;
+    expect(accepts({ failure_class: "worker_crashed" })).toBe(true);
+    expect(accepts({ failure_class: "spec_invalid", message: "Planner format retries exhausted" })).toBe(true);
+    expect(accepts({ failure_class: "spec_invalid", message: "x".repeat(2000) })).toBe(true);
+    expect(accepts({ failure_class: "spec_invalid", message: "x".repeat(2001) })).toBe(false);
+    expect(accepts({ failure_class: "spec_invalid", message: 42 })).toBe(false);
   });
 
   it("Engine exposes run/resume call shapes", () => {

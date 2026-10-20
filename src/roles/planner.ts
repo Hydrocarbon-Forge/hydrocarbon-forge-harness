@@ -30,6 +30,7 @@ import {
 import type { UsageTotals } from "../ledger/usage.js";
 import { toDelta } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
+import { boundedMessage } from "../util/index.js";
 import { buildPlannerPrompt, buildCorrectionPrompt } from "./prompts/planner.js";
 
 /**
@@ -85,6 +86,27 @@ export class PlannerFailure extends Error {
     this.reason = reason;
     this.diagnostics = diagnostics;
   }
+}
+
+/** The reason a planner session that exited with failure reports. */
+export function sessionFailureMessage(
+  exitCode: number | null,
+  finalText: string,
+  harnessError?: string
+): string {
+  const detail = [finalText.trim(), harnessError ? `harness error: ${harnessError}` : ""]
+    .filter((part) => part !== "")
+    .join("; ");
+  return `Planner session failed with exit code ${exitCode}${detail ? `: ${detail}` : ""}`;
+}
+
+/**
+ * The message task.failed carries for a planner failure: the failure's message
+ * on one line, then its diagnostics joined by `; `, at most 2000 characters.
+ */
+export function plannerFailureMessage(err: PlannerFailure): string {
+  const head = err.reason === "format" ? err.message.split("\n")[0] : err.message;
+  return boundedMessage(err.diagnostics.length > 0 ? `${head}: ${err.diagnostics.join("; ")}` : head);
 }
 
 const PLAN_READY = "PLAN READY";
@@ -432,10 +454,14 @@ export async function runPlanner(
 
     let sawUsageEvent = false;
     let sessionTotals: UsageTotals | undefined;
+    let harnessError: string | undefined;
     let res: Awaited<ReturnType<typeof handle.result>>;
     try {
       for await (const evt of handle.events) {
         if (evt.type === "session.started") sessionId = evt.session_id;
+        // The adapter's own explanation of a failure (for example a missing
+        // base URL) is kept for the failure message; the last one wins.
+        if (evt.type === "error") harnessError = evt.message;
         if (evt.type === "usage" && evt.record) {
           sawUsageEvent = true;
           const { delta, next } = toDelta(sessionTotals, evt.record, Boolean(evt.cumulative));
@@ -457,10 +483,7 @@ export async function runPlanner(
     }
 
     if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
-      throw new PlannerFailure(
-        "session",
-        `Planner session failed with exit code ${res.exit_code}: ${res.final_text}`
-      );
+      throw new PlannerFailure("session", sessionFailureMessage(res.exit_code, res.final_text, harnessError));
     }
 
     const line = finishLine(res.final_text);
