@@ -33,6 +33,9 @@
         "type": "object"
       }
     },
+    "planner_explicit": {
+      "type": "boolean"
+    },
     "resume": {
       "type": "string",
       "pattern": "^r_[A-Z2-7]{12}$"
