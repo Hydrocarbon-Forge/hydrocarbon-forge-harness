@@ -2,7 +2,7 @@
 
 ## How to use this file
 
-This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items are ordered by importance. Each item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
+This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Each item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
 
 ## 1. Planner failure diagnostics never reach task.failed
 
@@ -96,14 +96,29 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 
 ## 13. Deferred items (governor and reviewer)
 
-These allowlist entries stay on purpose, with `until: "DEFERRED"` (owner approved on 2026-10-20, optional R5.4). They are the only entries in `scripts/debt-allowlist.json`:
+Outcome of the optional R5.4 work package (delete the governor), scoped read-only on 2026-10-20: **not built**.
+
+- Why not: its spec, `docs/archive/2026-10-20-r-series/wp/R5.4.md`, runs only "once the owner asks" (DECISIONS A2), and the owner has not asked. The governor is already off by default (`DEFAULT_SETTINGS` in `src/config/index.ts` has no governor key), so deleting it gains little. The owner's longer-term plan wants a local model as the front door, and the governor code (`src/roles/governor.ts`, `src/roles/governor-tools.ts`) is that idea in embryonic form. Deleting it before that decision is made would discard it.
+- Spec defects to fix before any build (from the read-only scoping; the write list and tests were not re-verified in this pass):
+  - The spec says every DEFERRED allowlist entry concerns the governor. That is false. The 15 DEFERRED entries also cover `roles.reviewer.*`, `src/roles/prompts/reviewer.ts` (the reviewer is kept per DECISIONS A2), `aggregateLedger`, `execution.strategy`, `git.branch_prefix` and `sandbox.network`. Its done-when "empty DEFERRED allowlist" cannot be met without deleting non-governor items. Removal should be limited to governor-specific entries: purity `src/roles/governor.ts` (P6); dead `validateGovernorTool`, `runGovernorSemanticLint` and `appendRouteOutcome`; settings `roles.governor.*`; and `governor.fallback` in `events_observe_only`.
+  - The write list omits files the governor surface touches: `src/contracts/events.ts` (GovernorFallbackEvent), `src/cli/stream-map.ts`, `src/prompts/index.ts` (AgentRole), `src/cli/dispatcher.ts` and about 22 `src/cli/commands/*.ts` files with a `noGovernor` flag, `scripts/check-purity.mjs`, `scripts/check-settings.mjs`, `scripts/check-dead-exports.mjs`, `scripts/export-schemas.mjs`, and the generated `contracts/*.schema.json`. It also omits several unit and integration tests that cover the governor, and the governor scenario test.
+  - It says a settings file with `roles.governor` fails with exit 2. Check that against the CLI exit-code mapping before the spec is used.
+- Owner decisions still open, each with the recommended default:
+  1. Delete the governor, or keep it dormant as the future front door. Default: keep it dormant.
+  2. Scenario 15. The R-series spec and matrix row S15 in `test/e2e/matrix.test.ts` expect a request run with no governor to exit 0. `SUBSTRATE-PLAN.md` section 14, item 5 expects a deterministic fallback when the governor is down, and the plan itself marks the governor as superseded in part. Default: keep the R-series behaviour.
+  3. Whether auto mode applies the deterministic mechanical-file rule on the default path (see item 16). Default: yes.
+  4. Keep the no-governor option accepted and ignored, or remove it. Default: keep it accepted and ignored.
+  5. Settings with `roles.governor`: reject, or ignore with a warning. Default: reject, after the exit-code mapping is fixed.
+  6. The non-governor DEFERRED entries. Default: keep them, each with an owner note.
+
+These allowlist entries stay on purpose, with `until: "DEFERRED"` (owner approved on 2026-10-20). They are the only entries in `scripts/debt-allowlist.json`:
 
 - purity: `src/roles/governor.ts` (rule P6).
 - wired: `src/roles/prompts/reviewer.ts`.
 - dead: `aggregateLedger` in `src/ledger/index.ts`, `validateGovernorTool` in `src/roles/governor-tools.ts`, `runGovernorSemanticLint` in `src/roles/governor.ts`, `buildReviewerPrompt` in `src/roles/prompts/reviewer.ts`, `appendRouteOutcome` in `src/roles/router.ts`.
 - settings: `roles.governor.*`, `roles.reviewer.enabled`, `roles.reviewer.backend`, `roles.reviewer.model`, `roles.reviewer.effort`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`.
 
-The reviewer role needs a new engine phase (DECISIONS A2). Scenario 15 differs between the R-series spec (a request run with no governor setting exits 0) and SUBSTRATE-PLAN section 14 (a governor fallback). The matrix follows the R-series spec. Owner to confirm.
+The reviewer role needs a new engine phase (DECISIONS A2). Scenario 15 differs between the R-series spec and SUBSTRATE-PLAN section 14 (see decision 2). The matrix follows the R-series spec.
 
 ## 14. Test gaps and test-helper masking
 
@@ -117,3 +132,17 @@ The reviewer role needs a new engine phase (DECISIONS A2). Scenario 15 differs b
 
 - The live opencode smoke needs the local-route base URL, which the live helper reads from the environment variable `SUBSTRATE_LIVE_OPENCODE_BASE_URL`. Set it to the local server address in your own environment. Do not commit the address.
 - The R5.2 smoke passed on 2026-10-20 for all three harnesses, using the owner's local model for opencode. The gate command is the source of truth; run it to see the current state.
+
+## 16. Auto mode skips the deterministic router on the default path
+
+- What: in auto mode, the route action calls `routeRequest` only after the governor has failed. With no governor configured, the auto branch never reaches `routeRequest`, so the route stays `plan` and the deterministic mechanical-file rule never runs.
+- Where: `src/engine/actions/route.ts` lines 35-38 (the governor gate) and 63-71 (the only `routeRequest` call, in the governor-failed branch). The mechanical rule is step 2 of `routeRequest` in `src/roles/router.ts` lines 60-91. The default mode `auto` is set in `src/cli/commands/run.ts` line 170.
+- Impact: on the default path, a single named-file request with a mechanical verb (such as "bump" or "typo", listed in `src/roles/router.ts`) takes the plan route even where the deterministic rule would send it solo. The rule runs only when a configured governor fails. Read from the code, not run live.
+- Direction: for auto mode, call `routeRequest` unconditionally and let it own the governor step, which removes the duplicate governor code in `route.ts`. Reconcile the two governor paths first, since their timeout defaults differ (5 seconds in `route.ts`, 10 in `router.ts`). Add a test that a named-file mechanical request with no governor routes solo. This changes default behaviour, so it needs owner sign-off (section 13, decision 3).
+
+## 17. Check scripts still default to the archived progress file
+
+- What: eight scripts read `docs/plan/PROGRESS.md` by default. That file was archived to `docs/archive/2026-10-20-r-series/PROGRESS.md`. When it is missing, `workPackageStatus` warns and treats every work package as TODO, so the allowlist rule that fails an entry whose work package is DONE is silently off. `scripts/check-plan.mjs` finds no rows and prints that there is nothing to check.
+- Where: `scripts/lib/allowlist.mjs` (the file check at lines 47-56; rule 3 at line 111). The default `progressFile` is set in `scripts/check-all.mjs`, `scripts/check-dead-exports.mjs`, `scripts/check-events.mjs`, `scripts/check-purity.mjs`, `scripts/check-settings.mjs` and `scripts/check-wired.mjs`. `scripts/check-plan.mjs` joins `docs/plan` at line 12 and reads the file at line 25.
+- Impact: harmless today, because only DEFERRED entries remain. It would hide a DONE-debt failure if a non-DEFERRED entry were added.
+- Direction: either point the default at a small status file that the R-series archive does not move, or drop rule 3 together with the `until` work-package values so that only DEFERRED remains.
