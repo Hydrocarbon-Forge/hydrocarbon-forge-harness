@@ -427,7 +427,7 @@ export async function runAgyDialectScenario(scenario, args, options = {}) {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--version") {
-      process.stdout.write("1.4.0\n");
+      process.stdout.write("1.4.2\n");
       return 0;
     }
     if (arg === "--conversation" && i + 1 < args.length) {
@@ -526,7 +526,7 @@ export async function runDialect(argv, env) {
   }
 
   if (argv.includes("--version")) {
-    process.stdout.write("1.4.0\n");
+    process.stdout.write("1.4.2\n");
     return 0;
   }
 
@@ -705,7 +705,7 @@ const isMain =
 if (isMain) {
   const args = process.argv.slice(2);
   if (args.includes("--version")) {
-    process.stdout.write("1.4.0\n");
+    process.stdout.write("1.4.2\n");
     process.exit(0);
   }
 

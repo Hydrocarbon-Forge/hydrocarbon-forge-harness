@@ -101,11 +101,8 @@ describe("Claude Argument Builder: buildClaudeArgs", () => {
     };
     const args = buildClaudeArgs(req);
 
-    // Allowed tools
-    expect(args).toContain("--allowedTools");
-    const allowed = args[args.indexOf("--allowedTools") + 1].split(",");
-    expect(allowed).toContain("Bash(git status*)");
-    expect(allowed).toContain("Read");
+    // Allow rules are not emitted: permissions are bypassed (owner decision 2026-10-19)
+    expect(args).not.toContain("--allowedTools");
 
     // Disallowed tools
     expect(args).toContain("--disallowedTools");
@@ -114,6 +111,24 @@ describe("Claude Argument Builder: buildClaudeArgs", () => {
     expect(disallowed).toContain("Bash(git push*)");
     expect(disallowed).toContain("Agent");
     expect(disallowed).toContain("Bash(rm -rf*)");
+  });
+
+  it("launches with permissions bypassed and no permission-mode or allow list", () => {
+    const req: SpawnRequest = {
+      ...baseReq,
+      permission: { allow: ["Bash", "Read"], deny: ["git push"] },
+    };
+    const args = buildClaudeArgs(req);
+
+    expect(args).toContain("--dangerously-skip-permissions");
+    expect(args).not.toContain("--permission-mode");
+    expect(args).not.toContain("--allowedTools");
+    expect(args).toContain("--permission-prompts");
+    expect(args[args.indexOf("--permission-prompts") + 1]).toBe("none");
+
+    const disallowed = args[args.indexOf("--disallowedTools") + 1].split(",");
+    expect(disallowed).toContain("Agent");
+    expect(disallowed).toContain("Bash(git push*)");
   });
 
   it("always includes Agent in --disallowedTools even when deny list is empty", () => {

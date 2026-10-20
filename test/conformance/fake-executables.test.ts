@@ -6,9 +6,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 
 const BIN_DIR = resolve(__dirname, "../fixtures/fake-harness/bin");
 const BINS = [
-  { name: "claude", path: join(BIN_DIR, "claude"), version: "2.1.301" },
+  { name: "claude", path: join(BIN_DIR, "claude"), version: "2.1.304" },
   { name: "opencode", path: join(BIN_DIR, "opencode"), version: "opencode 2.0.21" },
-  { name: "agy", path: join(BIN_DIR, "agy"), version: "1.4.0" },
+  { name: "agy", path: join(BIN_DIR, "agy"), version: "1.4.2" },
 ];
 
 describe("Fake harness executables", () => {

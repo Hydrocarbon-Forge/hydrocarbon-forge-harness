@@ -33,6 +33,10 @@ describe("Claude Live Args Test", () => {
       };
 
       const args = buildClaudeArgs(req);
+      // Permissions are bypassed; no allow list or permission-mode is emitted (owner decision 2026-10-19)
+      expect(args).toContain("--dangerously-skip-permissions");
+      expect(args).not.toContain("--permission-mode");
+      expect(args).not.toContain("--allowedTools");
       const output = execFileSync("claude", args, {
         encoding: "utf8",
         timeout: 15000,

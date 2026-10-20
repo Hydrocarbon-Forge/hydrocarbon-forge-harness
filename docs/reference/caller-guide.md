@@ -32,7 +32,7 @@ Write one JSON object and send it to `substrate run` on stdin (see Run). The obj
 - `worker` (optional object): the same fields as `planner`. Every mode runs workers, so set it or the provider's default applies.
 - `verify` (optional array of strings): shell commands. Each must exit `0` for a task to pass. Each must not be blank.
 - `budget` (optional object): `max_usd`, `max_tokens`, `max_wall_min`, all numbers.
-- `permission_mode` (optional): `default`, `plan`, `acceptEdits`, `dontAsk` or `bypassPermissions`.
+- `permission_mode` (optional): `default`, `plan`, `acceptEdits`, `dontAsk` or `bypassPermissions`. This is Substrate's approval gate. It does not change how the harness is launched, which is always with permissions bypassed.
 - `context` (optional array of strings): repo-relative file paths. Each must exist.
 
 This is a complete valid request for `solo` mode. It leaves out `model`, so the worker uses its profile slot:
@@ -95,7 +95,7 @@ The output has `rows`, one per model, and `totals`. Each row has `group` (the mo
 - `0`: success.
 - `1`: run failed.
 - `2`: usage or config error.
-- `3`: needs human (approval in `dontAsk`, permission denial, escalation L3).
+- `3`: needs human (approval at Substrate's permission gate, or escalation L3). Exit `3` for approval depends on the gate, not on a harness denial.
 - `4`: budget exhausted.
 - `130`: interrupted (SIGINT).
 - `143`: terminated (SIGTERM).

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import { PassThrough, type Readable } from "node:stream";
 import { takeTail } from "../util/index.js";
 
@@ -230,9 +231,14 @@ function createStreamBridge(
 export function spawnSupervisedProcess(
   options: SupervisedProcessOptions
 ): SupervisedProcess {
-  const env = options.env
+  let env: NodeJS.ProcessEnv = options.env
     ? { PATH: process.env.PATH, ...options.env }
     : process.env;
+  // Node's `cwd` option does not update PWD; tools that resolve their project from PWD
+  // (opencode) need it to match the directory the child actually runs in.
+  if (options.cwd) {
+    env = { ...env, PWD: path.resolve(options.cwd) };
+  }
 
   const child = spawn(options.command, options.args ?? [], {
     cwd: options.cwd,

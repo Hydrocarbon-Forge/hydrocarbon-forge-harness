@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { takeCall, applyCall } from "../scenario.mjs";
@@ -178,6 +178,40 @@ export async function* emitOpenCodeDialectEvents(scenario, options = {}) {
   }
 }
 
+const OPENCODE_BUILTIN_AGENTS = new Set(["build", "plan", "general", "explore"]);
+
+/**
+ * Mirrors the real CLI's agent lookup: a custom `--agent <name>` is resolved from
+ * `<PWD>/.opencode/agents/<name>.md` (PWD, not getcwd), so a child started with a
+ * Node `cwd` but a stale PWD does not find it. Returns the error line the real CLI
+ * prints when the agent is missing, or null when it resolves.
+ *
+ * @param {string[]} argv
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string | null}
+ */
+export function agentLookupError(argv, env) {
+  let name;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--agent" && i + 1 < argv.length) {
+      name = argv[++i];
+    } else if (argv[i].startsWith("--agent=")) {
+      name = argv[i].slice("--agent=".length);
+    }
+  }
+  if (name === undefined || OPENCODE_BUILTIN_AGENTS.has(name)) {
+    return null;
+  }
+  const projectDir = env.PWD || process.cwd();
+  if (existsSync(join(projectDir, ".opencode", "agents", `${name}.md`))) {
+    return null;
+  }
+  return JSON.stringify({
+    type: "error",
+    error: { type: "unknown", message: `Agent not found: "${name}"` },
+  });
+}
+
 /**
  * Run OpenCode dialect based on FAKE_SCENARIO_FILE.
  *
@@ -201,11 +235,22 @@ export async function runDialect(argv, env) {
     return 0;
   }
 
+  const agentError = agentLookupError(argv, env);
+  if (agentError !== null) {
+    process.stdout.write(agentError + "\n");
+    return 1;
+  }
+
   let sessionId;
   for (let i = 0; i < argv.length; i++) {
     if ((argv[i] === "-s" || argv[i] === "--session") && i + 1 < argv.length) {
       sessionId = argv[++i];
     }
+  }
+
+  if (sessionId !== undefined && !sessionId.startsWith("ses")) {
+    process.stderr.write('Error: Expected a string starting with "ses"\n');
+    return 1;
   }
 
   if (!sessionId) {
@@ -325,6 +370,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.exit(0);
   }
 
+  const agentError = agentLookupError(args, process.env);
+  if (agentError !== null) {
+    process.stdout.write(agentError + "\n");
+    process.exit(1);
+  }
+
   let scenario = process.env.FAKE_SCENARIO || "success";
   let sessionId = process.env.FAKE_SESSION_ID;
   let isResumed = false;
@@ -340,6 +391,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     } else if (arg === "--scenario") {
       scenario = args[++i];
     }
+  }
+
+  // Real opencode 2.0.21 rejects any session id not starting with "ses" and exits at once.
+  if (isResumed && !String(sessionId).startsWith("ses")) {
+    process.stderr.write('Error: Expected a string starting with "ses"\n');
+    process.exit(1);
   }
 
   // Check last positional arg for prompt scenario hints

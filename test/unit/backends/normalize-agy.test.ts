@@ -639,3 +639,36 @@ describe("AgyNormalizer - Invariants and Edge Cases", () => {
     expect(events[events.length - 1].type).toBe("session.result");
   });
 });
+
+describe("AgyNormalizer - effort-suffixed model ids", () => {
+  it("computes cost for an effort variant whose base is the only priced entry", () => {
+    const basePricing: PricingTable = {
+      asOf: "2026-10-16",
+      sources: ["https://ai.google.dev/gemini-api/docs/pricing"],
+      models: {
+        "gemini-3.8-flash": { input_per_mtok: 0.75, output_per_mtok: 3.75 },
+      },
+    };
+    const normalizer = new AgyNormalizer({
+      model: "gemini-3.8-flash-high",
+      pricing: basePricing,
+    });
+
+    const events = normalizer.normalizeEvent({
+      event: "step_update",
+      step_update: {
+        step_index: 1,
+        state: "DONE",
+        step_type: "agent_response",
+        usage: { input_tokens: 1000, output_tokens: 1000 },
+      },
+    });
+    const usageEvt = events.find((e) => e.type === "usage");
+    expect(usageEvt?.type === "usage" && usageEvt.record.cost_source).toBe("computed");
+    expect(usageEvt?.type === "usage" && usageEvt.record.cost_usd).toBeCloseTo(0.0045, 6);
+
+    const finalEvents = normalizer.finalize(0);
+    const result = finalEvents.find((e) => e.type === "session.result");
+    expect(result?.type === "session.result" && result.usage?.cost_source).toBe("computed");
+  });
+});

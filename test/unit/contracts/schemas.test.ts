@@ -423,7 +423,7 @@ describe("backend layer", () => {
   it("Capabilities requires pins, flags and denial signal", () => {
     const valid = {
       name: "claude",
-      version_pin: "2.1.301",
+      version_pin: "2.1.304",
       effort: true,
       structured_output: true,
       budget_flag: true,
@@ -500,7 +500,7 @@ describe("backend layer", () => {
 describe("settings", () => {
   function validSettings() {
     return {
-      backends: { claude: { version_pin: "2.1.301", max_concurrency: 3 } },
+      backends: { claude: { version_pin: "2.1.304", max_concurrency: 3 } },
       roles: { planner: { backend: "claude", model: "m" } },
       routing: {
         feature: { backend: "claude", model: "m" },

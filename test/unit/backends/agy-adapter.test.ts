@@ -46,6 +46,7 @@ describe("Agy Argument Builder: buildAgyArgv", () => {
       "gemini-3.8-flash",
       "--mode",
       "accept-edits",
+      "--dangerously-skip-permissions",
       "--print-timeout",
       "0s",
     ]);

@@ -15,7 +15,7 @@ import { ClaudeAdapter } from "../../../src/backends/adapters/claude.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-function createFakeClaudeBin(dir: string, version = "2.1.301"): string {
+function createFakeClaudeBin(dir: string, version = "2.1.304"): string {
   const binPath = join(dir, `fake-claude-${Math.random().toString(36).slice(2, 8)}.mjs`);
   const fakeHarnessPath = resolve(here, "../../fixtures/fake-harness/index.ts");
   const scriptContent = `#!/usr/bin/env node
@@ -77,7 +77,7 @@ let sharedFakeBin: string;
 
 if (!isLive) {
   sharedTmpDir = mkdtempSync(join(tmpdir(), "claude-conformance-"));
-  sharedFakeBin = createFakeClaudeBin(sharedTmpDir, "2.1.301");
+  sharedFakeBin = createFakeClaudeBin(sharedTmpDir, "2.1.304");
 }
 
 runAdapterConformanceSuite(
@@ -120,8 +120,8 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
     }
   });
 
-  it("validates environment successfully when CLI binary matches pinned version 2.1.301", async () => {
-    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
+  it("validates environment successfully when CLI binary matches pinned version 2.1.304", async () => {
+    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.304");
     const adapter = new ClaudeAdapter({ bin: fakeBin });
 
     const report = await adapter.validateEnvironment();
@@ -131,7 +131,7 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
     expect(report.problems).toEqual([]);
   });
 
-  it("reports version mismatch problem when installed CLI version differs from 2.1.301", async () => {
+  it("reports version mismatch problem when installed CLI version differs from 2.1.304", async () => {
     const fakeBin = createFakeClaudeBin(tmpDir, "2.0.0");
     const adapter = new ClaudeAdapter({ bin: fakeBin });
 
@@ -155,7 +155,7 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
   });
 
   it("supports session resume with matching UUID session_id", async () => {
-    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
+    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.304");
     const adapter = new ClaudeAdapter({ bin: fakeBin });
     const sessionCwd = mkdtempSync(join(tmpDir, "resume-conformance-"));
     const targetSessionId = crypto.randomUUID();
@@ -187,7 +187,7 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
   });
 
   it("persists raw stdout stream byte-for-byte to req.raw_dir/<session_id>.ndjson", async () => {
-    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
+    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.304");
     const adapter = new ClaudeAdapter({ bin: fakeBin });
     const sessionCwd = mkdtempSync(join(tmpDir, "raw-persist-cwd-"));
     const rawDir = mkdtempSync(join(tmpDir, "raw-persist-dir-"));
@@ -226,7 +226,7 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
   });
 
   it("does not write raw stream to disk when raw_dir is absent", async () => {
-    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
+    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.304");
     const adapter = new ClaudeAdapter({ bin: fakeBin });
     const sessionCwd = mkdtempSync(join(tmpDir, "raw-absent-cwd-"));
 
@@ -255,7 +255,7 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
   });
 
   it("enforces structured result over exit code evaluation (Invariant I11)", async () => {
-    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.301");
+    const fakeBin = createFakeClaudeBin(tmpDir, "2.1.304");
     const adapter = new ClaudeAdapter({ bin: fakeBin });
     const sessionCwd = mkdtempSync(join(tmpDir, "result-eval-"));
 

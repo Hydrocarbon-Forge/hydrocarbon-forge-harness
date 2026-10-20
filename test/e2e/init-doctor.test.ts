@@ -113,7 +113,7 @@ describe("E2E init and doctor", () => {
         expect(Object.keys(report)).toEqual(["node", "git", "bubblewrap", "adapters", "checks"]);
         expect(report.node.ok).toBe(true);
         expect(report.git.ok).toBe(true);
-        expect(report.adapters.claude).toBe("2.1.301");
+        expect(report.adapters.claude).toBe("2.1.304");
         expect(report.checks.some((check: any) => check.status === "FAIL")).toBe(false);
         const profilesCheck = report.checks.find((check: any) => check.name === "profiles.claude");
         expect(profilesCheck.status).toBe("PASS");

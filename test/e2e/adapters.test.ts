@@ -82,6 +82,11 @@ describe("E2E Adapter Selection", () => {
       expect(disallowed).toContain("Bash(git commit*)");
       expect(disallowed).toContain("Agent");
 
+      // 4. permissions are bypassed (owner decision 2026-10-19)
+      expect(argv).toContain("--dangerously-skip-permissions");
+      expect(argv).not.toContain("--permission-mode");
+      expect(argv).not.toContain("--allowedTools");
+
       const sessionStarted = res.events.find(
         (e) => e.type === "task.session.started"
       );

@@ -29,6 +29,8 @@
     "export-schemas": "node scripts/export-schemas.mjs",
     "bench": "node scripts/bench.mjs",
     "docs:check": "node scripts/docs-check.mjs",
+    "test:live": "env SUBSTRATE_LIVE=1 vitest run test/live/smoke.test.ts",
+    "gate:g5": "node scripts/gate-g5.mjs",
     "bundle": "node scripts/bundle.mjs",
     "check:plan": "node scripts/check-plan.mjs"
   },

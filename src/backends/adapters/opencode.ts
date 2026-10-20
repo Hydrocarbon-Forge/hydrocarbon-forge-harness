@@ -30,6 +30,7 @@ import { ModelInfo } from "../../contracts/index.js";
 import { readNdjsonStream } from "../ndjson.js";
 import { spawnSupervisedProcess } from "../process.js";
 import { normalizeOpenCodeStream } from "../normalize/opencode.js";
+import { log } from "../../util/log.js";
 import { DEFAULT_PRICING } from "../default-pricing.js";
 
 const execFileAsync = promisify(execFile);
@@ -194,6 +195,17 @@ export function mapEffortToVariant(model: string, effort?: Effort): string {
     return model;
   }
   return `${model}#${effort}`;
+}
+
+/**
+ * Maps an engine session id to the form opencode accepts. opencode 2.0.21
+ * rejects any session id that does not start with "ses" ("Expected a string
+ * starting with \"ses\""), but the engine generates bare UUIDs. A UUID becomes
+ * `ses_` plus its 32 hex digits; an id already in opencode form is unchanged.
+ */
+export function toOpenCodeSessionId(id: string): string {
+  if (id.startsWith("ses")) return id;
+  return "ses_" + id.replace(/-/g, "");
 }
 
 export function loadLocalProviderFromDisk(dir?: string): OpenCodeProvider | undefined {
@@ -603,10 +615,14 @@ export class OpenCodeAdapter implements HarnessAdapter {
             (provider.id && req.model.startsWith(`${provider.id}/`)))
       );
     if (isLocal && !hasBaseUrl) {
-      const sessionId: SessionId =
+      const reason =
+        "local provider needs a base URL: set backends.opencode.provider.base_url in .substrate/settings.local.json (or backends.opencode.extra.customBaseUrl)";
+      log.warn(reason);
+      const sessionId: SessionId = toOpenCodeSessionId(
         req.session?.resume ??
-        req.session?.id ??
-        "ses_" + Math.random().toString(36).slice(2, 10);
+          req.session?.id ??
+          "ses_" + Math.random().toString(36).slice(2, 10)
+      );
       const fallbackUsage: UsageRecord = {
         backend: "opencode",
         model: req.model.split("#")[0],
@@ -624,7 +640,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
         yield {
           type: "error",
           kind: "protocol",
-          message: "local provider needs backends.opencode.extra.base_url",
+          message: reason,
         };
         yield {
           type: "session.result",
@@ -658,6 +674,8 @@ export class OpenCodeAdapter implements HarnessAdapter {
     const args: string[] = [
       "run",
       "--standalone",
+      // Owner decision 2026-10-19: all harnesses run with permissions bypassed.
+      "--auto",
       "--format",
       "json",
       "-m",
@@ -667,9 +685,9 @@ export class OpenCodeAdapter implements HarnessAdapter {
     ];
 
     if (req.session?.resume) {
-      args.push("-s", req.session.resume);
+      args.push("-s", toOpenCodeSessionId(req.session.resume));
     } else if (req.session?.id) {
-      args.push("-s", req.session.id);
+      args.push("-s", toOpenCodeSessionId(req.session.id));
     }
 
     if (req.session?.fork) {
@@ -704,10 +722,13 @@ export class OpenCodeAdapter implements HarnessAdapter {
       await doCleanup();
     };
 
-    const sessionId: SessionId =
+    // The id reported to the engine is the opencode form, so a later resume
+    // passes an id that toOpenCodeSessionId leaves unchanged.
+    const sessionId: SessionId = toOpenCodeSessionId(
       req.session?.resume ??
-      req.session?.id ??
-      "ses_" + Math.random().toString(36).slice(2, 10);
+        req.session?.id ??
+        "ses_" + Math.random().toString(36).slice(2, 10)
+    );
 
     const observedDenials: Array<{ tool: string; reason?: string }> = [];
     let observedFinalText: string | undefined;
@@ -733,7 +754,8 @@ export class OpenCodeAdapter implements HarnessAdapter {
           model: req.model,
           fallbackSessionId: activeSessionId,
           pricingTable,
-          usageFallback: (sid: string) => exportSessionFn(sid, req.cwd),
+          usageFallback: (sid: string) =>
+            exportSessionFn(toOpenCodeSessionId(sid), req.cwd),
         });
 
         for await (const event of normalized) {

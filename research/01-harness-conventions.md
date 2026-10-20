@@ -154,6 +154,7 @@ Live sample (haiku, 2026-10-16, prompt "Reply with the single word OK", --output
 - `--permission-mode` modes [LOCAL, DOCS permission-modes]: default (ask), acceptEdits (auto file edits and mkdir/touch/mv/cp in working dirs), auto (classifier reviews actions), dontAsk (deny anything that would prompt; allows rule-matched actions), bypassPermissions (no checks; avoid), plan (read-only planning), manual (ask everything).
 - `--allowedTools` / `--disallowedTools` apply rules above, enforced by the permission layer, not an OS sandbox.
 - `--dangerously-skip-permissions` / `--allow-dangerously-skip-permissions`: bypass; do not use.
+  Owner decision 2026-10-19: Substrate launches all three harnesses with permissions bypassed (see docs/plan/BLOCKED.md, R5.2).
 - `--tools` restricts the built-in tool set; with `--bare` tools limited to Bash, Read, Edit as listed.
 - Filesystem/network sandbox: separate feature (DOCS sandboxing.md). CLI flag for sandbox: UNKNOWN (not checked).
 - Worktree flag: `-w/--worktree` [LOCAL].

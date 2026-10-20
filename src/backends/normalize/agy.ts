@@ -5,7 +5,7 @@ import type {
   UsageRecord,
 } from "../../contracts/index.js";
 import { UsageRecord as UsageRecordSchema } from "../../contracts/index.js";
-import { calculateCostUsd } from "../pricing.js";
+import { calculateCostUsd, ratesFor } from "../pricing.js";
 import { nowIsoTimestamp } from "../../util/index.js";
 import { log } from "../../util/log.js";
 
@@ -314,7 +314,7 @@ export class AgyNormalizer {
    * what keeps the invariant "usage events of a run == session total".
    */
   private sessionTotal(): UsageRecord {
-    const allPriced = this.options.pricing.models[this.model] !== undefined;
+    const allPriced = ratesFor(this.model, this.options.pricing.models) !== undefined;
     const total: UsageRecord = {
       backend: "agy",
       model: this.model,

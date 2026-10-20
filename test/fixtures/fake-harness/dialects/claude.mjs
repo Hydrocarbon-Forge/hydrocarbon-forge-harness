@@ -19,7 +19,7 @@ export async function runDialect(argv, env) {
   }
 
   if (argv.includes("--version")) {
-    process.stdout.write("2.1.301\n");
+    process.stdout.write("2.1.304\n");
     return 0;
   }
 
@@ -135,7 +135,7 @@ export async function runDialect(argv, env) {
       mcp_servers: [],
       model: "claude-haiku-5-5",
       permissionMode: "dontAsk",
-      claude_code_version: "2.1.301",
+      claude_code_version: "2.1.304",
     }) + "\n"
   );
 

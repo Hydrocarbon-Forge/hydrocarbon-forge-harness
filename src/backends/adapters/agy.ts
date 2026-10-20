@@ -85,6 +85,9 @@ export function buildAgyArgv(req: SpawnRequest): string[] {
 
   argv.push("--mode", "accept-edits");
 
+  // Owner decision 2026-10-19: all harnesses run with permissions bypassed.
+  argv.push("--dangerously-skip-permissions");
+
   // Verified on the installed binary with `agy --help` on 2026-10-18 that the
   // flag exists; WP Notes keep it and it is passed explicitly as 0s so a headless
   // run never waits on an interactive prompt (documented default is 5m per S3).
@@ -151,15 +154,16 @@ export class AgyAdapter implements HarnessAdapter {
     this.bin = options.bin ?? "agy";
     this.capabilities = {
       name: "agy",
-      version_pin: "1.4.0",
+      version_pin: "1.4.2",
       effort: true,
       structured_output: false,
       budget_flag: false,
       cost_reported: false,
       resume: true,
       // S3 (verified locally 2026-10-16): a headless agy run cannot prompt for a
-      // permission, so an auto-denied tool is reported two ways that the
-      // normalizer parses - the stderr line
+      // permission. Since the 2026-10-19 bypass decision agy runs with
+      // --dangerously-skip-permissions, so auto-denial should not occur; the
+      // normalizer still parses it if it does, via the stderr line
       // `jetski: no output produced ... permission ... auto-denied` and
       // `result.denied_actions`. Exit code is still 0, so the signal is stderr.
       permission_denial_signal: "stderr",

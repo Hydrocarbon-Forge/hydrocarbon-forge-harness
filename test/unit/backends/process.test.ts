@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
@@ -452,5 +452,75 @@ describe("NDJSON Reader & Serializer", () => {
         // throws on corrupt
       }
     }).rejects.toThrow(ProtocolError);
+  });
+});
+
+describe("Process Supervisor: working directory and PWD", () => {
+  const printEnv = `process.stdout.write(JSON.stringify({ PWD: process.env.PWD ?? null, FOO: process.env.FOO ?? null, cwd: process.cwd() }))`;
+
+  async function runEnvProbe(options: {
+    cwd?: string;
+    env?: Record<string, string>;
+  }): Promise<{ PWD: string | null; FOO: string | null; cwd: string }> {
+    const proc = spawnSupervisedProcess({
+      command: process.execPath,
+      args: ["-e", printEnv],
+      cwd: options.cwd as string,
+      env: options.env,
+    });
+    const res = await proc.wait();
+    expect(res.exitCode).toBe(0);
+    return JSON.parse(res.stdoutTail);
+  }
+
+  it("sets PWD in the child to the resolved cwd when cwd differs from the parent's", async () => {
+    const dir = realpathSync(makeTmpDir());
+    try {
+      expect(dir).not.toBe(realpathSync(process.cwd()));
+      const child = await runEnvProbe({ cwd: dir });
+      expect(child.PWD).toBe(dir);
+      expect(realpathSync(child.cwd)).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("sets PWD to the resolved cwd when options.env is also given", async () => {
+    const dir = realpathSync(makeTmpDir());
+    try {
+      const child = await runEnvProbe({ cwd: dir, env: { FOO: "bar" } });
+      expect(child.PWD).toBe(dir);
+      expect(child.FOO).toBe("bar");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("overrides a PWD passed in options.env with the cwd", async () => {
+    const dir = realpathSync(makeTmpDir());
+    try {
+      const child = await runEnvProbe({ cwd: dir, env: { PWD: "/not/the/cwd" } });
+      expect(child.PWD).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves the environment unchanged when no cwd is given", async () => {
+    const child = await runEnvProbe({ env: { FOO: "bar" } });
+    expect(child.FOO).toBe("bar");
+    expect(child.PWD).toBeNull();
+  });
+
+  it("without cwd or options.env the child inherits the parent's PWD untouched", async () => {
+    const parentPwd = process.env.PWD ?? null;
+    const proc = spawnSupervisedProcess({
+      command: process.execPath,
+      args: ["-e", printEnv],
+      cwd: undefined as unknown as string,
+    });
+    const res = await proc.wait();
+    expect(res.exitCode).toBe(0);
+    expect(JSON.parse(res.stdoutTail).PWD).toBe(parentPwd);
   });
 });

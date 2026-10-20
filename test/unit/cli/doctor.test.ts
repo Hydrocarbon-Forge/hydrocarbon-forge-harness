@@ -190,7 +190,7 @@ describe("doctor", () => {
     const result = await runDoctor(flags);
 
     expect(result.code).toBe(1);
-    expect(result.out).toMatch(/^\[FAIL\] claude: 2\.1\.301 differs from pinned 2\.1\.999$/m);
+    expect(result.out).toMatch(/^\[FAIL\] claude: 2\.1\.304 differs from pinned 2\.1\.999$/m);
     expect(result.out).toMatch(/^  fix: install claude 2\.1\.999 \(the pinned version\)/m);
   });
 
@@ -260,7 +260,7 @@ describe("doctor", () => {
     expect(run.json.node).toEqual({ version: process.versions.node, ok: true });
     expect(run.json.git.ok).toBe(true);
     expect(run.json.bubblewrap.ok).toBe(false);
-    expect(run.json.adapters.claude).toBe("2.1.301");
+    expect(run.json.adapters.claude).toBe("2.1.304");
     expect(Array.isArray(run.json.checks)).toBe(true);
     expect(run.out.split("\n")).toHaveLength(2);
 

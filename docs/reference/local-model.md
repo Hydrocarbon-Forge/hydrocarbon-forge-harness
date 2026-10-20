@@ -109,7 +109,9 @@ When a session starts on the local route, the OpenCode adapter:
 
 The endpoint is passed to OpenCode only through that per-run file. It is not part of the prompt or of the task spec.
 
-If a local model is named and no endpoint is configured, the session fails at once with a `protocol` error and exit code 1. The error text names `backends.opencode.extra.base_url`; the key the code reads is `backends.opencode.provider.base_url`.
+If a local model is named and no endpoint is configured, the session fails at once with a `protocol` error and exit code 1, and one `[substrate] warn:` line on stderr gives the same reason. The error text names the two settings the adapter reads: `backends.opencode.provider.base_url` in `.substrate/settings.local.json`, or the legacy `backends.opencode.extra.customBaseUrl`.
+
+The live smoke test (`test/live`) takes the endpoint from a test-only environment variable, named in `test/live/helpers.ts` (function `liveLocalSettings`). That variable is required when the opencode live model is a local llama.cpp route (for example `llama.cpp/<model>`), and the test fails before any run if it is missing. Set it to the server's address, in the form `http://<host>:<port>/v1`; the value is written only into the toy repository's `settings.local.json`, never into a committed file. It is ignored for a non-local model.
 
 ---
 

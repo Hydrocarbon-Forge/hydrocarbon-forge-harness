@@ -26,7 +26,7 @@ Copied from SUBSTRATE-PLAN.md section 4.6:
 | `0` | success |
 | `1` | run failed |
 | `2` | usage/config error |
-| `3` | needs human (approval in `dontAsk`, permission denial, escalation L3) |
+| `3` | needs human (approval at Substrate's permission gate, or escalation L3). Exit `3` for approval depends on the gate, not on a harness denial |
 | `4` | budget exhausted |
 | `130` | SIGINT (Ctrl+C) |
 | `143` | SIGTERM |
@@ -62,7 +62,7 @@ Runs a goal end to end: plans it (unless `--mode solo`), starts workers in git w
 - **Verify**: `--verify "<cmd>"` adds a verify command. It can be repeated. In `solo` mode, a run with no verify command warns that only scope and budget checks apply.
 - **Limits**: `--max-budget-usd <amount>` caps the run's spend, `--timeout <seconds>` caps its wall-clock time.
 - **Tools**: `--allowed-tools` and `--disallowed-tools` take a list (comma-separated or repeated).
-- **Permissions**: `--permission-mode default|plan|acceptEdits|dontAsk|bypassPermissions`. The run default is `dontAsk`.
+- **Permissions**: `--permission-mode default|plan|acceptEdits|dontAsk|bypassPermissions`. The run default is `dontAsk`. This is Substrate's approval gate. It does not change how the harness is launched: harnesses always run with permissions bypassed (owner decision 2026-10-19).
 - **History**: `--history-all` includes archived runs from every charter version in the planner's context.
 - **Exit codes**: see the table above. A run that needs answers exits `3` and prints a `needs_input` result with its questions. Answer them with `resume --answers`.
 

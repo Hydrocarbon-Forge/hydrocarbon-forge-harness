@@ -18,6 +18,24 @@ export function pricingTableFor(settings: Settings): PricingTable {
   };
 }
 
+const EFFORT_SUFFIX = /-(low|medium|high)$/;
+
+/**
+ * Rates for a model id: an exact key wins; otherwise one trailing effort tier is
+ * stripped and the base id's rates are used, but only when the base is priced.
+ * Never invents a price. Object.hasOwn keeps prototype keys (constructor) unpriced.
+ */
+export function ratesFor(
+  id: string,
+  models: PricingTable["models"],
+): PricingTable["models"][string] | undefined {
+  if (Object.hasOwn(models, id)) return models[id];
+  const m = EFFORT_SUFFIX.exec(id);
+  if (!m) return undefined;
+  const base = id.slice(0, -m[0].length);
+  return Object.hasOwn(models, base) ? models[base] : undefined;
+}
+
 export function calculateCostUsd(
   pricing: PricingTable,
   model: string,
@@ -65,7 +83,7 @@ export function calculateCostUsd(
     }
   }
 
-  const rates = pricing?.models ? pricing.models[model] : undefined;
+  const rates = pricing?.models ? ratesFor(model, pricing.models) : undefined;
   if (!rates) {
     return { cost_usd: 0, cost_source: "unknown" };
   }

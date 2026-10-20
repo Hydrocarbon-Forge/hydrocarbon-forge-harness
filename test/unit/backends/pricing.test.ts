@@ -5,6 +5,7 @@ import {
   calculateCostUsd,
   computeUsageRecord,
   pricingTableFor,
+  ratesFor,
 } from "../../../src/backends/pricing.js";
 import { DEFAULT_SETTINGS } from "../../../src/config/index.js";
 import { nowIsoTimestamp } from "../../../src/util/index.js";
@@ -166,5 +167,73 @@ describe("pricing: pricingTableFor", () => {
     expect(table.models["gemini-3.8-flash"]).toBeDefined();
     // New model added
     expect(table.models["new-model-xyz"]).toBeDefined();
+  });
+});
+
+describe("pricing: ratesFor (effort-suffixed ids)", () => {
+  const rate = (n: number) => ({ input_per_mtok: n, output_per_mtok: n * 5 });
+  const models = {
+    base: rate(1),
+    "x-high": rate(2),
+    "exact-low": rate(3),
+    "exact": rate(4),
+    "exact-medium": rate(5),
+  };
+
+  it("uses the exact key when present, even when the base is also priced", () => {
+    expect(ratesFor("exact-low", models)).toEqual(rate(3));
+    expect(ratesFor("exact", models)).toEqual(rate(4));
+  });
+
+  it("maps each effort suffix to the base id's rates", () => {
+    expect(ratesFor("base-low", models)).toEqual(rate(1));
+    expect(ratesFor("base-medium", models)).toEqual(rate(1));
+    expect(ratesFor("base-high", models)).toEqual(rate(1));
+  });
+
+  it("returns undefined when the base is not priced", () => {
+    expect(ratesFor("nobase-high", models)).toBeUndefined();
+    expect(ratesFor("nobase", models)).toBeUndefined();
+  });
+
+  it("strips only one effort suffix", () => {
+    expect(ratesFor("x-high-low", models)).toEqual(rate(2));
+    expect(ratesFor("x-high-low", { x: rate(9) })).toBeUndefined();
+    expect(ratesFor("x-high-low", { "x-high": rate(2) })).toEqual(rate(2));
+  });
+
+  it("never prices prototype keys", () => {
+    expect(ratesFor("constructor", models)).toBeUndefined();
+    expect(ratesFor("__proto__", models)).toBeUndefined();
+    expect(ratesFor("toString-high", models)).toBeUndefined();
+    expect(ratesFor("constructor-low", models)).toBeUndefined();
+  });
+});
+
+describe("pricing: effort-suffixed ids in calculateCostUsd (built-in table)", () => {
+  it("prices gemini-3.8-flash effort variants at the base rates", () => {
+    const base = calculateCostUsd(DEFAULT_PRICING, "gemini-3.8-flash", {
+      input_tokens: 1000,
+      output_tokens: 1000,
+    });
+    for (const id of ["gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high"]) {
+      const res = calculateCostUsd(DEFAULT_PRICING, id, { input_tokens: 1000, output_tokens: 1000 });
+      expect(res.cost_source).toBe("computed");
+      expect(res.cost_usd).toBe(base.cost_usd);
+    }
+  });
+
+  it("leaves gpt-oss-120b-medium unpriced (base absent)", () => {
+    const res = calculateCostUsd(DEFAULT_PRICING, "gpt-oss-120b-medium", {
+      input_tokens: 1000,
+      output_tokens: 1000,
+    });
+    expect(res).toEqual({ cost_usd: 0, cost_source: "unknown" });
+  });
+
+  it("leaves claude-opus-4-6-thinking and claude-sonnet-4-6 unpriced", () => {
+    for (const id of ["claude-opus-4-6-thinking", "claude-sonnet-4-6"]) {
+      expect(calculateCostUsd(DEFAULT_PRICING, id, { input_tokens: 1, output_tokens: 1 }).cost_source).toBe("unknown");
+    }
   });
 });

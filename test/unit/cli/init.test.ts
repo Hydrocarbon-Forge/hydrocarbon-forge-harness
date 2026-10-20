@@ -150,9 +150,9 @@ describe("init", () => {
     expect(result.code).toBe(0);
     expect(existsSync(join(substrateDir(), "settings.json"))).toBe(false);
 
-    expect(result.out).toMatch(/^claude: installed \(2\.1\.301\)$/m);
+    expect(result.out).toMatch(/^claude: installed \(2\.1\.304\)$/m);
     expect(result.out).toMatch(/^opencode: installed \(2\.0\.21\)$/m);
-    expect(result.out).toMatch(/^agy: installed \(1\.4\.0\)$/m);
+    expect(result.out).toMatch(/^agy: installed \(1\.4\.2\)$/m);
     expect(result.out).toMatch(/models: haiku, sonnet, opus, fable/);
     expect(result.out).toMatch(
       /substrate init --provider claude --plan <id> --work <id> --fast <id>/

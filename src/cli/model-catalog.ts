@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import type { EnvReport, HarnessAdapter, ModelInfo, Settings } from "../contracts/index.js";
-import { pricingTableFor } from "../backends/pricing.js";
+import { pricingTableFor, ratesFor } from "../backends/pricing.js";
 import type { UsageLedgerEntry } from "../contracts/index.js";
 import {
   distinctTasks,
@@ -72,7 +72,7 @@ export interface BuildCatalogOptions {
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function priceFor(settings: Settings, modelId: string): ModelEntry["price_per_mtok"] {
-  const rates = pricingTableFor(settings).models[modelId];
+  const rates = ratesFor(modelId, pricingTableFor(settings).models);
   if (!rates) return null;
   return { input: rates.input_per_mtok, output: rates.output_per_mtok };
 }

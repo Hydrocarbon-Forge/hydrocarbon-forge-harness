@@ -23,7 +23,7 @@ import { log } from "../../util/log.js";
 
 const execFileAsync = promisify(execFile);
 
-export const CLAUDE_VERSION_PIN = "2.1.301";
+export const CLAUDE_VERSION_PIN = "2.1.304";
 
 export const CLAUDE_CAPABILITIES: Capabilities = {
   name: "claude",
@@ -103,16 +103,9 @@ export function buildClaudeArgs(req: SpawnRequest): string[] {
     args.push("--append-system-prompt", req.system_append);
   }
 
-  args.push("--permission-mode", "dontAsk", "--permission-prompts", "none");
-
-  if (req.permission.allow.length > 0) {
-    const allowed = req.permission.allow
-      .map(convertClaudePermissionRule)
-      .filter(Boolean);
-    if (allowed.length > 0) {
-      args.push("--allowedTools", allowed.join(","));
-    }
-  }
+  // Owner decision 2026-10-19: all harnesses run with permissions bypassed; the
+  // engine's permission_mode is an approval gate and does not reach the harness.
+  args.push("--dangerously-skip-permissions", "--permission-prompts", "none");
 
   const disallowedSet = new Set<string>(["Agent"]);
   for (const rule of req.permission.deny) {

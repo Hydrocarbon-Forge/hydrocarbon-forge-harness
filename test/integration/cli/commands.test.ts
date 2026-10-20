@@ -642,9 +642,9 @@ describe("cli: inspection and lifecycle commands", () => {
     function standardSettings(overrides: Record<string, unknown> = {}): Record<string, unknown> {
       return {
         backends: {
-          claude: { bin: join(binDir, "claude"), version_pin: "2.1.301" },
+          claude: { bin: join(binDir, "claude"), version_pin: "2.1.304" },
           opencode: { bin: join(binDir, "opencode"), version_pin: "2.0.21" },
-          agy: { bin: join(binDir, "agy"), version_pin: "1.4.0" },
+          agy: { bin: join(binDir, "agy"), version_pin: "1.4.2" },
         },
         ...overrides,
       };
@@ -667,34 +667,34 @@ describe("cli: inspection and lifecycle commands", () => {
       expect(result.stderr).toBe("");
 
       const expected = [
-        "== claude (installed, version 2.1.301, pin 2.1.301 matches) ==",
+        "== claude (installed, version 2.1.304, pin 2.1.304 matches) ==",
         "haiku\tlow,medium,high,xhigh,max\t1/5 per Mtok\troles.planner",
         "sonnet\tlow,medium,high,xhigh,max\tunpriced\trouting.feature",
         "opus\tlow,medium,high,xhigh,max\tunpriced\t-",
         "fable\tlow,medium,high,xhigh,max\tunpriced\t-",
-        "gemini-3.8-flash-low\tlow,medium,high,xhigh,max\tunpriced\troles.worker",
+        "gemini-3.8-flash-low\tlow,medium,high,xhigh,max\t0.75/3.75 per Mtok\troles.worker",
         "== opencode (installed, version 2.0.21, pin 2.0.21 matches) ==",
         "opencode/deepseek-v4.1-flash-free\t-\tunpriced\t-",
-        "== agy (installed, version 1.4.0, pin 1.4.0 matches) ==",
-        "gemini-3.8-flash-high\thigh\tunpriced\t-",
-        "gemini-3.8-flash-medium\tmedium\tunpriced\t-",
-        "gemini-3.8-flash-low\tlow\tunpriced\troles.worker",
+        "== agy (installed, version 1.4.2, pin 1.4.2 matches) ==",
+        "gemini-3.8-flash-high\thigh\t0.75/3.75 per Mtok\t-",
+        "gemini-3.8-flash-medium\tmedium\t0.75/3.75 per Mtok\t-",
+        "gemini-3.8-flash-low\tlow\t0.75/3.75 per Mtok\troles.worker",
         "claude-sonnet-4-6\t-\tunpriced\t-",
         "claude-opus-4-6-thinking\t-\tunpriced\t-",
         "gpt-oss-120b-medium\tmedium\tunpriced\t-",
         "",
         "== all models ==",
         "claude\tfable\tlow,medium,high,xhigh,max\tunpriced\t-",
-        "claude\tgemini-3.8-flash-low\tlow,medium,high,xhigh,max\tunpriced\troles.worker",
+        "claude\tgemini-3.8-flash-low\tlow,medium,high,xhigh,max\t0.75/3.75 per Mtok\troles.worker",
         "claude\thaiku\tlow,medium,high,xhigh,max\t1/5 per Mtok\troles.planner",
         "claude\topus\tlow,medium,high,xhigh,max\tunpriced\t-",
         "claude\tsonnet\tlow,medium,high,xhigh,max\tunpriced\trouting.feature",
         "opencode\topencode/deepseek-v4.1-flash-free\t-\tunpriced\t-",
         "agy\tclaude-opus-4-6-thinking\t-\tunpriced\t-",
         "agy\tclaude-sonnet-4-6\t-\tunpriced\t-",
-        "agy\tgemini-3.8-flash-high\thigh\tunpriced\t-",
-        "agy\tgemini-3.8-flash-low\tlow\tunpriced\troles.worker",
-        "agy\tgemini-3.8-flash-medium\tmedium\tunpriced\t-",
+        "agy\tgemini-3.8-flash-high\thigh\t0.75/3.75 per Mtok\t-",
+        "agy\tgemini-3.8-flash-low\tlow\t0.75/3.75 per Mtok\troles.worker",
+        "agy\tgemini-3.8-flash-medium\tmedium\t0.75/3.75 per Mtok\t-",
         "agy\tgpt-oss-120b-medium\tmedium\tunpriced\t-",
       ];
       expect(result.stdout.split("\n")).toEqual([...expected, ""]);
@@ -798,7 +798,7 @@ describe("cli: inspection and lifecycle commands", () => {
     it("reports an uninstalled provider as not installed, never as an error", async () => {
       const result = await runModels(
         standardSettings({
-          backends: { claude: { bin: join(binDir, "no-such-binary"), version_pin: "2.1.301" } },
+          backends: { claude: { bin: join(binDir, "no-such-binary"), version_pin: "2.1.304" } },
         }),
         { outputFormat: "json" },
       );
@@ -812,7 +812,7 @@ describe("cli: inspection and lifecycle commands", () => {
 
       const text = await runModels(
         standardSettings({
-          backends: { claude: { bin: join(binDir, "no-such-binary"), version_pin: "2.1.301" } },
+          backends: { claude: { bin: join(binDir, "no-such-binary"), version_pin: "2.1.304" } },
         }),
       );
       expect(text.exitCode).toBe(0);

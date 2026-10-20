@@ -7,6 +7,7 @@ import {
   OpenCodeAdapter,
   extractTokensFromExport,
   generateOpenCodeRunConfigSync,
+  toOpenCodeSessionId,
   type OpenCodeAdapterOptions,
 } from "../../../src/backends/adapters/opencode.js";
 import { normalizeOpenCodeStream } from "../../../src/backends/normalize/opencode.js";
@@ -121,7 +122,7 @@ describe("OpenCode Adapter: Config Generation", () => {
 });
 
 describe("OpenCode Adapter: Spawn and Local Provider Requirements", () => {
-  it("yields protocol error 'local provider needs backends.opencode.extra.base_url' when local model spawned without customBaseUrl", async () => {
+  it("yields protocol error naming the real base URL settings when local model spawned without one", async () => {
     const adapter = new OpenCodeAdapter();
     const req: SpawnRequest = {
       role: "worker",
@@ -142,7 +143,9 @@ describe("OpenCode Adapter: Spawn and Local Provider Requirements", () => {
     expect(errEvt).toBeDefined();
     if (errEvt && errEvt.type === "error") {
       expect(errEvt.kind).toBe("protocol");
-      expect(errEvt.message).toBe("local provider needs backends.opencode.extra.base_url");
+      expect(errEvt.message).toBe(
+        "local provider needs a base URL: set backends.opencode.provider.base_url in .substrate/settings.local.json (or backends.opencode.extra.customBaseUrl)",
+      );
     }
 
     const resultEvt = events.find((e) => e.type === "session.result");
@@ -385,5 +388,25 @@ describe("OpenCode Adapter: extractTokensFromExport", () => {
     expect(extractTokensFromExport(null)).toBeNull();
     expect(extractTokensFromExport(undefined)).toBeNull();
     expect(extractTokensFromExport("not an object")).toBeNull();
+  });
+});
+
+describe("OpenCode Adapter: Session id mapping", () => {
+  it("maps a bare UUID to ses_ plus its 32 hex digits", () => {
+    expect(toOpenCodeSessionId("11111111-2222-3333-4444-555555555555")).toBe(
+      "ses_11111111222233334444555555555555"
+    );
+  });
+
+  it("maps a randomUUID from the engine to the ses_ form", () => {
+    const mapped = toOpenCodeSessionId(crypto.randomUUID());
+    expect(mapped).toMatch(/^ses_[0-9a-f]{32}$/);
+  });
+
+  it("leaves an id already starting with ses unchanged", () => {
+    expect(toOpenCodeSessionId("ses_eba23c36bffeAUsAMAowIHtR03")).toBe("ses_eba23c36bffeAUsAMAowIHtR03");
+    expect(toOpenCodeSessionId("ses_11111111222233334444555555555555")).toBe(
+      "ses_11111111222233334444555555555555"
+    );
   });
 });

@@ -77,7 +77,7 @@ describe("AgyAdapter - Capabilities and Contracts", () => {
 
     expect(Capabilities.safeParse(caps).success).toBe(true);
     expect(caps.name).toBe("agy");
-    expect(caps.version_pin).toBe("1.4.0");
+    expect(caps.version_pin).toBe("1.4.2");
     expect(caps.effort).toBe(true);
     expect(caps.structured_output).toBe(false);
     expect(caps.budget_flag).toBe(false);
@@ -90,7 +90,7 @@ describe("AgyAdapter - Capabilities and Contracts", () => {
     expect(caps.native_subagents_headless).toBe(false);
   });
 
-  it("validateEnvironment returns ok: true when binary matches 1.4.0 pin", async () => {
+  it("validateEnvironment returns ok: true when binary matches 1.4.2 pin", async () => {
     const adapter = createAdapter();
     const report = await adapter.validateEnvironment();
 

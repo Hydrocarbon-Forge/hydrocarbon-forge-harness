@@ -29,7 +29,7 @@ The loader starts from the built-in defaults (`DEFAULT_SETTINGS` in `src/config/
 6. **Environment variables that set settings:** `SUBSTRATE_MAX_BUDGET_USD`, `SUBSTRATE_MODEL` and `SUBSTRATE_WORKER_MODEL`.
 7. **Command flags.** Each command builds these from its flags. For example, `run` maps `--model` to the planner (or to the worker in solo mode), `--worker-model` to the worker, `--effort` to the planner effort and `--max-budget-usd` to `budgets.run.max_usd`.
 
-`SUBSTRATE_PERMISSION_MODE` and `SUBSTRATE_OUTPUT_FORMAT` are not settings. They supply the default permission mode and output format for `run` and `plan` when the matching flag is absent.
+`SUBSTRATE_PERMISSION_MODE` and `SUBSTRATE_OUTPUT_FORMAT` are not settings. They supply the default permission mode and output format for `run` and `plan` when the matching flag is absent. The permission mode is Substrate's approval gate. It does not change how harnesses are launched, which is always with permissions bypassed.
 
 ### Merge rules
 
@@ -65,7 +65,7 @@ Only the variables below are read by the code.
 | `SUBSTRATE_MAX_BUDGET_USD` | Number | Sets `budgets.run.max_usd` (layer 6). A value that is not a number makes every command that loads settings exit 2. |
 | `SUBSTRATE_MODEL` | String | Sets `roles.planner.model` (layer 6). |
 | `SUBSTRATE_WORKER_MODEL` | String | Sets `roles.worker.model` (layer 6). |
-| `SUBSTRATE_PERMISSION_MODE` | String | Default permission mode for `run` and `plan` when `--permission-mode` is absent. Allowed values: `default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`. Any other value makes every command that loads settings exit 2. |
+| `SUBSTRATE_PERMISSION_MODE` | String | Default permission mode for `run` and `plan` when `--permission-mode` is absent. Allowed values: `default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`. Any other value makes every command that loads settings exit 2. It is Substrate's approval gate and does not change harness launch. |
 | `SUBSTRATE_OUTPUT_FORMAT` | String | Default output format for `run` and `plan` when `--output-format` is absent: `text`, `json` or `stream-json`. Any other value is ignored. |
 | `SUBSTRATE_DEBUG` | `1` | When set to `1`, debug log lines are written to stderr. |
 
@@ -112,7 +112,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `backends.*.bin` | string | Executable name or path of a harness. |
 | `backends.*.version_pin` | string | Version that `substrate doctor` compares the installed harness with. |
 | `backends.*.max_concurrency` | integer | Cap on simultaneous processes for the backend named by `roles.worker.backend`. |
-| `pricing.models.*.input_per_mtok` | number | Input rate in USD per million tokens. |
+| `pricing.models.*.input_per_mtok` | number | Input rate in USD per million tokens. An effort-suffixed id (`-low`, `-medium`, `-high`) with no entry of its own uses its base id's rates when the base is priced; this is an approximation, because a higher effort tier may bill differently. |
 | `pricing.models.*.output_per_mtok` | number | Output rate in USD per million tokens. |
 | `pricing.models.*.cache_read_per_mtok` | number | Cache read rate in USD per million tokens. |
 | `pricing.models.*.cache_write_per_mtok` | number | Cache write rate in USD per million tokens. |
@@ -125,10 +125,10 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 
 Per-harness settings. The keys are harness names: `claude`, `opencode` and `agy`.
 
-Default: none (`{}`). Without an entry, `bin` is the harness name (`claude`, `opencode` or `agy`). The built-in version pins are `2.1.301` for `claude`, `2.0.21` for `opencode` and `1.4.0` for `agy`.
+Default: none (`{}`). Without an entry, `bin` is the harness name (`claude`, `opencode` or `agy`). The built-in version pins are `2.1.304` for `claude`, `2.0.21` for `opencode` and `1.4.2` for `agy`.
 
 - `bin`: the executable name or path. The registry reads it for all three harnesses.
-- `version_pin`: the version that `substrate doctor` compares with the installed version, for all three harnesses. The `claude` and `opencode` adapters also use it in their own environment check. The `agy` adapter's own check always uses its built-in `1.4.0`.
+- `version_pin`: the version that `substrate doctor` compares with the installed version, for all three harnesses. The `claude` and `opencode` adapters also use it in their own environment check. The `agy` adapter's own check always uses its built-in `1.4.2`.
 - `max_concurrency`: the scheduler caps simultaneous processes for the backend named by `roles.worker.backend` only. When unset, no per-backend cap applies. The adapter's reported capability is not read by the engine.
 - `extra`: a free-form record. The only key the code reads is `customBaseUrl`, for OpenCode. Other keys are accepted and ignored.
 - `provider`: the OpenCode local endpoint. It may be set only in the local file. See [local-model.md](local-model.md).
@@ -136,7 +136,7 @@ Default: none (`{}`). Without an entry, `bin` is the harness name (`claude`, `op
 ```json
 {
   "backends": {
-    "claude": { "version_pin": "2.1.301" },
+    "claude": { "version_pin": "2.1.304" },
     "opencode": { "bin": "opencode" }
   }
 }
@@ -200,7 +200,7 @@ Token rates used to compute cost when a harness does not report dollars.
 - `sources`: URLs that document the rates.
 - `models`: per model id, `input_per_mtok` and `output_per_mtok` (required), with optional `cache_read_per_mtok` and `cache_write_per_mtok`. Rates are USD per million tokens.
 
-The built-in price table (`src/backends/default-pricing.ts`) is merged with this table one model id at a time: an entry here replaces the built-in entry for the same id, and other built-in ids stay. A model with no rates is recorded with `cost_source` set to `unknown`.
+The built-in price table (`src/backends/default-pricing.ts`) is merged with this table one model id at a time: an entry here replaces the built-in entry for the same id, and other built-in ids stay. A model with no rates is recorded with `cost_source` set to `unknown`. An effort-suffixed id with no entry of its own uses its base id's rates when the base is priced, which is an approximation because a higher effort tier may bill differently.
 
 ### `budgets`
 

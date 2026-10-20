@@ -381,8 +381,8 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     expect(args).not.toContain("--effort");
 
     // Permission flags
-    expect(args).toContain("--permission-mode");
-    expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+    expect(args).toContain("--dangerously-skip-permissions");
+    expect(args).not.toContain("--permission-mode");
     expect(args).toContain("--permission-prompts");
     expect(args[args.indexOf("--permission-prompts") + 1]).toBe("none");
 
@@ -390,7 +390,7 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     expect(args).toContain("--disallowedTools");
     expect(args[args.indexOf("--disallowedTools") + 1]).toBe("Agent");
 
-    // Allowed tools omitted when empty
+    // Allowed tools never emitted (permissions are bypassed)
     expect(args).not.toContain("--allowedTools");
 
     // Session id
@@ -430,8 +430,9 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     expect(args[args.indexOf("--resume") + 1]).toBe("12345678-1234-1234-1234-123456789abc");
     expect(args).not.toContain("--session-id");
 
-    expect(args).toContain("--allowedTools");
-    expect(args[args.indexOf("--allowedTools") + 1]).toBe("Bash,Edit");
+    // Allow rules are not emitted; permissions are bypassed (owner decision 2026-10-19)
+    expect(args).not.toContain("--allowedTools");
+    expect(args).toContain("--dangerously-skip-permissions");
 
     expect(args).toContain("--disallowedTools");
     const disallowed = args[args.indexOf("--disallowedTools") + 1];
@@ -467,10 +468,10 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
   });
 
   it("exposes CLAUDE_VERSION_PIN and CLAUDE_CAPABILITIES conforming to contracts", () => {
-    expect(CLAUDE_VERSION_PIN).toBe("2.1.301");
+    expect(CLAUDE_VERSION_PIN).toBe("2.1.304");
     expect(Capabilities.safeParse(CLAUDE_CAPABILITIES).success).toBe(true);
     expect(CLAUDE_CAPABILITIES.name).toBe("claude");
-    expect(CLAUDE_CAPABILITIES.version_pin).toBe("2.1.301");
+    expect(CLAUDE_CAPABILITIES.version_pin).toBe("2.1.304");
     expect(CLAUDE_CAPABILITIES.effort).toBe(true);
     expect(CLAUDE_CAPABILITIES.structured_output).toBe(false);
     expect(CLAUDE_CAPABILITIES.budget_flag).toBe(true);

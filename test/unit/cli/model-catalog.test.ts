@@ -220,6 +220,23 @@ describe("model catalog", () => {
     expect(models.find((m) => m.id === "unit-unpriced")?.price_per_mtok).toBeNull();
   });
 
+  it("prices an effort variant at its base's rates and leaves a variant with an unpriced base null", async () => {
+    const adapters = {
+      claude: fakeAdapter("claude", {
+        models: [
+          entry("unit-haiku-high", ["high"], "cli"),
+          entry("gpt-oss-120b-medium", ["medium"], "cli"),
+        ],
+      }),
+    };
+
+    const catalog = await buildCatalog({ settings: TEST_SETTINGS, adapters, refresh: false, cacheFile });
+    const models = catalog.providers[0].models;
+
+    expect(models.find((m) => m.id === "unit-haiku-high")?.price_per_mtok).toEqual({ input: 1, output: 5 });
+    expect(models.find((m) => m.id === "gpt-oss-120b-medium")?.price_per_mtok).toBeNull();
+  });
+
   it("reports slots from roles and routing classes, skipping array entries", async () => {
     const adapters = {
       claude: fakeAdapter("claude", { models: [entry("unit-haiku", ["low"], "settings")] }),
@@ -252,7 +269,7 @@ describe("model catalog", () => {
   it("a provider whose listModels throws reports installed:false and records the message", async () => {
     const adapters = {
       agy: fakeAdapter("agy", {
-        report: { ok: true, version: "1.4.0", pin_matches: true, problems: ["agy warning"] },
+        report: { ok: true, version: "1.4.2", pin_matches: true, problems: ["agy warning"] },
         throwModels: "agy models failed: boom",
       }),
     };
@@ -264,7 +281,7 @@ describe("model catalog", () => {
     expect(provider.installed).toBe(false);
     expect(provider.models).toEqual([]);
     expect(provider.problems).toEqual(["agy warning", "agy models failed: boom"]);
-    expect(provider.version).toBe("1.4.0");
+    expect(provider.version).toBe("1.4.2");
   });
 
   it("all_models is sorted by provider then model id", async () => {
