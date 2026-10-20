@@ -497,7 +497,10 @@ export const ruleL008: LintRule = (ctx) => {
   return diags;
 };
 
-// L009: Task write/create intersects another task's protected
+// L009: Task write/create intersects a path another task protects.
+// A task that is a transitive dependency (ancestor) of the protecting task runs
+// before it, so it may create or write the path whatever its class. The
+// protecting task itself and its descendants may not modify the path.
 export const ruleL009: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
 
@@ -506,10 +509,23 @@ export const ruleL009: LintRule = (ctx) => {
     const isTestsClass = specA.frontmatter?.class === "tests";
 
     for (const [idB, specB] of ctx.plan.specs) {
-      if (idA === idB) continue;
+      const isSelf = idA === idB;
+      const ancestorsOfB = getTransitiveDeps(idB, ctx.plan.specs);
+      if (!isSelf && ancestorsOfB.has(idA)) continue;
+
       for (const prot of specB.frontmatter?.protected ?? []) {
         for (const target of targetsA) {
           if (target === prot || matchGlob(prot, target) || matchGlob(target, prot)) {
+            if (isSelf) {
+              diags.push({
+                code: "L009",
+                severity: "error",
+                task: idA,
+                path: target,
+                message: `Task ${idA} modifies path '${target}' that it protects itself; remove '${target}' from its write/create lists or from its protected list`,
+              });
+              continue;
+            }
             const authoringTests = isTestsClass && isTestPath(target);
             if (!authoringTests) {
               diags.push({
@@ -517,7 +533,7 @@ export const ruleL009: LintRule = (ctx) => {
                 severity: "error",
                 task: idA,
                 path: target,
-                message: `Task ${idA} modifies protected path '${target}' protected by task ${idB} ('${prot}')`,
+                message: `Task ${idA} modifies path '${target}' protected by task ${idB}; make ${idA} a dependency of ${idB} (depends_on) or remove '${target}' from ${idB}'s protected list`,
               });
             }
           }
@@ -591,17 +607,18 @@ export const ruleL011: LintRule = (ctx) => {
   return diags;
 };
 
-// L012: Verify references test path not existing and not created earlier
+// L012: Verify references a test path that exists at base or is provided by
+// the same task (create/write) or by a transitive dependency (create/write).
 export const ruleL012: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
 
   for (const [id, spec] of ctx.plan.specs) {
     const earlierDeps = getTransitiveDeps(id, ctx.plan.specs);
-    const createdByDeps = new Set<string>();
-    for (const depId of earlierDeps) {
-      const depSpec = ctx.plan.specs.get(depId);
-      for (const c of depSpec?.frontmatter?.create ?? []) {
-        createdByDeps.add(c);
+    const provided = new Set<string>();
+    const providers = [spec, ...[...earlierDeps].map((depId) => ctx.plan.specs.get(depId))];
+    for (const provider of providers) {
+      for (const c of [...(provider?.frontmatter?.create ?? []), ...(provider?.frontmatter?.write ?? [])]) {
+        provided.add(c);
       }
     }
 
@@ -610,20 +627,20 @@ export const ruleL012: LintRule = (ctx) => {
       for (const tPath of testPaths) {
         const full = path.resolve(ctx.repoRoot, tPath);
         if (!fs.existsSync(full)) {
-          let createdEarlier = false;
-          for (const c of createdByDeps) {
+          let isProvided = false;
+          for (const c of provided) {
             if (c === tPath || matchGlob(c, tPath)) {
-              createdEarlier = true;
+              isProvided = true;
               break;
             }
           }
-          if (!createdEarlier) {
+          if (!isProvided) {
             diags.push({
               code: "L012",
               severity: "error",
               task: id,
               path: tPath,
-              message: `Verify command references non-existent test path '${tPath}' not created by dependency`,
+              message: `Verify command references test path '${tPath}' that nothing provides; create it in this task or a dependency, or fix the path`,
             });
           }
         }

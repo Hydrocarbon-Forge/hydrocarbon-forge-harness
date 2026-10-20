@@ -35,7 +35,7 @@ Every task costs a fresh worker session: startup, reading the spec, reading file
 ## Verification
 The engine runs `verify` commands itself; workers cannot grade their own work.
 - Every task needs `verify` commands that fail when the behaviour is wrong and pass when it is right: the narrowest real test command, plus typecheck or lint when the repository has them. `true`, `echo`, `ls` and "file exists" checks are not verification.
-- Tests that gate an implementation come from an earlier `tests` class task and are listed under `protected` in the implementing tasks. They must fail before the implementation and pass after. Because every `verify` command must exit 0, the `tests` task itself verifies only that the tests compile (typecheck or lint), not that they pass.
+- Tests that gate an implementation come from an earlier `tests` class task (or from any task the implementing task depends on) and are listed under `protected` in the implementing tasks. The implementing task must depend on that task, directly or transitively. They must fail before the implementation and pass after. Because every `verify` command must exit 0, the `tests` task itself verifies only that the tests compile (typecheck or lint), not that they pass.
 - `integration_verify` runs after each batch of tasks is merged: use the project's real test or build command.
 - Verify commands must not depend on the network, the wall clock or services outside the repository, and must finish inside their `timeout_s`.
 

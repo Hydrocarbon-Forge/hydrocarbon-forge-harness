@@ -97,8 +97,8 @@ Request: "add a slugify helper with tests". Two tasks: T1 (class `tests`) writes
 2. `depends_on` names existing tasks and has no cycles.
 3. Every `write` path exists in the repository; new files use `create`. No path escapes the repository.
 4. No two tasks that can run at the same time write or create the same file.
-5. No task writes or creates a file that another task lists under `protected`, unless it is the `tests` task that owns it.
-6. Every task has at least one `verify` command whose binary exists and whose test paths exist or are created by an earlier task.
+5. A file that a task lists under `protected` may be created or written only by the `tests` task that owns it, or by a task the protecting task depends on (directly or transitively) and so runs before it. Any other task that writes or creates it, and the protecting task or its descendants, is an error. The fix is to add `depends_on` to the protecting task or remove the path from its `protected` list.
+6. Every task has at least one `verify` command whose binary exists and whose test paths exist at base or are created by the same task (in its `create` or `write`) or by a task it depends on, directly or transitively. A test path that nothing provides is an error: create it in this task or a dependency, or fix the path.
 7. All seven sections are present and non-empty; no placeholder text in Interface or Behavior.
 8. Every `class` is one of the classes listed in the request; budgets do not exceed the caps in the request.
 9. `read` stays small (a handful of files); if it does not, the task is too large.

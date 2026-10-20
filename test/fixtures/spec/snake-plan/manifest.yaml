@@ -1,0 +1,23 @@
+version: 1
+run_id: r_CQ4REXLQOAJM
+goal: Build a dependency-free browser Snake game with tested pure game logic.
+base_ref: (none)
+ecosystem: node-ts
+setup: []
+contracts:
+  files:
+    - package.json
+    - src/logic.js
+  typecheck:
+    - run: sh -c 'if [ -f src/logic.js ]; then node --check src/logic.js; fi'
+      timeout_s: 30
+integration_verify:
+  - run: node --test test/
+    timeout_s: 120
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+  - id: T3
+    spec: tasks/T3.md
