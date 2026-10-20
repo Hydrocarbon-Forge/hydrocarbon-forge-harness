@@ -109,6 +109,40 @@ export function plannerFailureMessage(err: PlannerFailure): string {
   return boundedMessage(err.diagnostics.length > 0 ? `${head}: ${err.diagnostics.join("; ")}` : head);
 }
 
+/**
+ * The plan.format_rejected payload for one refused attempt: at most 5 messages of 300
+ * characters each, newlines flattened so each stays on one line.
+ */
+export function formatRejectedData(
+  attempt: number,
+  maxAttempts: number,
+  diagnostics: string[],
+): EventData<"plan.format_rejected"> {
+  return {
+    attempt,
+    max_attempts: maxAttempts,
+    errors: diagnostics.slice(0, 5).map((d) => d.replace(/\s+/g, " ").trim().slice(0, 300)),
+  };
+}
+
+/**
+ * The task list plan.produced carries: the manifest's id and spec for each task, with
+ * title, class and depends_on from the task's spec frontmatter.
+ */
+export function planTasksForEvent(
+  manifest: Manifest,
+  specs: Map<TaskId, ParsedTaskSpec>,
+): EventData<"plan.produced">["tasks"] {
+  return manifest.tasks.map((task) => {
+    const fm = specs.get(task.id)?.frontmatter;
+    return {
+      id: task.id,
+      spec: task.spec,
+      ...(fm ? { title: fm.title, class: fm.class, depends_on: fm.depends_on } : {}),
+    };
+  });
+}
+
 const PLAN_READY = "PLAN READY";
 const NEEDS_INPUT = "NEEDS INPUT";
 const QUESTIONS_FILE = "QUESTIONS.md";
@@ -408,6 +442,10 @@ export async function runPlanner(
   let diagnostics: string[] = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // diagnostics still hold the previous attempt's refusal: report it before the retry.
+    if (attempt > 1) {
+      opts.onEvent?.("plan.format_rejected", formatRejectedData(attempt - 1, maxAttempts, diagnostics));
+    }
     const prompt =
       attempt === 1
         ? await buildFirstPrompt(opts, route, instructionFiles)
@@ -651,6 +689,7 @@ export async function runPlanner(
     };
   }
 
+  opts.onEvent?.("plan.format_rejected", formatRejectedData(maxAttempts, maxAttempts, diagnostics));
   throw new PlannerFailure(
     "format",
     `Planner format retries exhausted after ${maxAttempts} attempts`,

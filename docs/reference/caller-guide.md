@@ -61,6 +61,16 @@ substrate run --mode solo --work claude:haiku --request - --output-format json
 
 The output is one JSON object with `run_id`, `status`, `exit_code` and `events`. Read `run_id` and the exit code (see Exit codes). Exit code `3` means the run needs a human. When the JSON has `subtype` `needs_input`, the planner paused for answers (see Handle needs_input).
 
+## Watching a run
+
+Run `substrate run` in the foreground and read its stdout as it arrives. Do not poll `status` or read the event files. Stdout carries progress and the summary; stderr carries errors and warnings.
+
+- Text (the default): one line per step, each starting with `[mm:ss]` (time since the run started). The plan appears as `plan ready: <n> tasks` followed by one line per task. Each task shows its start, verify result and merge. A planner output that Substrate refuses shows as `plan rejected (attempt <k>/<max>): ...`. After 15 seconds with no progress, a `still working: <phase>` line appears.
+- stream-json (`--output-format stream-json`): one JSON object per line. Read `type` on each line. Engine events (`run.routed`, `plan.started`, `plan.format_rejected`, `plan.produced`, `task.session.started`, `task.verify.finished`, `task.merged`, ...) come in order, heartbeats have `"type": "heartbeat"` with `phase` and `cost_usd`, and the last line is `"type": "result"`.
+- json writes only the final object, so it shows no progress.
+
+Use the exit code when the process ends.
+
 ## Handle needs_input
 
 Exit code `3` with `subtype` `needs_input` means the planner has questions. The result carries `run_id` and `questions`. Each question has an `id`, a `text` and, when one exists, a `default`.

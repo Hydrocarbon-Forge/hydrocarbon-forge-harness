@@ -37,8 +37,8 @@ describe("planner failure reason reaches the CLI (task.failed.message)", () => {
         expect(failed[0].failure_class).toBe("worker_crashed");
         expect(failed[0].message).toContain("Planner session failed with exit code 1");
         expect(failed[0].message).toContain("fake-harness: simulated crash");
-        expect(res.stderr).toContain("failed: worker_crashed: Planner session failed with exit code 1");
-        expect(res.stderr).toContain("fake-harness: simulated crash");
+        expect(res.stdout).toContain("failed: worker_crashed: Planner session failed with exit code 1");
+        expect(res.stdout).toContain("fake-harness: simulated crash");
       } finally {
         res.cleanup();
       }
@@ -81,7 +81,7 @@ describe("planner failure reason reaches the CLI (task.failed.message)", () => {
         expect(failed).toHaveLength(1);
         expect(failed[0].failure_class).toBe("spec_invalid");
         expect(failed[0].message?.startsWith("Planner format retries exhausted after 3 attempts: ")).toBe(true);
-        expect(res.stderr).toContain("failed: spec_invalid: Planner format retries exhausted after 3 attempts: ");
+        expect(res.stdout).toContain("failed: spec_invalid: Planner format retries exhausted after 3 attempts: ");
       } finally {
         res.cleanup();
       }

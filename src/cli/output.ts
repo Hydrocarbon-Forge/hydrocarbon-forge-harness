@@ -1,6 +1,21 @@
 import type { EngineEvent, Question, RunId, RunSummary } from "../contracts/index.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
+const { Heartbeat, RunProgress, formatCost, formatElapsed, heartbeatMsFromEnv } = await import(`./progress.js`);
+type HeartbeatState = InstanceType<typeof Heartbeat>;
+type RunProgressState = InstanceType<typeof RunProgress>;
+
+/** Options for the run's formatter. Every field is optional. */
+export interface FormatterOptions {
+  /** The models the run names, shown on its start line. */
+  models?: { planner?: string; worker?: string };
+  /** git.auto_merge is on, so a passed run is merged after the summary. */
+  autoMerge?: boolean;
+  /** Silence before a heartbeat. Defaults to SUBSTRATE_HEARTBEAT_MS, else 15 s. */
+  heartbeatMs?: number;
+  /** Clock in milliseconds; tests inject one. */
+  now?: () => number;
+}
 
 export interface StreamResultEvent {
   type: "result";
@@ -33,38 +48,62 @@ function countPassed(summary: RunSummary): number {
 
 class TextFormatter implements OutputFormatter {
   private lastPausedQuestions?: Question[];
+  private readonly now: () => number;
+  private readonly progress: RunProgressState;
+  private readonly heartbeat: HeartbeatState;
 
+  // Text mode writes progress to stdout, in order with the summary, so a caller reading
+  // one stream sees the whole run. Errors and warnings stay on stderr.
   constructor(
     private readonly out: NodeJS.WriteStream,
-    private readonly err: NodeJS.WriteStream
-  ) {}
+    private readonly err: NodeJS.WriteStream,
+    private readonly options: FormatterOptions = {}
+  ) {
+    this.now = options.now ?? Date.now;
+    this.progress = new RunProgress(options.models ?? {}, this.now());
+    this.heartbeat = new Heartbeat(
+      options.heartbeatMs ?? heartbeatMsFromEnv(),
+      this.now,
+      (at) => this.writeLine(at, this.progress.heartbeatText(at))
+    );
+  }
 
-  // Text progress: one line per event on stderr, only for the tracked types.
+  private writeLine(at: number, body: string): void {
+    this.out.write(`[${formatElapsed(at - this.progress.startedAt)}] ${body}\n`);
+  }
+
   onEvent(event: EngineEvent): void {
-    const data = (event.data ?? {}) as Record<string, any>;
-    if (event.type === "task.session.started") {
-      this.err.write(
-        `[task ${data.task_id ?? ""}] started (gen ${data.generation ?? 1}, attempt ${data.attempt ?? 1})\n`
-      );
-    } else if (event.type === "task.verify.finished") {
-      const verdict = data.passed ? "verify passed" : "verify failed";
-      this.err.write(`[task ${data.task_id ?? ""}] ${verdict}\n`);
-    } else if (event.type === "task.merged") {
-      this.err.write(`[task ${data.task_id ?? ""}] merged\n`);
-    } else if (event.type === "task.failed") {
-      const reason = typeof data.message === "string" && data.message !== "" ? `: ${data.message}` : "";
-      this.err.write(`[task ${data.task_id ?? ""}] failed: ${data.failure_class ?? "-"}${reason}\n`);
-    } else if (event.type === "run.paused") {
+    const at = this.now();
+    this.heartbeat.start();
+    if (event.type === "run.paused") {
+      const data = (event.data ?? {}) as Record<string, any>;
       if (Array.isArray(data.questions)) {
         this.lastPausedQuestions = data.questions;
       }
-      this.err.write(`run paused: ${data.reason ?? "unknown"}\n`);
+    }
+    const lines = this.progress.observe(event, at);
+    for (const line of lines) {
+      this.writeLine(at, line);
+    }
+    if (lines.length > 0) {
+      this.heartbeat.wrote(at);
     }
   }
 
   onSummary(summary: RunSummary, sessionId: string): void {
+    this.heartbeat.stop();
     const questions = summary.questions ?? this.lastPausedQuestions;
-    if (summary.pause_reason === "needs_human" && questions !== undefined) {
+    const tasks = summary.tasks ?? {};
+    const taskKeys = Object.keys(tasks);
+    const passed = countPassed(summary);
+    const needsInput = summary.pause_reason === "needs_human" && questions !== undefined;
+
+    this.writeLine(
+      this.now(),
+      `run ${summary.run_id} ${summary.status}: ${passed}/${taskKeys.length} passed, ${formatCost(summary.usage?.total_usd ?? 0)}`
+    );
+
+    if (needsInput) {
       this.out.write(`\nRun paused: needs input\n\n`);
       for (const q of questions) {
         const defStr = q.default !== undefined ? ` (default: ${q.default})` : "";
@@ -76,9 +115,6 @@ class TextFormatter implements OutputFormatter {
     const totalCost = summary.usage?.total_usd !== undefined
       ? summary.usage.total_usd.toFixed(2)
       : "0.00";
-    const tasks = summary.tasks ?? {};
-    const taskKeys = Object.keys(tasks);
-    const passed = countPassed(summary);
 
     this.out.write(`\n--- Run Summary ---\n`);
     this.out.write(`Run ID:     ${summary.run_id}\n`);
@@ -88,15 +124,30 @@ class TextFormatter implements OutputFormatter {
     this.out.write(`Tasks:      ${passed} passed / ${taskKeys.length} total\n`);
     this.out.write(`Total Cost: $${totalCost}\n`);
     this.out.write(`Exit Code:  ${summary.exit_code}\n`);
+    // The summary reports merged tasks as PASSED, so the merge is read from the events seen.
+    const merged = this.progress.merged > 0;
+    const mergedText = merged
+      ? "yes"
+      : summary.exit_code === 0 && this.options.autoMerge
+        ? "pending (git.auto_merge)"
+        : "no";
+    this.out.write(`Merged:     ${mergedText}\n`);
+    if (summary.exit_code !== 0) {
+      this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
+      if (!needsInput) {
+        this.out.write(`Next:       substrate resume ${summary.run_id}\n`);
+      }
+    }
   }
 
   onError(error: Error | string): void {
+    this.heartbeat.stop();
     const msg = error instanceof Error ? error.message : String(error);
     this.err.write(`Error: ${msg}\n`);
   }
 
   async flush(): Promise<void> {
-    // Write stream is flushed synchronously
+    this.heartbeat.stop();
   }
 }
 
@@ -136,11 +187,27 @@ class JsonFormatter implements OutputFormatter {
 class StreamJsonFormatter implements OutputFormatter {
   private readonly startTime = Date.now();
   private readonly events: EngineEvent[] = [];
+  private readonly now: () => number;
+  private readonly progress: RunProgressState;
+  private readonly heartbeat: HeartbeatState;
 
-  constructor(private readonly out: NodeJS.WriteStream) {}
+  constructor(private readonly out: NodeJS.WriteStream, options: FormatterOptions = {}) {
+    this.now = options.now ?? Date.now;
+    this.progress = new RunProgress(options.models ?? {}, this.now());
+    // A heartbeat object, not an engine event: { type: "heartbeat", elapsed_s, phase, ... }.
+    this.heartbeat = new Heartbeat(
+      options.heartbeatMs ?? heartbeatMsFromEnv(),
+      this.now,
+      (at) => this.out.write(JSON.stringify(this.progress.heartbeatRecord(at)) + "\n")
+    );
+  }
 
   onEvent(event: EngineEvent): void {
     this.events.push(event);
+    const at = this.now();
+    this.heartbeat.start();
+    this.progress.observe(event, at);
+    this.heartbeat.wrote(at);
 
     const data = (event.data && typeof event.data === "object")
       ? (event.data as Record<string, any>)
@@ -158,6 +225,7 @@ class StreamJsonFormatter implements OutputFormatter {
   }
 
   onSummary(summary: RunSummary, sessionId: string): void {
+    this.heartbeat.stop();
     const lastPaused = [...this.events].reverse().find((e) => e.type === "run.paused");
     const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
 
@@ -219,6 +287,7 @@ class StreamJsonFormatter implements OutputFormatter {
   }
 
   onError(error: Error | string): void {
+    this.heartbeat.stop();
     const msg = error instanceof Error ? error.message : String(error);
     const errEvent = {
       type: "result",
@@ -230,7 +299,7 @@ class StreamJsonFormatter implements OutputFormatter {
   }
 
   async flush(): Promise<void> {
-    // Write stream flushed
+    this.heartbeat.stop();
   }
 }
 
@@ -238,15 +307,16 @@ export function createFormatter(
   format: "text" | "json" | "stream-json",
   out: NodeJS.WriteStream,
   err?: NodeJS.WriteStream,
+  options: FormatterOptions = {},
 ): OutputFormatter {
   switch (format) {
     case "json":
       return new JsonFormatter(out);
     case "stream-json":
-      return new StreamJsonFormatter(out);
+      return new StreamJsonFormatter(out, options);
     case "text":
     default:
-      return new TextFormatter(out, err ?? out);
+      return new TextFormatter(out, err ?? out, options);
   }
 }
 

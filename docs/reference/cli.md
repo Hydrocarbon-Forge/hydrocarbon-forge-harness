@@ -43,10 +43,70 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
 | `--resume <target>` | run | resume a run or session by id |
 | `--session-id <id>` | run, resume | bind to or create a session |
 | `--fork-session` | run, plan, resume | branch a session; `run` needs `--resume` or `--continue`, `resume` needs a session target |
-| `--output-format <fmt>` | run, plan, resume, status, models, usage, doctor, backends, sessions, history | `text` (default), `json`, or `stream-json`. `json` prints one compact line (no indentation), so a caller can parse all of stdout at once or line by line. `stream-json` prints one object per line. Commands that do not read it always print text. |
+| `--output-format <fmt>` | run, plan, resume, status, models, usage, doctor, backends, sessions, history | `text` (default), `json`, or `stream-json`. `json` prints one compact line (no indentation), so a caller can parse all of stdout at once or line by line. `stream-json` prints one object per line. In `text` mode, `run`, `plan` and `resume` print live progress on stdout (see Progress output). Commands that do not read it always print text. |
 | `--settings <file>` | most commands | read this settings file instead of the project's |
 | `--sandbox` | run, verify | enable the bubblewrap sandbox (`sandbox.enabled`) |
 | `--no-governor` | all | deprecated no-op. The governor was deleted on 2026-10-20; the flag is still accepted and ignored so existing callers do not break |
+
+## Progress output
+
+`run`, `plan` and `resume` report what they are doing while they work, so a caller does not need to poll `status` or read event files. `--output-format` (or `SUBSTRATE_OUTPUT_FORMAT`) picks the form.
+
+- **`text` (default).** Progress lines and the summary block go to stdout, in order, so one stream carries the whole run. Errors and warnings go to stderr. Every progress line starts with `[mm:ss]`, the time since the run started. Lines written:
+  - `run <id> started: mode <mode>, planner <harness:model>, worker <harness:model>` (a `solo` run has no planner)
+  - `routed to plan (<rationale>)` or `routed to solo (<rationale>)`
+  - `planning with <harness:model>`, then `planner attempt <k> finished, $<cost>` for each planner attempt
+  - `plan rejected (attempt <k>/<max>): <first two messages>` when the engine refuses a planner output, and the retry that follows. Lint messages carry their ids, such as `[L003]`.
+  - `plan ready: <n> tasks`, then one indented line per task: id, title, `[class]`, and `after <deps>` when the task has dependencies
+  - per task: `[task <id>] started (gen <g>, attempt <a>) on <harness:model>`, `worker finished, $<cost>`, `verify passed` or `verify failed: <command>: <one line of output>`, `merged, $<cost>`, and `failed: <failure_class>: <message>` (a planner failure has no task id, so its line reads `[task ] failed: ...`)
+  - `integration verify started`, `integration verify passed` or `failed`, `budget warning: ...`, `run paused: <reason>`
+  - `run <id> <status>: <passed>/<total> passed, $<cost>`, then the summary block
+
+  The summary block keeps its existing lines and adds `Merged:` (`yes` when a task reached the run branch, `no` otherwise, `pending (git.auto_merge)` when the run is merged after the summary). A run that did not finish with exit `0` also prints `Drafts and logs: .substrate/runs/<id>/` (relative to the project directory) and `Next: substrate resume <id>`. A run paused for answers prints its own resume line instead.
+
+- **Heartbeat.** When no progress line has been written for 15 seconds, the run writes `[mm:ss] still working: <phase> (<s>s, $<cost>)`, and again every 15 seconds until the next progress line. The phase is `planning`, `setup`, `task <id> running`, `verifying <id>`, `merging <id>`, `scheduling` (between tasks), or a named step such as `integration verify`, `replanning <id>` or `paused`. The seconds count the time in that phase. `SUBSTRATE_HEARTBEAT_MS` changes the interval (see [config.md](config.md)).
+
+- **`json`.** One compact line when the run ends. It carries no progress, so use `text` or `stream-json` to watch a run.
+
+- **`stream-json`.** One JSON object per line, in order: every engine event as it happens, the heartbeats, and a final `result` line. Event lines carry the catalog name in `type` (`usage.recorded` streams as `usage`), with `run_id`, `seq` and `ts`. A heartbeat line has `"type": "heartbeat"`, `run_id`, `ts`, `elapsed_s` (seconds since the run started), `phase`, `phase_elapsed_s` and `cost_usd`, and no `seq`. Fields added for progress:
+  - `plan.format_rejected` (new event): `attempt`, `max_attempts`, and `errors`, at most 5 strings of 300 characters each. It is emitted for each refused planner output, before the retry.
+  - `run.routed` gains `rationale`.
+  - `task.session.started` gains `backend` and `model`.
+  - `task.verify.finished` gains `failed_command` and `failed_output` (one line, at most 300 characters) when a verify fails.
+  - `plan.produced` lists each task as `id`, `spec`, `title`, `class` and `depends_on`.
+
+A `text` run looks like this (the fake harness, two tasks, timestamps all under one second):
+
+```text
+[00:00] run r_HXEFJJSPAOZC started: mode plan, planner claude:claude-sonnet-5-5, worker claude:haiku
+[00:00] routed to plan (--mode plan)
+[00:00] planning with claude:claude-sonnet-5-5
+[00:00] planner attempt 1 finished, $0.0001
+[00:00] plan ready: 2 tasks
+[00:00]   T1  Add feature helper  [feature]
+[00:00]   T2  Add the other file  [feature]  after T1
+[00:00] [task T1] started (gen 1, attempt 1) on claude:claude-sonnet-5-5
+[00:00] [task T1] worker finished, $0.0001
+[00:00] [task T1] verify passed
+[00:00] [task T1] merged, $0.0001
+[00:00] [task T2] started (gen 1, attempt 1) on claude:claude-sonnet-5-5
+[00:00] [task T2] worker finished, $0.0001
+[00:00] [task T2] verify passed
+[00:00] [task T2] merged, $0.0001
+[00:00] integration verify started
+[00:00] integration verify passed
+[00:00] run r_HXEFJJSPAOZC finished: 2/2 passed, $0.0003
+
+--- Run Summary ---
+Run ID:     r_HXEFJJSPAOZC
+Session ID: sess_103c3ff8-b339-4fba-a384-a09171c11110
+Status:     finished
+Branch:     substrate/runs/r_HXEFJJSPAOZC
+Tasks:      2 passed / 2 total
+Total Cost: $0.00
+Exit Code:  0
+Merged:     yes
+```
 
 ## run
 
@@ -69,7 +129,7 @@ Runs a goal end to end: plans it (unless the mode is `solo`, or `auto` routes it
 - **Permissions**: `--permission-mode default|plan|acceptEdits|dontAsk|bypassPermissions`. The run default is `dontAsk`. This is Substrate's approval gate. It does not change how the harness is launched: harnesses always run with permissions bypassed (owner decision 2026-10-19).
 - **History**: `--history-all` includes archived runs from every charter version in the planner's context.
 - **Exit codes**: see the table above. A run that needs answers exits `3` and prints a `needs_input` result with its questions. Answer them with `resume --answers`.
-- **Failures**: in text mode each failed task prints one stderr line, `[task <id>] failed: <failure_class>: <message>`. A planner failure has no task id, so its line reads `[task ] failed: ...`. The message is one line of at most 2000 characters. A crashed planner session names its exit code and the harness's own error, and a plan that never validates lists its diagnostics. The `failure_class` is unchanged. Json output carries the same message on the `task.failed` event in `events`.
+- **Failures**: in text mode each failed task prints one stdout line, `[task <id>] failed: <failure_class>: <message>`. A planner failure has no task id, so its line reads `[task ] failed: ...`. The message is one line of at most 2000 characters. A crashed planner session names its exit code and the harness's own error, and a plan that never validates lists its diagnostics. The `failure_class` is unchanged. Json output carries the same message on the `task.failed` event in `events`.
 
 ```bash
 substrate run --plan claude:opus:high --work claude:sonnet:medium --request - --output-format json < request.json

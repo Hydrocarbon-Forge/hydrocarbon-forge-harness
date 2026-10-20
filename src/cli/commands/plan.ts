@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Effort, Engine, PermissionMode, RunOptions } from "../../contracts/index.js";
+import type { Effort, Engine, PermissionMode, RunOptions, Settings } from "../../contracts/index.js";
 import { createEngine } from "../../engine/engine.js";
 import { loadSettings, sandboxProblem } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
@@ -124,13 +124,8 @@ export const planCommand: CliCommand = {
       session = await sessionStore.create({ mode, prompt });
     }
 
-    const formatter = createFormatter(
-      ctx.flags.outputFormat ?? "text",
-      ctx.stdout,
-      ctx.stderr,
-    );
-
     let engine = ctx.engine;
+    let loadedSettings: Settings | undefined;
     if (!engine) {
       try {
         const settings = await loadSettings({
@@ -138,6 +133,7 @@ export const planCommand: CliCommand = {
           settingsFile: ctx.flags.settings,
           flags: overrides,
         });
+        loadedSettings = settings;
         const problem = sandboxProblem(settings);
         if (problem) {
           ctx.stderr.write(`Error: ${problem}\n`);
@@ -149,6 +145,14 @@ export const planCommand: CliCommand = {
         return 2;
       }
     }
+
+    const { progressModelsFor } = await import(`../progress.js`);
+    const formatter = createFormatter(
+      ctx.flags.outputFormat ?? "text",
+      ctx.stdout,
+      ctx.stderr,
+      loadedSettings ? { models: progressModelsFor(loadedSettings) } : {},
+    );
 
     const runOpts: RunOptions = {
       cwd: ctx.cwd,

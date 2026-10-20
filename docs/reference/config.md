@@ -68,6 +68,7 @@ Only the variables below are read by the code.
 | `SUBSTRATE_WORKER_MODEL` | String | Sets `roles.worker.model` (layer 6). |
 | `SUBSTRATE_PERMISSION_MODE` | String | Default permission mode for `run` and `plan` when `--permission-mode` is absent. Allowed values: `default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`. Any other value makes every command that loads settings exit 2. It is Substrate's approval gate and does not change harness launch. |
 | `SUBSTRATE_OUTPUT_FORMAT` | String | Default output format for `run` and `plan` when `--output-format` is absent: `text`, `json` or `stream-json`. Any other value is ignored. |
+| `SUBSTRATE_HEARTBEAT_MS` | Number | Milliseconds without a progress line before a run writes a heartbeat (`still working: ...` in text, a `heartbeat` object in stream-json). Default 15000. A value that is not a positive number is ignored. See cli.md, Progress output. |
 | `SUBSTRATE_DEBUG` | `1` | When set to `1`, debug log lines are written to stderr. |
 
 ---

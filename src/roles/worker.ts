@@ -251,6 +251,8 @@ async function runAttempt(
       generation: opts.generation,
       attempt,
       session_id: sessionId,
+      backend: route.backend,
+      model: route.model,
     });
   };
   recordSessionStarted();
@@ -455,12 +457,22 @@ async function runAttempt(
     const passed =
       (opts.spec.verify?.length ?? 0) === 0 ? true : runner.isAllPassed(verifyResults);
 
+    const failing = passed ? undefined : verifyResults.find((r) => r.timed_out || r.exit_code !== 0);
+    const failingOutput = failing
+      ? (failing.stderr_tail.trim() || failing.stdout_tail.trim()).split("\n").pop() ?? ""
+      : "";
     opts.onEvent?.("task.verify.finished", {
       task_id: opts.taskId,
       generation: opts.generation,
       attempt,
       passed,
       failure_class: passed ? undefined : "verify_failed",
+      ...(failing
+        ? {
+            failed_command: failing.cmd,
+            ...(failingOutput ? { failed_output: failingOutput.slice(0, 300) } : {}),
+          }
+        : {}),
     });
 
     if (!passed) {

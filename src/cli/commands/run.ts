@@ -258,12 +258,6 @@ export const runCommand: CliCommand = {
       session = await sessionStore.create({ mode, prompt });
     }
 
-    const formatter = createFormatter(
-      ctx.flags.outputFormat ?? "text",
-      ctx.stdout,
-      ctx.stderr,
-    );
-
     let engine = ctx.engine;
     let loadedSettings: Settings | undefined;
     if (!engine) {
@@ -285,6 +279,17 @@ export const runCommand: CliCommand = {
         return 2;
       }
     }
+
+    // The formatter is built after settings load so the start line can name the models.
+    const { progressModelsFor } = await import(`../progress.js`);
+    const formatter = createFormatter(
+      ctx.flags.outputFormat ?? "text",
+      ctx.stdout,
+      ctx.stderr,
+      {
+        ...(loadedSettings ? { models: progressModelsFor(loadedSettings), autoMerge: loadedSettings.git?.auto_merge === true } : {}),
+      },
+    );
 
     const runOpts: RunOptions = {
       cwd: ctx.cwd,

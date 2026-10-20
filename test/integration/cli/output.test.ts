@@ -136,33 +136,38 @@ describe("cli: output formatters driven by real engine runs", () => {
     return { summary, runId };
   }
 
-  // Behavior 1: text progress (stderr), one line per tracked event type.
-  it("text progress prints the tracked event lines on stderr and nothing else on stdout in text mode", async () => {
+  // Behavior 1: text progress goes to stdout, in order with the summary, one prefixed line
+  // per tracked event. Stderr stays empty for a run with no warnings.
+  it("text progress prints the tracked event lines on stdout, in order, and nothing on stderr", async () => {
     const stdout = createMockStream();
     const stderr = createMockStream();
     const formatter = createFormatter("text", stdout, stderr);
 
     const { summary } = await runTwoTasks(formatter);
 
-    const errOut = stderr.getOutput();
-    expect(errOut).toContain("[task T1] started (gen 1, attempt 1)");
-    expect(errOut).toContain("[task T2] started (gen 1, attempt 1)");
-    expect(errOut).toContain("[task T1] verify passed");
-    expect(errOut).toContain("[task T2] verify passed");
-    expect(errOut).toContain("[task T1] merged");
-    expect(errOut).toContain("[task T2] merged");
+    const out = stdout.getOutput();
+    expect(out).toMatch(/\[\d\d:\d\d\] run r_\S+ started: mode plan/);
+    expect(out).toMatch(/\[\d\d:\d\d\] routed to plan/);
+    expect(out).toMatch(/\[\d\d:\d\d\] planning/);
+    expect(out).toMatch(/\[\d\d:\d\d\] \[task T1\] started \(gen 1, attempt 1\)/);
+    expect(out).toMatch(/\[\d\d:\d\d\] \[task T2\] started \(gen 1, attempt 1\)/);
+    expect(out).toMatch(/\[task T1\] verify passed/);
+    expect(out).toMatch(/\[task T2\] verify passed/);
+    expect(out).toMatch(/\[task T1\] merged, \$/);
+    expect(out).toMatch(/\[task T2\] merged, \$/);
     // No failures in this run: no failed lines.
-    expect(errOut).not.toMatch(/\] failed:/);
+    expect(out).not.toMatch(/\] failed:/);
+    expect(out.indexOf("[task T1] started")).toBeLessThan(out.indexOf("[task T2] started"));
+    expect(out.indexOf("[task T1] merged")).toBeLessThan(out.indexOf("--- Run Summary ---"));
+    expect(out).toMatch(new RegExp(`\\[\\d\\d:\\d\\d\\] run ${summary.run_id} finished: 2/2 passed`));
+
+    expect(stderr.getOutput()).toBe("");
 
     const log = readEventLog(env.runDir, summary.run_id);
     const eventTypes = log.map((e) => e.type);
     expect(eventTypes).not.toContain("task.failed");
     expect(eventTypes).not.toContain("run.paused");
-
-    // stdout holds only the final summary.
-    const stdoutOut = stdout.getOutput();
-    expect(stdoutOut).toContain("--- Run Summary ---");
-    expect(stdoutOut).not.toContain("[task ");
+    expect(out).toContain("--- Run Summary ---");
   });
 
   // Behavior 2: text summary counts a task passed when its state is PASSED

@@ -7,6 +7,8 @@ import {
   PlannerFailure,
   commitContractStubs,
   finishLine,
+  formatRejectedData,
+  planTasksForEvent,
   plannerFailureMessage,
   runPlanner,
   sessionFailureMessage,
@@ -143,6 +145,7 @@ export async function runPlanAction(
     while (attempt < maxAttempts) {
       attempt++;
       if (attempt > 1) {
+        emit("plan.format_rejected", formatRejectedData(attempt - 1, maxAttempts, diagnostics));
         currentPrompt = buildCorrectionPrompt({
           attempt,
           max_attempts: maxAttempts,
@@ -340,12 +343,13 @@ export async function runPlanAction(
       emit("contracts.committed", { commit_sha: commitSha });
       emit("plan.produced", {
         manifest,
-        tasks: manifest.tasks,
+        tasks: planTasksForEvent(manifest, specs),
         commit_sha: commitSha,
       });
       return;
     }
 
+    emit("plan.format_rejected", formatRejectedData(maxAttempts, maxAttempts, diagnostics));
     emit("task.failed", {
       failure_class: "spec_invalid",
       message: boundedMessage(
@@ -433,7 +437,7 @@ export async function runPlanAction(
   emit("contracts.committed", { commit_sha: outcome.commitSha });
   emit("plan.produced", {
     manifest: outcome.plan.manifest,
-    tasks: outcome.plan.manifest.tasks,
+    tasks: planTasksForEvent(outcome.plan.manifest, outcome.plan.specs),
     commit_sha: outcome.commitSha,
   });
 }

@@ -17,6 +17,7 @@ export const STREAM_TYPE: Record<EventType, string> = {
   "plan.lint": "plan.lint",
   "plan.approved": "plan.approved",
   "plan.rejected": "plan.rejected",
+  "plan.format_rejected": "plan.format_rejected",
   "plan.ready": "plan.ready",
   "contracts.committed": "contracts.committed",
   "setup.done": "setup.done",

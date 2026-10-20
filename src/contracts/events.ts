@@ -46,7 +46,13 @@ export const RunCreatedEvent = member(
 
 export const RunRoutedEvent = member(
   "run.routed",
-  z.object({ mode: z.enum(["solo", "plan"]) }).strict()
+  z
+    .object({
+      mode: z.enum(["solo", "plan"]),
+      // Why the route was chosen: the router's rationale in auto, or the explicit mode.
+      rationale: z.string().optional(),
+    })
+    .strict()
 );
 
 const QuestionSchema = z.object({
@@ -124,12 +130,25 @@ export const RunBudgetExceededEvent = member(
 
 export const PlanStartedEvent = member("plan.started", z.object({}).strict());
 
+// One entry of a plan's task list. id and spec are the manifest's fields; title, class
+// and depends_on come from the task spec's frontmatter and are there so progress
+// output can show the plan without reading files.
+export const PlanTaskEntry = z
+  .object({
+    id: z.string(),
+    spec: z.string().optional(),
+    title: z.string().optional(),
+    class: z.string().optional(),
+    depends_on: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
 export const PlanProducedEvent = member(
   "plan.produced",
   z
     .object({
       manifest: z.unknown().optional(),
-      tasks: z.array(z.unknown()).optional(),
+      tasks: z.array(PlanTaskEntry).optional(),
       commit_sha: z.string().optional(),
     })
     .strict()
@@ -154,6 +173,19 @@ export const PlanRejectedEvent = member(
     .object({
       reason: z.string().optional(),
       diagnostics: z.array(z.unknown()).optional(),
+    })
+    .strict()
+);
+
+// A planner attempt whose output was refused, before the format retry. Not plan.rejected:
+// that event ends the plan in the reducer. Errors are capped at 5 items of 300 characters.
+export const PlanFormatRejectedEvent = member(
+  "plan.format_rejected",
+  z
+    .object({
+      attempt: z.number().int(),
+      max_attempts: z.number().int(),
+      errors: z.array(z.string().max(300)).max(5),
     })
     .strict()
 );
@@ -225,6 +257,9 @@ export const TaskSessionStartedEvent = member(
       generation: z.number().int(),
       attempt: z.number().int(),
       session_id: z.string(),
+      // The route the attempt runs on, when the engine knows it.
+      backend: z.string().optional(),
+      model: z.string().optional(),
     })
     .strict()
 );
@@ -290,6 +325,10 @@ export const TaskVerifyFinishedEvent = member(
       attempt: z.number().int(),
       passed: z.boolean(),
       failure_class: FailureClass.optional(),
+      // On a failed verify: the first failing command and one line of its output
+      // (at most 300 characters).
+      failed_command: z.string().optional(),
+      failed_output: z.string().max(300).optional(),
     })
     .strict()
 );
@@ -454,6 +493,7 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   PlanLintEvent,
   PlanApprovedEvent,
   PlanRejectedEvent,
+  PlanFormatRejectedEvent,
   PlanReadyEvent,
   ContractsCommittedEvent,
   SetupDoneEvent,
@@ -500,6 +540,7 @@ export const EVENT_TYPES = [
   "plan.lint",
   "plan.approved",
   "plan.rejected",
+  "plan.format_rejected",
   "plan.ready",
   "contracts.committed",
   "setup.done",

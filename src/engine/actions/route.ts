@@ -13,6 +13,7 @@ export async function runRouteAction(
   // Auto mode runs the deterministic router: explicit flags, then the mechanical-file
   // rule, then the plan default. An explicit solo or plan mode bypasses the router.
   let mode: "solo" | "plan" = ctx.mode === "solo" ? "solo" : "plan";
+  let rationale = `--mode ${mode}`;
   if (ctx.mode === "auto") {
     const decision = await routeRequest({
       prompt: ctx.prompt ?? "",
@@ -21,11 +22,12 @@ export async function runRouteAction(
       repoRoot: ctx.repoRoot,
     });
     mode = decision.mode;
+    rationale = decision.rationale;
   }
 
   if (mode === "solo") {
     await workspaceManager.createRunBranch(ctx.repoRoot, ctx.runId, "HEAD");
-    emit("run.routed", { mode: "solo" });
+    emit("run.routed", { mode: "solo", rationale });
     emit("setup.done", {
       tasks: [
         {
@@ -40,5 +42,5 @@ export async function runRouteAction(
     return;
   }
 
-  emit("run.routed", { mode: "plan" });
+  emit("run.routed", { mode: "plan", rationale });
 }

@@ -33,6 +33,7 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "plan.lint": {},
   "plan.approved": {},
   "plan.rejected": {},
+  "plan.format_rejected": { attempt: 1, max_attempts: 3, errors: ["[L003] missing path"] },
   "plan.ready": {},
   "contracts.committed": {},
   "setup.done": {},
