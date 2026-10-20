@@ -197,6 +197,7 @@ export class EngineImpl implements Engine {
       onEvent: opts.onEvent,
       prompt: opts.prompt,
       mode: opts.mode,
+      planner_explicit: opts.planner_explicit,
       permission_mode: opts.permission_mode,
       store,
     };
@@ -285,6 +286,7 @@ export class EngineImpl implements Engine {
       onEvent: opts?.onEvent,
       prompt: opts?.prompt,
       mode: opts?.mode,
+      planner_explicit: opts?.planner_explicit,
       permission_mode: opts?.permission_mode,
       store,
     };

@@ -95,6 +95,51 @@ describe("Scenario 17: auto mode runs the deterministic router (routeRequest)", 
     expect(summary.tasks["SOLO"]?.state).toBe("PASSED");
   });
 
+  it("auto mode keeps a mechanical named-file request on plan when a planner is explicit", async () => {
+    const runId: RunId = "r_B5B5B5ABCDEF";
+    fakeClaude = fakeClaudeAdapter([
+      {
+        reply: "wrote manifest.yaml and the task specs\nPLAN READY",
+      },
+      {
+        reply: "Worker passed",
+      },
+    ]);
+    const spawnedRoles = trackSpawns(fakeClaude.adapter);
+
+    const manifest: Manifest = {
+      ...sampleValidManifest(runId),
+      tasks: [{ id: "T1", spec: "tasks/T1.md" }],
+    };
+    writePlanFiles(
+      env.repoRoot,
+      runId,
+      manifest,
+      { "tasks/T1.md": sampleValidTaskSpecMarkdown() },
+      { "contracts/types.ts": sampleValidContractStub() }
+    );
+
+    const engine = engineMod.createEngine({
+      settings: env.settings,
+      adapter: fakeClaude.adapter,
+    });
+
+    const summary: RunSummary = await engine.run({
+      prompt: "Fix typo in src/solo.ts directly",
+      cwd: env.repoRoot,
+      mode: "auto",
+      permission_mode: "bypassPermissions",
+      planner_explicit: true,
+    });
+
+    expect(summary.status).toBe("finished");
+    expect(spawnedRoles).toContain("planner");
+
+    const events = readEventLog(env.runDir, runId);
+    const routed = events.find((e) => e.type === "run.routed");
+    expect(routed?.data).toMatchObject({ mode: "plan" });
+  });
+
   it("auto mode routes a non-mechanical request to plan", async () => {
     const runId: RunId = "r_B5B5B5ABCDEF";
     fakeClaude = fakeClaudeAdapter([

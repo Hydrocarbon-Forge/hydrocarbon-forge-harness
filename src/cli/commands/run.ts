@@ -172,6 +172,7 @@ export const runCommand: CliCommand = {
     let prompt = ctx.rawArgs[0];
     let runVerify: string[] | undefined;
     let runContext: string[] | undefined;
+    let plannerExplicit = false;
 
     if (ctx.flags.request !== undefined || ctx.flags.plan !== undefined || ctx.flags.work !== undefined) {
       const { loadRequest } = await import(`../request.js`);
@@ -184,6 +185,7 @@ export const runCommand: CliCommand = {
         return 2;
       }
       prompt = reqRes.request.goal;
+      plannerExplicit = reqRes.plannerExplicit;
       if (reqRes.request.mode) {
         mode = reqRes.request.mode;
       }
@@ -213,16 +215,17 @@ export const runCommand: CliCommand = {
       prompt = prompt.trim();
     }
 
-    if (mode === "solo") {
-      const verifyFlags = runVerify ?? ctx.flags.verify;
-      if (!verifyFlags || verifyFlags.length === 0) {
-        const { detectEcosystem, getDefaultVerify } = await import(`../../spec/ecosystem.js`);
-        const eco = await detectEcosystem(ctx.cwd);
-        const def = getDefaultVerify(eco);
-        if (def.length === 0) {
-          ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
-        }
-      }
+    // Solo runs with no verify command get a warning. An explicit solo run warns now;
+    // an auto run warns when the engine's route action routes it to solo (run.routed).
+    const verifyFlagsForWarning = runVerify ?? ctx.flags.verify;
+    let warnNoVerify = false;
+    if ((mode === "solo" || mode === "auto") && (!verifyFlagsForWarning || verifyFlagsForWarning.length === 0)) {
+      const { detectEcosystem, getDefaultVerify } = await import(`../../spec/ecosystem.js`);
+      const eco = await detectEcosystem(ctx.cwd);
+      warnNoVerify = getDefaultVerify(eco).length === 0;
+    }
+    if (mode === "solo" && warnNoVerify) {
+      ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
     }
 
     const sessionStore =
@@ -280,7 +283,13 @@ export const runCommand: CliCommand = {
       prompt,
       overrides,
       signal: ctx.signal,
-      onEvent: (event) => formatter.onEvent(event),
+      planner_explicit: plannerExplicit,
+      onEvent: (event) => {
+        if (mode === "auto" && warnNoVerify && event.type === "run.routed" && (event.data as { mode?: unknown }).mode === "solo") {
+          ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
+        }
+        formatter.onEvent(event);
+      },
     };
     const verifyCmds = runVerify ?? ctx.flags.verify;
     if (verifyCmds) {

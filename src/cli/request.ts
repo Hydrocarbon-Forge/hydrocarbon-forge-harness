@@ -36,7 +36,7 @@ export interface Problem {
 }
 
 export type RunRequestResult =
-  | { ok: true; request: RunRequest; overrides: Record<string, any> }
+  | { ok: true; request: RunRequest; overrides: Record<string, any>; plannerExplicit: boolean }
   | { ok: false; problems: Problem[] };
 
 export interface LoadRequestOptions {
@@ -164,6 +164,11 @@ export async function loadRequest(
     });
     delete rawObj.scope;
   }
+
+  // A planner named by the caller (--plan, or a planner object in the payload) is
+  // recorded before the flag overrides below fill in planner fields from --model and
+  // --effort. Auto mode reads it to keep the run on the plan route (R6.4).
+  const plannerExplicit = rawObj.planner !== undefined || flags.plan !== undefined;
 
   // Flag overrides
   if (flags.mode !== undefined) {
@@ -425,5 +430,6 @@ export async function loadRequest(
     ok: true,
     request: validRequest,
     overrides,
+    plannerExplicit,
   };
 }

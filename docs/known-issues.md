@@ -116,7 +116,7 @@ The reviewer role needs a new engine phase (DECISIONS A2). Item 16 (the mechanic
 ## 16. Auto mode skips the deterministic router on the default path (FIXED)
 
 - Fixed: auto mode now runs `routeRequest` (`src/roles/router.ts`) on every run, from the route action in `src/engine/actions/route.ts`. Explicit flags come first, then the mechanical-file rule: a request that names one existing file with a mechanical verb routes to `solo`, and every other request routes to `plan`. An explicit `--mode solo` or `--mode plan` bypasses the router as before. The default-path change is documented in `docs/reference/cli.md` and `docs/reference/caller-guide.md`, and `test/integration/scenarios/scenario-17-auto-router.test.ts` covers the three routes.
-- Still open: a request that also sets a planner (`--plan`, or a `planner` object) can be routed to `solo`, where the planner setting is ignored. The "no verify commands" warning in `src/cli/commands/run.ts` only prints for an explicit `solo` run, not for a run that auto mode routes to `solo`.
+- Fixed (R6.4): a request that also sets a planner (`--plan`, or a `planner` object) now routes to `plan` in auto mode, even when it names a mechanical file. The router takes this as `flags.planner` (`src/cli/request.ts` records `plannerExplicit` before the flag overrides; `src/cli/commands/run.ts` passes `planner_explicit` to the engine). The "no verify commands" warning now also prints when auto mode routes a run to `solo` (`src/cli/commands/run.ts`, on the `run.routed` event). Tests: `test/unit/roles/router.test.ts`, `test/integration/scenarios/scenario-17-auto-router.test.ts`, `test/e2e/solo.test.ts` (c).
 
 ## 17. Check scripts still default to the archived progress file
 

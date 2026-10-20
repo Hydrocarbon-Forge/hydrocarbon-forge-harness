@@ -11,7 +11,7 @@ import type {
 
 export interface RouteRequestOptions {
   prompt: string;
-  flags?: { mode?: "auto" | "solo" | "plan" };
+  flags?: { mode?: "auto" | "solo" | "plan"; planner?: boolean };
   settings: Settings;
   repoRoot?: string;
 }
@@ -40,6 +40,15 @@ export async function routeRequest(opts: RouteRequestOptions): Promise<RoutingDe
     return {
       mode: "plan",
       rationale: "Explicit --mode plan flag",
+    };
+  }
+  // A caller-named planner (--plan or a request planner) means the caller wants planning,
+  // so it wins over the mechanical-file rule below (R6.4).
+  if (opts.flags?.planner === true) {
+    return {
+      mode: "plan",
+      planner_route: "default",
+      rationale: "Explicit planner (--plan or request planner) keeps the plan route",
     };
   }
 

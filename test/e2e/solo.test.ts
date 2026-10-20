@@ -119,4 +119,35 @@ describe("Solo mode E2E", () => {
       res.cleanup();
     }
   });
+
+  it("(c) auto mode routed to solo with no --verify warns the same way as an explicit solo run", () => {
+    const res = runSubstrate({
+      files: {
+        "notes.txt": "just notes\n",
+      },
+      scenario: {
+        calls: [
+          {
+            edits: { "notes.txt": "fixed\n" },
+            reply: "DONE",
+          },
+        ],
+      },
+      args: [
+        "run",
+        "fix typo in notes.txt",
+      ],
+    });
+
+    try {
+      expect(res.exitCode).toBe(0);
+      const routed = res.events.find((e) => e.type === "run.routed");
+      expect(routed?.data).toMatchObject({ mode: "solo" });
+      expect(res.stderr).toContain(
+        "warning: no verify commands; only scope and budget checks apply"
+      );
+    } finally {
+      res.cleanup();
+    }
+  });
 });

@@ -8,7 +8,7 @@ import { DEFAULT_SETTINGS } from "../../../src/config/index.js";
 
 export interface RouteRequestOptions {
   prompt: string;
-  flags?: { mode?: "auto" | "solo" | "plan" };
+  flags?: { mode?: "auto" | "solo" | "plan"; planner?: boolean };
   settings: Contracts.Settings;
   repoRoot?: string;
 }
@@ -78,6 +78,35 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
 
         expect(decision.mode).toBe("plan");
         expect(decision.rationale).toMatch(/explicit.*plan/i);
+      });
+
+      it("returns plan decision when a planner is explicit, even if the mechanical rule matches (R6.4)", async () => {
+        writeFileSync(join(tempDir, "utils.ts"), "export const x = 1;");
+
+        const decision = await routeRequest({
+          prompt: "fix typo in utils.ts",
+          flags: { mode: "auto", planner: true },
+          settings: makeSettings(),
+          repoRoot: tempDir,
+        });
+
+        expect(decision.mode).toBe("plan");
+        expect(decision.task_class).toBeUndefined();
+        expect(decision.rationale).toMatch(/explicit planner.*plan/i);
+      });
+
+      it("keeps the mechanical solo route when no planner is explicit (planner: false)", async () => {
+        writeFileSync(join(tempDir, "utils.ts"), "export const x = 1;");
+
+        const decision = await routeRequest({
+          prompt: "fix typo in utils.ts",
+          flags: { mode: "auto", planner: false },
+          settings: makeSettings(),
+          repoRoot: tempDir,
+        });
+
+        expect(decision.mode).toBe("solo");
+        expect(decision.task_class).toBe("mechanical");
       });
 
     });
