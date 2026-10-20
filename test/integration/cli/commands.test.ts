@@ -863,12 +863,11 @@ describe("cli: inspection and lifecycle commands", () => {
         expect(exitCode).toBe(0);
 
         const lines = stdout.getLines();
-        expect(lines).toHaveLength(5);
+        expect(lines).toHaveLength(4);
         const byRole: Record<string, string> = Object.fromEntries(
           lines.map((line) => [line.split(" ")[0], line]),
         );
         expect(Object.keys(byRole).sort()).toEqual([
-          "governor",
           "planner",
           "reviewer",
           "test-writer",
@@ -878,7 +877,7 @@ describe("cli: inspection and lifecycle commands", () => {
         expect(byRole["worker"]).toBe(
           `worker project ${join(tmpDir, ".substrate", "agents", "worker.md")}`,
         );
-        for (const role of ["planner", "test-writer", "reviewer", "governor"]) {
+        for (const role of ["planner", "test-writer", "reviewer"]) {
           expect(byRole[role]).toMatch(new RegExp(`^${role} built-in .+/agents/${role}\.md$`));
         }
       } finally {

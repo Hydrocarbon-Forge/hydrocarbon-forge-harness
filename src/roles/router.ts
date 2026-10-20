@@ -5,29 +5,15 @@ import type {
   Effort,
   Route,
   RoutingDecision,
-  RunId,
   Settings,
   TaskClass,
-  TaskId,
 } from "../contracts/index.js";
-import { checkGovernorHealth, callGovernorIntake } from "./governor.js";
 
 export interface RouteRequestOptions {
   prompt: string;
-  flags?: { mode?: "auto" | "solo" | "plan"; noGovernor?: boolean };
+  flags?: { mode?: "auto" | "solo" | "plan" };
   settings: Settings;
   repoRoot?: string;
-}
-
-export interface RouteOutcomeRecord {
-  run_id: RunId;
-  task_id?: TaskId;
-  decision: RoutingDecision;
-  rule_matched: "flag" | "deterministic" | "governor" | "fallback";
-  outcome?: "passed" | "failed" | "healed" | "replanned";
-  cost_usd?: number;
-  duration_ms?: number;
-  timestamp: string;
 }
 
 const MECHANICAL_VERBS = [
@@ -90,40 +76,7 @@ export async function routeRequest(opts: RouteRequestOptions): Promise<RoutingDe
     }
   }
 
-  // Step 3: Governor LLM
-  if (!opts.flags?.noGovernor && opts.settings.roles?.governor?.enabled) {
-    const gov = opts.settings.roles.governor;
-    if (gov.endpoint) {
-      const timeoutMs = (gov.timeout_s ?? 10) * 1000;
-      const isHealthy = await checkGovernorHealth(gov.endpoint, timeoutMs);
-      if (isHealthy) {
-        try {
-          const intake = await callGovernorIntake(opts.prompt, {
-            endpoint: gov.endpoint,
-            model: gov.model,
-            timeoutMs,
-            enableThinking: false,
-          });
-
-          if (intake.decision) {
-            return intake.decision;
-          }
-
-          const startRun = intake.toolCalls.find((t) => t.name === "start_run");
-          if (startRun && startRun.name === "start_run") {
-            return {
-              mode: startRun.args.mode ?? "plan",
-              rationale: `Governor routed via start_run: ${startRun.args.request}`,
-            };
-          }
-        } catch {
-          // Fall through smoothly to default plan fallback
-        }
-      }
-    }
-  }
-
-  // Step 4: Default Fallback
+  // Step 3: Default Fallback
   return {
     mode: "plan",
     planner_route: "default",
@@ -270,13 +223,4 @@ export function resolveTaskRoute(
       : Math.min(generation - 1, chain.length - 1);
 
   return buildProfileRoute(base.backend, chain[targetIdx] ?? base.model, base.effort);
-}
-
-export async function appendRouteOutcome(
-  record: RouteOutcomeRecord,
-  ledgerDir = ".substrate/ledger",
-): Promise<void> {
-  await fs.promises.mkdir(ledgerDir, { recursive: true });
-  const ledgerFile = path.join(ledgerDir, "routes.jsonl");
-  await fs.promises.appendFile(ledgerFile, JSON.stringify(record) + "\n", "utf8");
 }

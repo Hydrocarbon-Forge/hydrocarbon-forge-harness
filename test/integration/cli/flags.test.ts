@@ -20,7 +20,6 @@ export interface CliGlobalFlags {
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
-  noGovernor?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -89,7 +88,7 @@ function createMockWritable(): NodeJS.WriteStream & { getOutput: () => string; g
 
 describe("cli: flags and dispatcher", () => {
   describe("parseCliArgs() - Strict Flag Parsing", () => {
-    it("parses boolean flags: -p, --print, -c, --continue, --fork-session, --no-governor, --sandbox", async () => {
+    it("parses boolean flags: -p, --print, -c, --continue, --fork-session, --no-governor (accepted, ignored), --sandbox", async () => {
       const { parseCliArgs } = await loadDispatcher();
 
       const res1 = parseCliArgs([
@@ -103,7 +102,8 @@ describe("cli: flags and dispatcher", () => {
       expect(res1.flags.print).toBe(true);
       expect(res1.flags.continue).toBe(true);
       expect(res1.flags.forkSession).toBe(true);
-      expect(res1.flags.noGovernor).toBe(true);
+      // --no-governor is a deprecated no-op: accepted, and it sets no flag.
+      expect(res1.flags).not.toHaveProperty("noGovernor");
       expect(res1.flags.sandbox).toBe(true);
 
       const res2 = parseCliArgs([

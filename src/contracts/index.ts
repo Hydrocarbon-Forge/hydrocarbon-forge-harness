@@ -16,7 +16,7 @@ export type BackendName = z.infer<typeof BackendName>;
 export const Effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 export type Effort = z.infer<typeof Effort>;
 
-export const RoleName = z.enum(["governor", "planner", "worker", "test-writer", "reviewer"]);
+export const RoleName = z.enum(["planner", "worker", "test-writer", "reviewer"]);
 export type RoleName = z.infer<typeof RoleName>;
 
 export const TaskClass = z.string();
@@ -408,14 +408,6 @@ export const Settings = z.object({
     planner: Route,
     worker: Route.optional(),
     reviewer: Route.extend({ enabled: z.boolean() }).strict().optional(),
-    governor: z.object({
-      enabled: z.boolean(),
-      endpoint: z.string(),
-      model: z.string().optional(),
-      enable_thinking: z.boolean(),
-      timeout_s: z.number(),
-      max_clarifying_turns: z.number().optional(),
-    }).strict().optional(),
   }).strict(),
   routing: z.record(z.string(), z.union([
     Route.extend({ budget: Budget.optional() }).strict(),
@@ -546,55 +538,6 @@ export type Engine = {
   run(opts: RunOptions): Promise<RunSummary>;
   resume(run_id: RunId, opts?: Partial<RunOptions>): Promise<RunSummary>;
 };
-
-// ===== governor front door =====
-export const GovernorTool = z.discriminatedUnion("name", [
-  z.object({
-    name: z.literal("start_run"),
-    args: z.object({
-      request: z.string(),
-      mode: z.enum(["solo", "plan"]).optional(),
-      permission_mode: PermissionMode.optional(),
-    }).strict(),
-  }).strict(),
-  z.object({
-    name: z.literal("plan_only"),
-    args: z.object({
-      request: z.string(),
-    }).strict(),
-  }).strict(),
-  z.object({
-    name: z.literal("resume_run"),
-    args: z.object({
-      run_id: RunId,
-    }).strict(),
-  }).strict(),
-  z.object({
-    name: z.literal("run_status"),
-    args: z.object({
-      run_id: RunId.optional(),
-    }).strict(),
-  }).strict(),
-  z.object({
-    name: z.literal("show_cost"),
-    args: z.object({
-      run_id: RunId.optional(),
-    }).strict(),
-  }).strict(),
-  z.object({
-    name: z.literal("cancel_run"),
-    args: z.object({
-      run_id: RunId,
-    }).strict(),
-  }).strict(),
-  z.object({
-    name: z.literal("ask_user"),
-    args: z.object({
-      question: z.string(),
-    }).strict(),
-  }).strict(),
-]);
-export type GovernorTool = z.infer<typeof GovernorTool>;
 
 export const RoutingDecision = z.object({
   mode: z.enum(["solo", "plan"]),

@@ -13,7 +13,6 @@ export interface CliGlobalFlags {
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
-  noGovernor?: boolean;
 }
 
 export interface CliGovernanceFlags {

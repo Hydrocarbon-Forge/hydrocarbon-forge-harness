@@ -10,8 +10,7 @@ These files are the product's prompts. They are data, not code. TypeScript only 
 ```
 assets/
   agents/
-    planner.md  worker.md  test-writer.md  reviewer.md     static system prompts
-    governor.md                                              optional, disabled by default
+    planner.md  worker.md  test-writer.md  reviewer.md     static system prompts (the governor was deleted)
   prompts/
     planner/
       format.md          exact plan format + worked example + pre-flight checklist (appended to the planner system prompt)

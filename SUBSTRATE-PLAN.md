@@ -215,6 +215,8 @@ Side states: `PAUSED(reason ∈ PauseReason)`, `FAILED`, `CANCELLED`. `PAUSED` i
 
 ## 6. Roles, routing, governor
 
+> **Deleted (2026-10-20, owner decision):** the governor (front door) code is removed. The governor text in this section is history. The deterministic router (`routeRequest`) is what remains.
+
 ### 6.1 Roles
 
 > **Superseded by DECISIONS.md** (in part): the Governor row (DECISIONS A2).

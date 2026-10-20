@@ -37,7 +37,7 @@ describe("Scenario 16: Solo Mode (§14.5 #16)", () => {
     fakeClaude?.cleanup();
   });
 
-  it("bypasses governor and planner, runs single worker session, verifies, and commits", async () => {
+  it("bypasses the planner, runs single worker session, verifies, and commits", async () => {
     const spawnedRoles: string[] = [];
 
     fakeClaude = fakeClaudeAdapter([

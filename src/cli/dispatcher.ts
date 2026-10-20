@@ -18,7 +18,6 @@ export interface CliGlobalFlags {
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
-  noGovernor?: boolean;
   local?: boolean;
   provider?: string;
   refresh?: boolean;
@@ -99,6 +98,7 @@ const CLI_OPTIONS = {
   print: { type: "boolean", short: "p" },
   continue: { type: "boolean", short: "c" },
   "fork-session": { type: "boolean" },
+  // Deprecated no-op: the governor is deleted. Still accepted so existing callers do not break.
   "no-governor": { type: "boolean" },
   sandbox: { type: "boolean" },
   local: { type: "boolean" },
@@ -169,7 +169,6 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.print) flags.print = true;
   if (parsedValues.continue) flags.continue = true;
   if (parsedValues["fork-session"]) flags.forkSession = true;
-  if (parsedValues["no-governor"]) flags.noGovernor = true;
   if (parsedValues.sandbox) flags.sandbox = true;
   if (parsedValues.local) flags.local = true;
   if (parsedValues["output-format"]) {

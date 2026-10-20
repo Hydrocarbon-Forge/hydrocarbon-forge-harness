@@ -65,9 +65,9 @@ describe("allowlist module", () => {
       expect(matchesEntry("settings", exact, { key: "git.auto_merge" })).toBe(true);
       expect(matchesEntry("settings", exact, { key: "git.branch_prefix" })).toBe(false);
 
-      const wildcard = { key: "roles.governor.*", until: "DEFERRED" };
-      expect(matchesEntry("settings", wildcard, { key: "roles.governor.enabled" })).toBe(true);
-      expect(matchesEntry("settings", wildcard, { key: "roles.governor.model" })).toBe(true);
+      const wildcard = { key: "roles.reviewer.*", until: "DEFERRED" };
+      expect(matchesEntry("settings", wildcard, { key: "roles.reviewer.enabled" })).toBe(true);
+      expect(matchesEntry("settings", wildcard, { key: "roles.reviewer.model" })).toBe(true);
       expect(matchesEntry("settings", wildcard, { key: "roles.planner.model" })).toBe(false);
     });
   });
@@ -114,10 +114,10 @@ describe("allowlist module", () => {
 
     it("exempts DEFERRED entries from the finished WP check", () => {
       const allowlist = {
-        settings: [{ key: "roles.governor.*", until: "DEFERRED" }],
+        settings: [{ key: "roles.reviewer.*", until: "DEFERRED" }],
       };
       const violations = [
-        { key: "roles.governor.enabled", path: "src/contracts/index.ts", line: 1, message: "unread" },
+        { key: "roles.reviewer.enabled", path: "src/contracts/index.ts", line: 1, message: "unread" },
       ];
       const { remaining, problems } = applyAllowlist("settings", violations, allowlist, statusMap);
       expect(remaining).toHaveLength(0);

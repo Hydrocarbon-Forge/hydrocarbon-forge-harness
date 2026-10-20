@@ -46,6 +46,7 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
 | `--output-format <fmt>` | run, plan, resume, status, models, usage, doctor, backends, sessions, history | `text` (default), `json`, or `stream-json`. Commands that do not read it always print text. |
 | `--settings <file>` | most commands | read this settings file instead of the project's |
 | `--sandbox` | run, verify | enable the bubblewrap sandbox (`sandbox.enabled`) |
+| `--no-governor` | all | deprecated no-op. The governor was deleted on 2026-10-20; the flag is still accepted and ignored so existing callers do not break |
 
 ## run
 

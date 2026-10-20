@@ -3,7 +3,6 @@
   "title": "RoleName",
   "type": "string",
   "enum": [
-    "governor",
     "planner",
     "worker",
     "test-writer",

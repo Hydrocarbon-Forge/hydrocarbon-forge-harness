@@ -32,7 +32,6 @@ describe("Role Assets (assets/agents/*.md)", () => {
     "worker",
     "test-writer",
     "reviewer",
-    "governor",
   ] as const;
 
   describe("File existence and discovery", () => {
@@ -44,7 +43,7 @@ describe("Role Assets (assets/agents/*.md)", () => {
       },
     );
 
-    it("lists all 5 built-in agent roles from assets/agents via listAgents", () => {
+    it("lists all 4 built-in agent roles from assets/agents via listAgents", () => {
       const empty = mkdtempSync(join(tmpdir(), "substrate-assets-"));
       const res = listAgents({ projectRoot: empty, userConfigDir: empty });
 
@@ -165,34 +164,6 @@ describe("Role Assets (assets/agents/*.md)", () => {
       expect(body).toMatch(/diff|patch/i);
       expect(body).toMatch(/contract/i);
       expect(body).toMatch(/scope|invariant/i);
-    });
-  });
-
-  describe("Governor Agent Asset (assets/agents/governor.md)", () => {
-    it("declares role 'governor' and valid frontmatter matching RoleName schema", () => {
-      const filePath = resolve(ASSETS_DIR, "governor.md");
-      const { frontmatter } = parseAgentMarkdown(filePath);
-
-      expect(frontmatter.name).toBe("governor");
-      expect(frontmatter.role).toBe("governor");
-      expect(Contracts.RoleName.safeParse(frontmatter.role).success).toBe(true);
-    });
-
-    it("body instructs conversational front door, routing requests, and invoking typed tools", () => {
-      const filePath = resolve(ASSETS_DIR, "governor.md");
-      const { body } = parseAgentMarkdown(filePath);
-
-      expect(body).toMatch(/front door|routing/i);
-      expect(body).toMatch(/tool/i);
-    });
-
-    it("invariants: governor CANNOT plan, implement, edit repo files, or alter caps/verdicts (I1)", () => {
-      const filePath = resolve(ASSETS_DIR, "governor.md");
-      const { body } = parseAgentMarkdown(filePath);
-
-      expect(body).toMatch(/cannot plan|never plan/i);
-      expect(body).toMatch(/cannot implement|never implement/i);
-      expect(body).toMatch(/never edit|cannot edit.*repo/i);
     });
   });
 });

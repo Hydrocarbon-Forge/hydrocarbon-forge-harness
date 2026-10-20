@@ -441,11 +441,6 @@ export const RateLimitBackoffEvent = member(
   z.object({ task_id: z.string(), concurrency: z.number() }).strict()
 );
 
-export const GovernorFallbackEvent = member(
-  "governor.fallback",
-  z.object({ reason: z.string() }).strict()
-);
-
 export const EngineEventV1 = z.discriminatedUnion("type", [
   RunCreatedEvent,
   RunRoutedEvent,
@@ -490,7 +485,6 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   MergeConflictEvent,
   UsageRecordedEvent,
   RateLimitBackoffEvent,
-  GovernorFallbackEvent,
 ]);
 
 export const EVENT_TYPES = [
@@ -537,7 +531,6 @@ export const EVENT_TYPES = [
   "merge.conflict",
   "usage.recorded",
   "rate_limit.backoff",
-  "governor.fallback",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];

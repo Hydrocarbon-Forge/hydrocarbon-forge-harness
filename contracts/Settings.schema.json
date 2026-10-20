@@ -159,36 +159,6 @@
             "enabled"
           ],
           "additionalProperties": false
-        },
-        "governor": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "endpoint": {
-              "type": "string"
-            },
-            "model": {
-              "type": "string"
-            },
-            "enable_thinking": {
-              "type": "boolean"
-            },
-            "timeout_s": {
-              "type": "number"
-            },
-            "max_clarifying_turns": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "enabled",
-            "endpoint",
-            "enable_thinking",
-            "timeout_s"
-          ],
-          "additionalProperties": false
         }
       },
       "required": [

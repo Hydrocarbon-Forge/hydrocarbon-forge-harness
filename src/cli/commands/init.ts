@@ -18,7 +18,6 @@ export interface CliGlobalFlags {
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
-  noGovernor?: boolean;
   provider?: string;
   force?: boolean;
   plan?: string;

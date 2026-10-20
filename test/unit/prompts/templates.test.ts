@@ -124,7 +124,7 @@ describe("override resolution", () => {
 
     const agents = listAgents({ projectRoot: tmp, userConfigDir: userDir });
     const roles = agents.map((a) => a.role);
-    expect(roles).toEqual(["planner", "worker", "test-writer", "reviewer", "governor"]);
+    expect(roles).toEqual(["planner", "worker", "test-writer", "reviewer"]);
 
     const worker = agents.find((a) => a.role === "worker");
     expect(worker?.source).toBe("project");

@@ -43,7 +43,6 @@ const {
   Engine,
   EngineEvent,
   ExecutionStrategy,
-  GovernorTool,
   RoutingDecision,
 } = await import("../src/contracts/index.ts");
 
@@ -82,7 +81,6 @@ const CONTRACT_SCHEMAS = {
   Engine,
   EngineEvent,
   ExecutionStrategy,
-  GovernorTool,
   RoutingDecision,
 };
 

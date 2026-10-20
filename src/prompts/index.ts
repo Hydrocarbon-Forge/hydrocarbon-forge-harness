@@ -8,14 +8,13 @@ export type PromptRoots = {
   userConfigDir?: string;
 };
 
-export type AgentRole = "planner" | "worker" | "test-writer" | "reviewer" | "governor";
+export type AgentRole = "planner" | "worker" | "test-writer" | "reviewer";
 
 const AGENT_ROLES: AgentRole[] = [
   "planner",
   "worker",
   "test-writer",
   "reviewer",
-  "governor",
 ];
 
 /**
@@ -145,7 +144,7 @@ function hasTaskClassAddendum(taskClass: string, roots: Required<PromptRoots>): 
  * Parts are joined by a blank line.
  */
 export function assembleSystem(
-  role: Exclude<AgentRole, "governor">,
+  role: AgentRole,
   opts: PromptRoots & { taskClass?: string },
 ): string {
   const roots = resolveRoots(opts);

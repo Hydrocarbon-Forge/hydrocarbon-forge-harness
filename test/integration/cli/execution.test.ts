@@ -236,7 +236,6 @@ describe("cli: execution commands (run, plan, resume)", () => {
           maxBudgetUsd: 12.0,
           timeout: 40,
           sandbox: true,
-          noGovernor: true,
         },
         rawArgs: ["deploy microservice"],
         stdout: createMockStream(),

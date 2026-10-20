@@ -68,7 +68,7 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 
 - The `hooks` settings key is accepted by the schema and ignored, since the hook code was deleted in R5.3. Where: `src/contracts/index.ts`.
 - The `permissions.ask` key was removed from the schema. A settings file that still contains it now fails validation, with an unrecognized-key error. Users must delete the key. Recorded in `docs/reference/config.md`.
-- Keys accepted by the schema but not read by the engine: `budgets.run.max_wall_min`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`, `routing.*.budget.*`, `backends.*.extra` (except the custom base URL), and the `roles.reviewer.*` and `roles.governor.*` keys, which are deferred (see item 13).
+- Keys accepted by the schema but not read by the engine: `budgets.run.max_wall_min`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`, `routing.*.budget.*`, `backends.*.extra` (except the custom base URL), and the `roles.reviewer.*` keys, which are deferred (see item 13).
 - The command-line options for allowed tools, disallowed tools and timeout write settings keys that nothing reads. A solo run on the local route was verified with zero tokens.
 - Direction: remove the keys from the schema or wire them. Removing the `hooks` key would need a rule for old files.
 - Decision: owner, together with item 3.
@@ -87,31 +87,21 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 - The opencode adapter returns the raw version output as the version on a pin mismatch, so a failed record can hold a non-semver string.
 - The bench command does not pass the dry-run option through, and its per-attempt costs are fixed per arm, so its printed costs and pass rates are not measurements. Reported.
 
-## 13. Deferred items (governor and reviewer)
+## 13. Deferred items (reviewer)
 
-Outcome of the optional R5.4 work package (delete the governor), scoped read-only on 2026-10-20: **not built**.
+The governor was deleted on 2026-10-20 on the owner's decision: the governor and the local-model front-door idea were dropped, and the deterministic router (`routeRequest` in `src/roles/router.ts`) replaces them. Removed: `src/roles/governor.ts`, `src/roles/governor-tools.ts`, `assets/agents/governor.md`, their unit tests, the `governor.fallback` event, the `roles.governor` setting and the `GovernorTool` schema.
 
-- Why not: its spec, `docs/archive/2026-10-20-r-series/wp/R5.4.md`, runs only "once the owner asks" (DECISIONS A2), and the owner has not asked. The governor is already off by default (`DEFAULT_SETTINGS` in `src/config/index.ts` has no governor key), so deleting it gains little. The owner's longer-term plan wants a local model as the front door, and the governor code (`src/roles/governor.ts`, `src/roles/governor-tools.ts`) is that idea in embryonic form. Deleting it before that decision is made would discard it.
-- Spec defects to fix before any build (from the read-only scoping; the write list and tests were not re-verified in this pass):
-  - The spec says every DEFERRED allowlist entry concerns the governor. That is false. The 15 DEFERRED entries also cover `roles.reviewer.*`, `src/roles/prompts/reviewer.ts` (the reviewer is kept per DECISIONS A2), `aggregateLedger`, `execution.strategy`, `git.branch_prefix` and `sandbox.network`. Its done-when "empty DEFERRED allowlist" cannot be met without deleting non-governor items. Removal should be limited to governor-specific entries: purity `src/roles/governor.ts` (P6); dead `validateGovernorTool`, `runGovernorSemanticLint` and `appendRouteOutcome`; settings `roles.governor.*`; and `governor.fallback` in `events_observe_only`.
-  - The write list omits files the governor surface touches: `src/contracts/events.ts` (GovernorFallbackEvent), `src/cli/stream-map.ts`, `src/prompts/index.ts` (AgentRole), `src/cli/dispatcher.ts` and about 22 `src/cli/commands/*.ts` files with a `noGovernor` flag, `scripts/check-purity.mjs`, `scripts/check-settings.mjs`, `scripts/check-dead-exports.mjs`, `scripts/export-schemas.mjs`, and the generated `contracts/*.schema.json`. It also omits several unit and integration tests that cover the governor, and the governor scenario test.
-  - It says a settings file with `roles.governor` fails with exit 2. Check that against the CLI exit-code mapping before the spec is used.
-- Owner decisions still open, each with the recommended default:
-  1. Delete the governor, or keep it dormant as the future front door. Default: keep it dormant.
-  2. Scenario 15. The R-series spec and matrix row S15 in `test/e2e/matrix.test.ts` expect a request run with no governor to exit 0. `SUBSTRATE-PLAN.md` section 14, item 5 expects a deterministic fallback when the governor is down, and the plan itself marks the governor as superseded in part. Default: keep the R-series behaviour.
-  3. Whether auto mode applies the deterministic mechanical-file rule on the default path (see item 16). Default: yes.
-  4. Keep the no-governor option accepted and ignored, or remove it. Default: keep it accepted and ignored.
-  5. Settings with `roles.governor`: reject, or ignore with a warning. Default: reject, after the exit-code mapping is fixed.
-  6. The non-governor DEFERRED entries. Default: keep them, each with an owner note.
+- The `--no-governor` option is still accepted and ignored, so existing callers do not break. `docs/reference/cli.md` documents it as a no-op.
+- A settings file that contains `roles.governor` is rejected by the strict settings schema, like any other unknown key.
+- Scenario 15 is now `test/integration/scenarios/scenario-15-auto-no-governor.test.ts`: auto mode with no governor takes the plan route and finishes. Matrix row S15 in `test/e2e/matrix.test.ts` covers a request run with no governor setting.
 
-These allowlist entries stay on purpose, with `until: "DEFERRED"` (owner approved on 2026-10-20). They are the only entries in `scripts/debt-allowlist.json`:
+These allowlist entries stay on purpose, with `until: "DEFERRED"` (owner approved on 2026-10-20). They are the only entries left in `scripts/debt-allowlist.json`:
 
-- purity: `src/roles/governor.ts` (rule P6).
 - wired: `src/roles/prompts/reviewer.ts`.
-- dead: `aggregateLedger` in `src/ledger/index.ts`, `validateGovernorTool` in `src/roles/governor-tools.ts`, `runGovernorSemanticLint` in `src/roles/governor.ts`, `buildReviewerPrompt` in `src/roles/prompts/reviewer.ts`, `appendRouteOutcome` in `src/roles/router.ts`.
-- settings: `roles.governor.*`, `roles.reviewer.enabled`, `roles.reviewer.backend`, `roles.reviewer.model`, `roles.reviewer.effort`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`.
+- dead: `aggregateLedger` in `src/ledger/index.ts`, `buildReviewerPrompt` in `src/roles/prompts/reviewer.ts`.
+- settings: `roles.reviewer.enabled`, `roles.reviewer.backend`, `roles.reviewer.model`, `roles.reviewer.effort`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`.
 
-The reviewer role needs a new engine phase (DECISIONS A2). Scenario 15 differs between the R-series spec and SUBSTRATE-PLAN section 14 (see decision 2). The matrix follows the R-series spec.
+The reviewer role needs a new engine phase (DECISIONS A2). Still open for the owner: whether auto mode applies the deterministic mechanical-file rule on the default path (item 16). The recommended default is yes.
 
 ## 14. Test gaps and test-helper masking
 

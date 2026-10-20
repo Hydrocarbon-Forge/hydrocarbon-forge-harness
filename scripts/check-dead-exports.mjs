@@ -12,7 +12,6 @@ const MAPPING_TABLE = {
   generateRepoMap: "R3.1",
   executeReplan: "R3.5",
   scheduleNextTasks: "R3.2",
-  appendRouteOutcome: "R2.9",
   aggregateLedger: "R2.8",
   rebuildFromEvents: "R2.8",
   detectEcosystem: "R3.8",
@@ -21,9 +20,6 @@ const MAPPING_TABLE = {
 export function getDeadUntil(symbol, filePath) {
   if (MAPPING_TABLE[symbol]) {
     return MAPPING_TABLE[symbol];
-  }
-  if (filePath === "src/roles/governor.ts" || filePath === "src/roles/governor-tools.ts") {
-    return "DEFERRED";
   }
   console.warn(`WARN: ${symbol} assigned R5.3`);
   return "R5.3";

@@ -206,10 +206,6 @@ function assignUntil(key) {
     return "R2.2";
   }
 
-  if (key.startsWith("roles.governor.")) {
-    return "DEFERRED";
-  }
-
   console.warn(`Warning: unmapped unread settings key ${key}; defaulting until to R5.3`);
   return "R5.3";
 }
@@ -255,13 +251,6 @@ export async function main() {
       }
 
       for (const v of violations) {
-        if (v.key.startsWith("roles.governor.")) {
-          // Use roles.governor.* entry as specified in table
-          if (!entryMap.has("roles.governor.*")) {
-            entryMap.set("roles.governor.*", { key: "roles.governor.*", until: "DEFERRED" });
-          }
-          continue;
-        }
         if (!entryMap.has(v.key)) {
           const until = assignUntil(v.key);
           entryMap.set(v.key, { key: v.key, until });

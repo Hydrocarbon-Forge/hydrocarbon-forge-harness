@@ -1,11 +1,5 @@
 {
-  "purity": [
-    {
-      "rule": "P6",
-      "path": "src/roles/governor.ts",
-      "until": "DEFERRED"
-    }
-  ],
+  "purity": [],
   "wired": [
     {
       "path": "src/roles/prompts/reviewer.ts",
@@ -17,7 +11,6 @@
     "batch.started",
     "bisect.started",
     "contracts.committed",
-    "governor.fallback",
     "integration.started",
     "merge.conflict",
     "plan.ready",
@@ -39,10 +32,6 @@
     },
     {
       "key": "git.branch_prefix",
-      "until": "DEFERRED"
-    },
-    {
-      "key": "roles.governor.*",
       "until": "DEFERRED"
     },
     {
@@ -73,23 +62,8 @@
       "until": "DEFERRED"
     },
     {
-      "symbol": "validateGovernorTool",
-      "path": "src/roles/governor-tools.ts",
-      "until": "DEFERRED"
-    },
-    {
-      "symbol": "runGovernorSemanticLint",
-      "path": "src/roles/governor.ts",
-      "until": "DEFERRED"
-    },
-    {
       "symbol": "buildReviewerPrompt",
       "path": "src/roles/prompts/reviewer.ts",
-      "until": "DEFERRED"
-    },
-    {
-      "symbol": "appendRouteOutcome",
-      "path": "src/roles/router.ts",
       "until": "DEFERRED"
     }
   ]

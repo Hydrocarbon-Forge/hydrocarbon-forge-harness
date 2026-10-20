@@ -50,7 +50,6 @@ const EXPECTED_DECLARATIONS = [
   "Engine",
   "EngineEvent",
   "ExecutionStrategy",
-  "GovernorTool",
   "RoutingDecision",
   "UsageLedgerEntry",
 ] as const;
@@ -186,8 +185,9 @@ describe("identifiers and enums", () => {
   });
 
   it("RoleName enum", () => {
-    for (const v of ["governor", "planner", "worker", "test-writer", "reviewer"])
+    for (const v of ["planner", "worker", "test-writer", "reviewer"])
       expectAccept("RoleName", v);
+    expectReject("RoleName", "governor");
     expectReject("RoleName", "Worker");
     expectReject("RoleName", "admin");
   });
@@ -576,7 +576,7 @@ describe("settings", () => {
   });
 });
 
-describe("engine API plus strategy seam and governor", () => {
+describe("engine API plus strategy seam", () => {
   it("RunOptions mode and permission_mode enums", () => {
     const valid = {
       prompt: "do it",
@@ -657,18 +657,6 @@ describe("engine API plus strategy seam and governor", () => {
     expectAccept("ExecutionStrategy", "dispatcher");
     expectReject("ExecutionStrategy", "engine-side");
     expectReject("ExecutionStrategy", "auto");
-  });
-
-  it("GovernorTool covers the fixed typed tool set", () => {
-    expectAccept("GovernorTool", { name: "start_run", args: { request: "hi" } });
-    expectAccept("GovernorTool", { name: "plan_only", args: { request: "hi" } });
-    expectAccept("GovernorTool", { name: "resume_run", args: { run_id: VALID_RUN_ID } });
-    expectAccept("GovernorTool", { name: "run_status", args: {} });
-    expectAccept("GovernorTool", { name: "show_cost", args: {} });
-    expectAccept("GovernorTool", { name: "cancel_run", args: { run_id: VALID_RUN_ID } });
-    expectAccept("GovernorTool", { name: "ask_user", args: { question: "q?" } });
-    expectReject("GovernorTool", { name: "spawn_worker", args: {} });
-    expectReject("GovernorTool", { name: "start_run", args: {} });
   });
 
   it("RoutingDecision requires rationale with solo/plan mode", () => {

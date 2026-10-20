@@ -69,7 +69,6 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "merge.conflict": { task_id: "T1", conflict_files: ["src/a.txt"] },
   "usage.recorded": { record: SAMPLE_RECORD, role: "worker" },
   "rate_limit.backoff": { task_id: "T1", concurrency: 2 },
-  "governor.fallback": { reason: "Governor unavailable" },
 };
 
 const CATALOG_TYPES = new Set(EVENT_TYPES);

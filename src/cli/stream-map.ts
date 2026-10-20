@@ -48,7 +48,6 @@ export const STREAM_TYPE: Record<EventType, string> = {
   "merge.conflict": "merge.conflict",
   "usage.recorded": "usage",
   "rate_limit.backoff": "rate_limit.backoff",
-  "governor.fallback": "governor.fallback",
 };
 
 export function streamTypeFor(type: string): string {

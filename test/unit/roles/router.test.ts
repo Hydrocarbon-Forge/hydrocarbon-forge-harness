@@ -1,35 +1,21 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import http from "node:http";
-import type { AddressInfo } from "node:net";
 
 import * as Contracts from "../../../src/contracts/index.js";
 import { DEFAULT_SETTINGS } from "../../../src/config/index.js";
 
 export interface RouteRequestOptions {
   prompt: string;
-  flags?: { mode?: "auto" | "solo" | "plan"; noGovernor?: boolean };
+  flags?: { mode?: "auto" | "solo" | "plan" };
   settings: Contracts.Settings;
   repoRoot?: string;
-}
-
-export interface RouteOutcomeRecord {
-  run_id: Contracts.RunId;
-  task_id?: Contracts.TaskId;
-  decision: Contracts.RoutingDecision;
-  rule_matched: "flag" | "deterministic" | "governor" | "fallback";
-  outcome?: "passed" | "failed" | "healed" | "replanned";
-  cost_usd?: number;
-  duration_ms?: number;
-  timestamp: string;
 }
 
 const {
   routeRequest,
   resolveTaskRoute,
-  appendRouteOutcome,
 } = (await import("../../../src/roles/router.js" as any)) as {
   routeRequest: (opts: RouteRequestOptions) => Promise<Contracts.RoutingDecision>;
   resolveTaskRoute: (
@@ -37,22 +23,16 @@ const {
     generation: number,
     settings: Contracts.Settings,
   ) => Contracts.Route;
-  appendRouteOutcome: (record: RouteOutcomeRecord, ledgerDir?: string) => Promise<void>;
 };
 
 describe("Rules-First Router (src/roles/router.ts)", () => {
   let tempDir: string;
-  let activeServer: http.Server | null = null;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "router-test-"));
   });
 
-  afterEach(async () => {
-    if (activeServer) {
-      await new Promise((resolve) => activeServer!.close(resolve));
-      activeServer = null;
-    }
+  afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -61,12 +41,6 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
       ...DEFAULT_SETTINGS,
       roles: {
         planner: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
-        governor: {
-          enabled: false,
-          endpoint: "http://127.0.0.1:8080/v1",
-          enable_thinking: false,
-          timeout_s: 10,
-        },
       },
       routing: {
         feature: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
@@ -106,28 +80,6 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
         expect(decision.rationale).toMatch(/explicit.*plan/i);
       });
 
-      it("bypasses governor LLM when flags.noGovernor === true and falls to deterministic or fallback", async () => {
-        const decision = await routeRequest({
-          prompt: "Implement complex caching layer",
-          flags: { noGovernor: true },
-          settings: makeSettings({
-            roles: {
-              ...makeSettings().roles,
-              governor: {
-                enabled: true,
-                endpoint: "http://127.0.0.1:8080/v1",
-                enable_thinking: false,
-                timeout_s: 10,
-              },
-            },
-          }),
-          repoRoot: tempDir,
-        });
-
-        // Bypassed governor, no deterministic match, falls to default plan
-        expect(decision.mode).toBe("plan");
-        expect(decision.rationale).toMatch(/default plan fallback/i);
-      });
     });
 
     describe("Step 2: Deterministic Rules (Named single existing file + mechanical verb)", () => {
@@ -209,124 +161,11 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
       });
     });
 
-    describe("Step 3: Governor LLM", () => {
-      it("calls governor intake when enabled and reachable, adopting its routing decision", async () => {
-        let serverCalled = false;
-        const server = http.createServer((req, res) => {
-          serverCalled = true;
-          if (req.url === "/health" || req.url === "/v1/models") {
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ status: "ok" }));
-            return;
-          }
-
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(
-            JSON.stringify({
-              choices: [
-                {
-                  message: {
-                    role: "assistant",
-                    content: JSON.stringify({
-                      mode: "solo",
-                      task_class: "debug",
-                      rationale: "Governor routed as localized debugging task",
-                    }),
-                  },
-                },
-              ],
-            }),
-          );
-        });
-
-        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-        activeServer = server;
-        const addr = server.address() as AddressInfo;
-        const endpoint = `http://127.0.0.1:${addr.port}`;
-
-        const decision = await routeRequest({
-          prompt: "Investigate intermittent test failure in scheduler",
-          settings: makeSettings({
-            roles: {
-              ...makeSettings().roles,
-              governor: {
-                enabled: true,
-                endpoint,
-                enable_thinking: false,
-                timeout_s: 10,
-              },
-            },
-          }),
-          repoRoot: tempDir,
-        });
-
-        expect(serverCalled).toBe(true);
-        expect(decision.mode).toBe("solo");
-        expect(decision.task_class).toBe("debug");
-        expect(decision.rationale).toBe("Governor routed as localized debugging task");
-      });
-
-      it("smoothly falls through to default plan fallback when governor is unreachable (A9, §6.3)", async () => {
-        const decision = await routeRequest({
-          prompt: "Build dashboard UI",
-          settings: makeSettings({
-            roles: {
-              ...makeSettings().roles,
-              governor: {
-                enabled: true,
-                endpoint: "http://127.0.0.1:59998", // unreachable port
-                enable_thinking: false,
-                timeout_s: 1,
-              },
-            },
-          }),
-          repoRoot: tempDir,
-        });
-
-        expect(decision.mode).toBe("plan");
-        expect(decision.rationale).toMatch(/default plan fallback/i);
-      });
-
-      it("smoothly falls through to default plan fallback when governor times out", async () => {
-        const server = http.createServer(() => {
-          // Hang
-        });
-        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-        activeServer = server;
-        const addr = server.address() as AddressInfo;
-        const endpoint = `http://127.0.0.1:${addr.port}`;
-
-        const decision = await routeRequest({
-          prompt: "Build dashboard UI",
-          settings: makeSettings({
-            roles: {
-              ...makeSettings().roles,
-              governor: {
-                enabled: true,
-                endpoint,
-                enable_thinking: false,
-                timeout_s: 0.05, // very short timeout
-              },
-            },
-          }),
-          repoRoot: tempDir,
-        });
-
-        expect(decision.mode).toBe("plan");
-        expect(decision.rationale).toMatch(/default plan fallback/i);
-      });
-    });
-
-    describe("Step 4: Default Fallback", () => {
+    describe("Step 3: Default Fallback", () => {
       it("returns default plan routing when no earlier rules match", async () => {
         const decision = await routeRequest({
           prompt: "Implement complex microservice architecture",
-          settings: makeSettings({
-            roles: {
-              ...makeSettings().roles,
-              governor: { enabled: false, endpoint: "", enable_thinking: false, timeout_s: 10 },
-            },
-          }),
+          settings: makeSettings(),
           repoRoot: tempDir,
         });
 
@@ -384,71 +223,6 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
       const localRoute = resolveTaskRoute("mechanical", 1, settings);
       expect(localRoute.backend).toBe("opencode");
       expect(localRoute.model).toBe("llama-3.1-8b");
-    });
-  });
-
-  describe("Route-to-Outcome Ledger (appendRouteOutcome)", () => {
-    it("appends RouteOutcomeRecord as valid JSON line to ledger file", async () => {
-      const ledgerDir = join(tempDir, "ledger");
-      const record: RouteOutcomeRecord = {
-        run_id: "r_ABCDEF234567",
-        task_id: "T1",
-        decision: {
-          mode: "solo",
-          task_class: "mechanical",
-          rationale: "Deterministic single file match",
-        },
-        rule_matched: "deterministic",
-        outcome: "passed",
-        cost_usd: 0.005,
-        duration_ms: 1250,
-        timestamp: new Date().toISOString(),
-      };
-
-      await appendRouteOutcome(record, ledgerDir);
-
-      const ledgerFile = join(ledgerDir, "routes.jsonl");
-      expect(existsSync(ledgerFile)).toBe(true);
-
-      const content = readFileSync(ledgerFile, "utf8").trim();
-      const lines = content.split("\n");
-      expect(lines.length).toBe(1);
-
-      const parsed = JSON.parse(lines[0]);
-      expect(parsed.run_id).toBe(record.run_id);
-      expect(parsed.task_id).toBe("T1");
-      expect(parsed.rule_matched).toBe("deterministic");
-      expect(parsed.outcome).toBe("passed");
-      expect(parsed.cost_usd).toBe(0.005);
-    });
-
-    it("appends multiple records consecutively without corruption", async () => {
-      const ledgerDir = join(tempDir, "ledger");
-      const record1: RouteOutcomeRecord = {
-        run_id: "r_ABCDEF234567",
-        decision: { mode: "plan", rationale: "Default fallback" },
-        rule_matched: "fallback",
-        timestamp: new Date().toISOString(),
-      };
-      const record2: RouteOutcomeRecord = {
-        run_id: "r_ABCDEF234567",
-        task_id: "T1",
-        decision: { mode: "solo", rationale: "Flag" },
-        rule_matched: "flag",
-        outcome: "failed",
-        timestamp: new Date().toISOString(),
-      };
-
-      await appendRouteOutcome(record1, ledgerDir);
-      await appendRouteOutcome(record2, ledgerDir);
-
-      const ledgerFile = join(ledgerDir, "routes.jsonl");
-      const content = readFileSync(ledgerFile, "utf8").trim();
-      const lines = content.split("\n");
-      expect(lines.length).toBe(2);
-
-      expect(JSON.parse(lines[0]).rule_matched).toBe("fallback");
-      expect(JSON.parse(lines[1]).rule_matched).toBe("flag");
     });
   });
 });

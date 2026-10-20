@@ -152,7 +152,7 @@ Default: planner and worker are both `claude` / `claude-sonnet-5-5` / `medium`.
 - `planner`: the planner route when `defaults.planner_provider` is not set.
 - `worker`: in solo mode, its `backend` and `model` replace the task route for the single worker. Because this default is always present, solo mode uses claude unless `roles.worker` is set. Its `effort`, when set, replaces the effort of the feature route for the single worker, as its `backend` and `model` do. Its `backend` is also the backend the scheduler caps with `max_concurrency`.
 - `reviewer`: accepted by the schema and not read by this version.
-- `governor`: accepted by the schema. It is not used on the default path in this version (DECISIONS A2 retires the governor), and this reference does not document its behaviour.
+- `governor`: removed. The governor was deleted on 2026-10-20 (DECISIONS A2). A settings file that contains `roles.governor` is rejected by the strict schema, like any unknown key.
 
 ### `routing`
 

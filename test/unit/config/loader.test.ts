@@ -143,6 +143,20 @@ describe("config loading: precedence and defaults", () => {
     await expect(loadSettings({ projectDir, userConfigDir: userDir, env: {} })).rejects.toThrow(/typoKey/);
   });
 
+  it("a roles.governor key is rejected by the strict schema, naming the key (governor deleted)", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(
+      projectDir,
+      ".substrate/settings.json",
+      JSON.stringify({
+        ...MINIMAL_FILE_SETTINGS,
+        roles: { ...MINIMAL_FILE_SETTINGS.roles, governor: { enabled: false, endpoint: "" } },
+      }),
+    );
+    await expect(loadSettings({ projectDir, userConfigDir: userDir, env: {} })).rejects.toThrow(/governor/);
+  });
+
   it("precedence: project < local < --settings < flags, higher wins", async () => {
     const projectDir = tmp();
     const userDir = tmp();

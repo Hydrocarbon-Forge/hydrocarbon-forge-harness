@@ -22,7 +22,7 @@ import {
   sampleValidContractStub,
 } from "../roles/fixtures.js";
 
-describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", () => {
+describe("Scenario 15: auto mode with no governor routes to the plan route (§14.5 #15)", () => {
   let env: ScenarioEnv;
   let engineMod: EngineModule;
   let effectsMod: EffectsModule;
@@ -34,19 +34,12 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
   });
 
   beforeEach(async () => {
-    env = await setupScenarioEnv("15-governor-fallback", {
+    env = await setupScenarioEnv("15-auto-no-governor", {
       customSettings: {
         roles: {
           // The run uses the fake claude harness, so the planner route must name the
           // backend the adapter reports.
           planner: { backend: "claude", model: "claude-haiku-5-5" },
-          governor: {
-            enabled: true,
-            // Point to a dead / non-existent local port
-            endpoint: "http://127.0.0.1:54321/v1",
-            enable_thinking: false,
-            timeout_s: 1,
-          },
         },
       },
     });
@@ -57,7 +50,7 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
     fakeClaude?.cleanup();
   });
 
-  it("gracefully catches governor failure, logs warning event, and falls back to rules router", async () => {
+  it("runs in auto mode with no governor: routes to plan, finishes, and records no governor event", async () => {
     const runId: RunId = "r_B5B5B5ABCDEF";
 
     fakeClaude = fakeClaudeAdapter([
@@ -88,7 +81,7 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
       adapter: fakeClaude.adapter,
     });
 
-    // Run in auto mode with governor enabled but offline
+    // Auto mode with no governor configured takes the plan route.
     const summary: RunSummary = await engine.run({
       prompt: "Implement simple calculation feature",
       cwd: env.repoRoot,
@@ -100,11 +93,12 @@ describe("Scenario 15: Governor Down -> Deterministic Fallback (§14.5 #15)", ()
     expect(summary.status).toBe("finished");
     expect(summary.exit_code).toBe(0);
 
-    // Events log should record governor fallback
     const events = readEventLog(env.runDir, runId);
     const eventTypes = events.map((e) => e.type);
 
-    expect(eventTypes).toContain("governor.fallback");
     expect(eventTypes).toContain("run.routed");
+    expect(eventTypes.some((t) => t.startsWith("governor"))).toBe(false);
+    const routed = events.find((e) => e.type === "run.routed");
+    expect(routed?.data).toMatchObject({ mode: "plan" });
   });
 });

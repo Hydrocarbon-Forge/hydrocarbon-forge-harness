@@ -39,7 +39,6 @@ const EXPECTED = [
   "Engine",
   "EngineEvent",
   "ExecutionStrategy",
-  "GovernorTool",
   "RoutingDecision",
 ];
 

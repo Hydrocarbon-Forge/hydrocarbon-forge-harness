@@ -284,7 +284,6 @@ function assignUntil(v) {
   }
   if (rule === "P9" && p === "src/backends/adapters/opencode.ts") return "R2.4";
   if (rule === "P6") {
-    if (p === "src/roles/governor.ts") return "DEFERRED";
     if (p.startsWith("src/roles/prompts/")) return "R1.7";
   }
   if (rule === "P3" && p === "src/spec/parser.ts") return "R0.5";
