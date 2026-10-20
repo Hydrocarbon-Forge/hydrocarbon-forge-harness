@@ -12,7 +12,6 @@ import type {
   PauseReason,
   Route,
   RunId,
-  SessionHandle,
   SessionResult,
   Settings,
   SpawnRequest,
@@ -34,8 +33,8 @@ import {
   type ParsedTaskSpec,
 } from "../spec/index.js";
 import { toDelta, type UsageTotals } from "../ledger/usage.js";
+import { bindAbort } from "../backends/process.js";
 import { commitContractStubs, finishLine, REQUIRED_HEADINGS } from "../roles/planner.js";
-import { resolveTaskRoute } from "../roles/router.js";
 import { buildReplanL2Prompt, buildReplanPrompt } from "../roles/prompts/replan.js";
 import { evaluateEscalation, type EscalationAction } from "./ladder.js";
 import type { EngineState } from "./reducer.js";
@@ -96,14 +95,6 @@ export interface ReplanResult {
   packet: FailurePacket;
   diagnostics?: Diagnostic[];
   pauseReason?: PauseReason;
-}
-
-export function resolveEscalationRoute(
-  taskClass: string,
-  generation: number,
-  settings: Settings,
-): Route {
-  return resolveTaskRoute(taskClass as any, generation, settings);
 }
 
 /**
@@ -601,7 +592,7 @@ async function runPlannerSession(
   };
 
   const handle = adapter.spawn(request);
-  const unbind = bindSignal(opts.signal, handle);
+  const unbind = bindAbort(opts.signal, handle);
   let totals: UsageTotals = { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
   let sawUsage = false;
 
@@ -646,21 +637,6 @@ async function runPlannerSession(
   } finally {
     unbind();
   }
-}
-
-function bindSignal(signal: AbortSignal | undefined, handle: SessionHandle): () => void {
-  if (!signal) return () => {};
-  if (signal.aborted) {
-    handle.kill("cancel");
-    return () => {};
-  }
-  const onAbort = () => {
-    handle.kill("cancel");
-  };
-  signal.addEventListener("abort", onAbort, { once: true });
-  return () => {
-    signal.removeEventListener("abort", onAbort);
-  };
 }
 
 function emptyResult(): SessionResult {

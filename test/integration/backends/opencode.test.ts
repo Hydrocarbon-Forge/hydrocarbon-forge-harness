@@ -13,7 +13,7 @@ import {
 import { runAdapterConformanceSuite } from "../../conformance/index.js";
 import {
   OpenCodeAdapter,
-  generateOpenCodeRunConfig,
+  generateOpenCodeRunConfigSync,
   mapEffortToVariant,
   type OpenCodeAdapterOptions,
 } from "../../../src/backends/adapters/opencode.js";
@@ -102,7 +102,7 @@ describe("OpenCodeAdapter: Per-Run Config Generation", () => {
         budget: { timeout_ms: 30000 },
       };
 
-      const config = await generateOpenCodeRunConfig(req);
+      const config = generateOpenCodeRunConfigSync(req);
       expect(config.configDir).toBeTruthy();
       expect(config.agentName).toBeTruthy();
       expect(typeof config.cleanup).toBe("function");
@@ -148,7 +148,7 @@ describe("OpenCodeAdapter: Per-Run Config Generation", () => {
         contextWindow: 65536,
       };
 
-      const config = await generateOpenCodeRunConfig(req, options);
+      const config = generateOpenCodeRunConfigSync(req, options);
       // Provider config file should exist under configDir
       expect(existsSync(config.configDir)).toBe(true);
 

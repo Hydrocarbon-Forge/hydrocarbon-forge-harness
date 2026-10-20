@@ -67,6 +67,18 @@ export function promoteReadyTasks(state: EngineState): TaskId[] {
 }
 
 /**
+ * PENDING tasks with no dependencies. Setup emits `task.ready` for these as the
+ * first batch; a log cut between `setup.done` and that event leaves them PENDING,
+ * so a resume has to release them. Pure, like promoteReadyTasks.
+ */
+export function unreleasedRootTasks(state: EngineState): TaskId[] {
+  return Object.values(state.tasks)
+    .filter((t) => t.state === "PENDING" && (t.depends_on ?? []).length === 0)
+    .map((t) => t.id)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * PENDING tasks that have a dependency in BLOCKED or ABANDONED. They become
  * BLOCKED through a `task.blocked` event, so the state change is still an
  * appended event. Pure, like promoteReadyTasks.

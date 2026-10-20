@@ -13,7 +13,12 @@ import { type EngineState, reduce, type TaskRuntimeState } from "./reducer.js";
 import { log } from "../util/log.js";
 import { makeEmitter } from "./emit.js";
 import type { Emit } from "./actions/shared.js";
-import { blockedPendingTasks, promoteReadyTasks, scheduleNextTasks } from "./scheduler.js";
+import {
+  blockedPendingTasks,
+  promoteReadyTasks,
+  scheduleNextTasks,
+  unreleasedRootTasks,
+} from "./scheduler.js";
 import type { UsageLedgerEntry } from "../contracts/index.js";
 import { appendUsage, ledgerPaths } from "../ledger/usage.js";
 import { EventStoreImpl } from "../store/event-store.js";
@@ -404,6 +409,19 @@ export async function runEffectsLoop(
       applyEvent(emitLoopEvent("task.ready", { task_id: taskId }));
     }
   };
+
+  // Resume (R5.3 S11): the replayed log may stop after `setup.done`, which leaves the
+  // first batch PENDING, or after a `task.merged` / `batch.merged`, which leaves
+  // dependents PENDING. Setup and settleDependents would have emitted these
+  // promotions, so they are emitted here, before the first action is chosen and
+  // therefore before the stall check. Only the resume entry (engine.ts) starts the
+  // loop in EXECUTING; a fresh run enters in CREATED and setup releases the first batch.
+  if (state.state === "EXECUTING") {
+    for (const taskId of unreleasedRootTasks(state)) {
+      applyEvent(emitLoopEvent("task.ready", { task_id: taskId }));
+    }
+    settleDependents();
+  }
 
   while (!isTerminal(state)) {
     if (ctx.signal?.aborted) {

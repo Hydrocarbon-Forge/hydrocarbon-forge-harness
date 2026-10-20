@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { PassThrough, type Readable } from "node:stream";
+import type { SessionHandle } from "../contracts/index.js";
 import { takeTail } from "../util/index.js";
 
 export interface SupervisedProcessOptions {
@@ -39,6 +40,28 @@ export interface SupervisedProcess {
   wait(): Promise<ProcessExitResult>;
 }
 
+/**
+ * Binds a run's abort signal to one harness session for the session's lifetime.
+ * An abort kills the session with reason "cancel". The returned function removes
+ * the listener; callers run it once the session has ended.
+ */
+export function bindAbort(signal: AbortSignal | undefined, handle: SessionHandle): () => void {
+  if (!signal) {
+    return () => {};
+  }
+  if (signal.aborted) {
+    void handle.kill("cancel");
+    return () => {};
+  }
+  const onAbort = () => {
+    void handle.kill("cancel");
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  return () => {
+    signal.removeEventListener("abort", onAbort);
+  };
+}
+
 export function killProcessGroup(
   pgid: number,
   signal: NodeJS.Signals = "SIGTERM"
@@ -58,65 +81,6 @@ export function killProcessGroup(
       return false;
     }
     throw err;
-  }
-}
-
-function isProcessGroupAlive(pgid: number): boolean {
-  if (typeof pgid !== "number" || !Number.isInteger(pgid) || pgid <= 0) {
-    return false;
-  }
-  try {
-    if (process.platform === "win32") {
-      process.kill(pgid, 0);
-    } else {
-      process.kill(-pgid, 0);
-    }
-    return true;
-  } catch (err: any) {
-    if (err && err.code === "ESRCH") {
-      return false;
-    }
-    if (err && err.code === "EPERM") {
-      return true;
-    }
-    return false;
-  }
-}
-
-export async function terminateProcessGroup(
-  pgid: number,
-  gracePeriodMs: number = 5000
-): Promise<void> {
-  if (typeof pgid !== "number" || !Number.isInteger(pgid) || pgid <= 0) {
-    throw new Error(`Invalid process group ID: ${pgid}`);
-  }
-  const termSent = killProcessGroup(pgid, "SIGTERM");
-  if (!termSent) {
-    return;
-  }
-
-  const start = Date.now();
-  const pollInterval = 50;
-
-  while (Date.now() - start < gracePeriodMs) {
-    await new Promise((r) =>
-      setTimeout(
-        r,
-        Math.min(pollInterval, Math.max(10, gracePeriodMs - (Date.now() - start)))
-      )
-    );
-    if (!isProcessGroupAlive(pgid)) {
-      return;
-    }
-  }
-
-  // Escalate to SIGKILL
-  killProcessGroup(pgid, "SIGKILL");
-
-  // Wait briefly for SIGKILL to reap
-  const killStart = Date.now();
-  while (isProcessGroupAlive(pgid) && Date.now() - killStart < 3000) {
-    await new Promise((r) => setTimeout(r, 20));
   }
 }
 

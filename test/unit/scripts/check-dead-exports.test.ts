@@ -64,4 +64,40 @@ describe("check-dead-exports script and analyzeDead", () => {
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("OK");
   });
+
+  it("default entries reach src/cli/main.ts so dynamically imported modules are live", () => {
+    const root = path.resolve("test/fixtures/check/dead-exports/dynamic-entry");
+    // No entries argument: exercises the default entry list (src/cli/main.ts).
+    const dead = analyzeDead({ root });
+
+    expect(dead.map((d: any) => d.name)).toEqual(["unusedHelper"]);
+
+    const res = run(["--root", root]);
+    expect(res.status).toBe(1);
+    expect(res.stdout).toMatch(/^dead-export src\/cli\/signals\.ts:\d+ unusedHelper$/m);
+    expect(res.stdout).not.toContain("installSignalHandlers");
+  });
+
+  it("typeof X type queries count as uses of the value X; plain type-only references do not", () => {
+    const root = path.resolve("test/fixtures/check/dead-exports/typeof-query");
+    const dead = analyzeDead({ root, entries: ["src/index.ts"] });
+    const names = dead.map((d: any) => d.name).sort();
+
+    expect(names).not.toContain("Kept");
+    expect(names).toEqual(["TypeOnly", "Unused", "takesTypeOnly"]);
+  });
+
+  it("consumer script value references keep src exports alive; without the consumer they are dead", () => {
+    const root = path.resolve("test/fixtures/check/dead-exports/consumer-root");
+    const dead = analyzeDead({ root, entries: ["src/index.ts"] });
+    expect(dead.map((d: any) => d.name)).toEqual(["Dead"]);
+
+    const withoutConsumer = analyzeDead({ root, entries: ["src/index.ts"], consumers: [] });
+    expect(withoutConsumer.map((d: any) => d.name).sort()).toEqual(["Dead", "Schema"]);
+
+    const res = run(["--root", root, "--entries", "src/index.ts"]);
+    expect(res.status).toBe(1);
+    expect(res.stdout).toMatch(/^dead-export src\/contracts\/index\.ts:\d+ Dead$/m);
+    expect(res.stdout).toMatch(/^FAIL: 1 violation\(s\)$/m);
+  });
 });

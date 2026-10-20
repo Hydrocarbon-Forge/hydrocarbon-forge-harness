@@ -3,9 +3,13 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { normalizeClaudeStream } from "../../src/backends/normalize/claude.js";
+import { normalizeClaudeEvent } from "../../src/backends/normalize/claude.js";
 import { normalizeOpenCodeStream } from "../../src/backends/normalize/opencode.js";
-import { normalizeAgyStream, type AgyRawEvent } from "../../src/backends/normalize/agy.js";
+import {
+  AgyNormalizer,
+  type AgyNormalizerOptions,
+  type AgyRawEvent,
+} from "../../src/backends/normalize/agy.js";
 import type { BackendEvent, PricingTable } from "../../src/contracts/index.js";
 
 const BIN_DIR = resolve(__dirname, "../fixtures/fake-harness/bin");
@@ -26,6 +30,25 @@ async function* toAsyncIterable<T>(items: T[]): AsyncIterable<T> {
   for (const item of items) {
     yield item;
   }
+}
+
+// Mirrors the live claude adapter loop: one normalizeClaudeEvent call per stdout line.
+async function* normalizeClaudeLines(lines: string[]): AsyncIterable<BackendEvent> {
+  const seenDenials = new Set<string>();
+  for (const line of lines) {
+    yield* normalizeClaudeEvent(JSON.parse(line), { seenDenials });
+  }
+}
+
+// Mirrors the live agy adapter: AgyNormalizer per event, then finalize at exit.
+function normalizeAgyEvents(raws: AgyRawEvent[], options: AgyNormalizerOptions): BackendEvent[] {
+  const normalizer = new AgyNormalizer(options);
+  const events: BackendEvent[] = [];
+  for (const raw of raws) {
+    events.push(...normalizer.normalizeEvent(raw));
+  }
+  events.push(...normalizer.finalize(0));
+  return events;
 }
 
 describe("Dialect output normalizer conformance", () => {
@@ -73,7 +96,7 @@ describe("Dialect output normalizer conformance", () => {
     const lines = result.stdout.trim().split("\n").filter(Boolean);
 
     const events: BackendEvent[] = [];
-    for await (const ev of normalizeClaudeStream(toAsyncIterable(lines))) {
+    for await (const ev of normalizeClaudeLines(lines)) {
       events.push(ev);
     }
 
@@ -186,17 +209,10 @@ describe("Dialect output normalizer conformance", () => {
     const lines = result.stdout.trim().split("\n").filter(Boolean);
     const parsed: AgyRawEvent[] = lines.map((l) => JSON.parse(l));
 
-    const events: BackendEvent[] = [];
-    for await (const ev of normalizeAgyStream(
-      toAsyncIterable(parsed),
-      toAsyncIterable([]),
-      {
-        model: "gemini-3.8-flash-low",
-        pricing: samplePricing,
-      }
-    )) {
-      events.push(ev);
-    }
+    const events = normalizeAgyEvents(parsed, {
+      model: "gemini-3.8-flash-low",
+      pricing: samplePricing,
+    });
 
     const started = events.find((e) => e.type === "session.started");
     expect(started).toBeDefined();

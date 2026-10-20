@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import * as Contracts from "../../../src/contracts/index.js";
 import { nowIsoTimestamp } from "../../../src/util/index.js";
-import { calculateCostUsd, computeUsageRecord } from "../../../src/backends/pricing.js";
+import { calculateCostUsd } from "../../../src/backends/pricing.js";
 
 const S4_PRICING: Contracts.PricingTable = Contracts.PricingTable.parse({
   asOf: "2026-10-16",
@@ -101,7 +101,7 @@ describe("pricing: calculateCostUsd token math", () => {
   });
 });
 
-describe("pricing: computeUsageRecord", () => {
+describe("pricing: calculateCostUsd record assembly", () => {
   it("populates cost_usd and marks cost_source as 'computed'", () => {
     const raw = {
       backend: "claude" as const,
@@ -113,7 +113,8 @@ describe("pricing: computeUsageRecord", () => {
       at: nowIsoTimestamp(),
     };
 
-    const record = computeUsageRecord(S4_PRICING, raw);
+    const { cost_usd, cost_source } = calculateCostUsd(S4_PRICING, raw.model, raw);
+    const record = { ...raw, cost_usd, cost_source };
 
     expect(record.cost_source).toBe("computed");
     expect(record.cost_usd).toBeCloseTo(0.745, 6);

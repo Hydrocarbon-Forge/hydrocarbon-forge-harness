@@ -121,4 +121,3 @@ export class VerifyRunnerImpl implements VerifyRunner {
 }
 
 export const VerifyRunner = VerifyRunnerImpl;
-export const verifyRunner = new VerifyRunnerImpl();

@@ -15,20 +15,6 @@ export function createRunId(): string {
   return id;
 }
 
-export function isRunId(v: unknown): boolean {
-  return typeof v === "string" && /^r_[A-Z2-7]{12}$/.test(v);
-}
-
-export function isTaskId(v: unknown): boolean {
-  return typeof v === "string" && /^[A-Z][A-Za-z0-9_-]{0,31}$/.test(v);
-}
-
-export function assertTaskId(v: unknown): asserts v is string {
-  if (!isTaskId(v)) {
-    throw new Error(`Invalid TaskId: ${String(v)}`);
-  }
-}
-
 export function isSafePath(root: string, relPath: string): boolean {
   if (typeof root !== "string" || typeof relPath !== "string") return false;
   if (!relPath || relPath.includes("\0")) return false;
@@ -79,12 +65,6 @@ export function isSafePath(root: string, relPath: string): boolean {
   }
 
   return true;
-}
-
-export function assertSafePath(root: string, relPath: string): void {
-  if (!isSafePath(root, relPath)) {
-    throw new Error(`Unsafe path: ${relPath}`);
-  }
 }
 
 export function matchGlob(pattern: string, text: string): boolean {

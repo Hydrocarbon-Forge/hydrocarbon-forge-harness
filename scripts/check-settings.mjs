@@ -89,6 +89,14 @@ function isLeafRead(leafPath, fileContents) {
   const parentDot = parent && parent !== "*" ? `${parent}.${leaf}` : null;
   const parentOptDot = parent && parent !== "*" ? `${parent}?.${leaf}` : null;
   const topLevelRegex = !parent ? new RegExp(`\\b${leaf}\\??\\.`) : null;
+  // A leaf under a wildcard record (pricing.models.*.input_per_mtok, routing.*.model) is read
+  // through a value taken from the record (e.g. `rates.input_per_mtok`), so the parent name is
+  // not in the text. Such a read counts when one file reads `.leaf` and also touches the
+  // record's container (`.models`, `.routing`).
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const container = parent === "*" && parts.length >= 3 ? parts[parts.length - 3] : null;
+  const wildcardLeafRegex = container ? new RegExp(`\\.${escapeRe(leaf)}\\b`) : null;
+  const containerRegex = container ? new RegExp(`\\.${escapeRe(container)}\\b`) : null;
 
   for (const content of fileContents) {
     if (content.includes(bracketPatternDouble) || content.includes(bracketPatternSingle)) {
@@ -98,6 +106,9 @@ function isLeafRead(leafPath, fileContents) {
       return true;
     }
     if (topLevelRegex && topLevelRegex.test(content)) {
+      return true;
+    }
+    if (wildcardLeafRegex && wildcardLeafRegex.test(content) && containerRegex.test(content)) {
       return true;
     }
   }

@@ -19,7 +19,6 @@ function getVerifyRunner(): VerifyRunner {
     }
     return mod.VerifyRunner;
   }
-  if (mod.verifyRunner) return mod.verifyRunner;
   return mod as VerifyRunner;
 }
 

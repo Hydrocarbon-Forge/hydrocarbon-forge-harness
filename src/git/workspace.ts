@@ -280,10 +280,6 @@ export class WorkspaceLifecycleImpl implements WorkspaceLifecycle {
   }
 }
 
-export const WorkspaceManager = WorkspaceManagerImpl;
-export const GitWorkspaceManager = WorkspaceManagerImpl;
 export const workspaceManager = new WorkspaceManagerImpl();
 
-export const WorkspaceLifecycle = WorkspaceLifecycleImpl;
-export const GitWorkspaceLifecycle = WorkspaceLifecycleImpl;
 export const workspaceLifecycle = new WorkspaceLifecycleImpl();

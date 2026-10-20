@@ -3,23 +3,11 @@ import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
-import * as MergerModule from "../../../src/git/merger.js";
-import type { TaskMerger, PreflightResult } from "../../../src/git/merger.js";
+import { TaskMerger } from "../../../src/git/merger.js";
+import type { PreflightResult } from "../../../src/git/merger.js";
 
 function getTaskMerger(): TaskMerger {
-  const mod = MergerModule as any;
-  if (mod.TaskMerger) {
-    if (typeof mod.TaskMerger === "function") {
-      try {
-        return new mod.TaskMerger();
-      } catch {
-        return mod.TaskMerger;
-      }
-    }
-    return mod.TaskMerger;
-  }
-  if (mod.taskMerger) return mod.taskMerger;
-  return mod as TaskMerger;
+  return new TaskMerger();
 }
 
 describe("merge: TaskMerger - preflight conflict detection", () => {

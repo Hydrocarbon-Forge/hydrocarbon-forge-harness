@@ -62,7 +62,7 @@ export interface ReplanResult {
 
 let buildFailurePacket: (opts: BuildFailurePacketOptions) => Promise<Contracts.FailurePacket>;
 let executeReplan: (opts: ReplanExecutionOptions) => Promise<ReplanResult>;
-let resolveEscalationRoute: (
+let resolveTaskRoute: (
   taskClass: string,
   generation: number,
   settings: Contracts.Settings,
@@ -74,7 +74,8 @@ beforeAll(async () => {
 
   const replanMod = (await import("../../../src/engine/replan.js" as any)) as any;
   executeReplan = replanMod.executeReplan;
-  resolveEscalationRoute = replanMod.resolveEscalationRoute;
+  const routerMod = (await import("../../../src/roles/router.js" as any)) as any;
+  resolveTaskRoute = routerMod.resolveTaskRoute;
 });
 
 function makeRunId(): Contracts.RunId {
@@ -250,7 +251,7 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
     });
   });
 
-  describe("Escalation Route Resolution (resolveEscalationRoute)", () => {
+  describe("Escalation Route Resolution (resolveTaskRoute)", () => {
     it("returns base route for generation 1 and escalates along chain for generation >= 2", () => {
       const settings = {
         ...DEFAULT_SETTINGS,
@@ -261,13 +262,13 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
         },
       } as Contracts.Settings;
 
-      const gen1 = resolveEscalationRoute("feature", 1, settings);
+      const gen1 = resolveTaskRoute("feature", 1, settings);
       expect(gen1.model).toBe("claude-haiku-5-5");
 
-      const gen2 = resolveEscalationRoute("feature", 2, settings);
+      const gen2 = resolveTaskRoute("feature", 2, settings);
       expect(gen2.model).toBe("claude-sonnet-5-5");
 
-      const gen3 = resolveEscalationRoute("feature", 3, settings);
+      const gen3 = resolveTaskRoute("feature", 3, settings);
       expect(gen3.model).toBe("claude-opus-5-5");
     });
 
@@ -281,10 +282,10 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
         },
       } as Contracts.Settings;
 
-      const gen4 = resolveEscalationRoute("feature", 4, settings);
+      const gen4 = resolveTaskRoute("feature", 4, settings);
       expect(gen4.model).toBe("claude-opus-5-5");
 
-      const gen10 = resolveEscalationRoute("feature", 10, settings);
+      const gen10 = resolveTaskRoute("feature", 10, settings);
       expect(gen10.model).toBe("claude-opus-5-5");
     });
   });

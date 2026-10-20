@@ -102,6 +102,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `roles.planner.effort` | effort level | Effort of the planner route. Default `medium`. |
 | `roles.worker.backend` | string | Backend of the solo worker. Also the backend whose `max_concurrency` the scheduler applies. Default `claude`. |
 | `roles.worker.model` | string | Model of the solo worker. Default `claude-sonnet-5-5`. |
+| `roles.worker.effort` | effort level | Effort of the solo worker. When unset, the effort of the `feature` route is used. |
 | `routing.escalation` | array of strings | Model ids for escalation when no worker profile is set. Default `haiku`, `sonnet`, `opus`. |
 | `routing.*.backend` | string | Backend of the route for one task class. |
 | `routing.*.model` | string | Model of the route for one task class. |
@@ -149,7 +150,7 @@ The planner and worker routes. Each route has `backend`, `model` and an optional
 Default: planner and worker are both `claude` / `claude-sonnet-5-5` / `medium`.
 
 - `planner`: the planner route when `defaults.planner_provider` is not set.
-- `worker`: in solo mode, its `backend` and `model` replace the task route for the single worker. Because this default is always present, solo mode uses claude unless `roles.worker` is set. Its `effort` is not read. Its `backend` is also the backend the scheduler caps with `max_concurrency`.
+- `worker`: in solo mode, its `backend` and `model` replace the task route for the single worker. Because this default is always present, solo mode uses claude unless `roles.worker` is set. Its `effort`, when set, replaces the effort of the feature route for the single worker, as its `backend` and `model` do. Its `backend` is also the backend the scheduler caps with `max_concurrency`.
 - `reviewer`: accepted by the schema and not read by this version.
 - `governor`: accepted by the schema. It is not used on the default path in this version (DECISIONS A2 retires the governor), and this reference does not document its behaviour.
 
@@ -227,7 +228,8 @@ Default: `run.max_usd` 5, `task.max_usd` 0.5, `l1_replans_per_task` 2, `l2_per_r
 
 ### `permissions`
 
-- `allow`, `deny` and `ask` are accepted. The engine does not read them. Worker and planner tool rules are fixed in code (`src/roles/worker.ts` and `src/engine/actions/plan.ts`), so these lists do not change what a worker or planner may do in this version.
+- `allow` and `deny` are accepted. The engine does not read them. Worker and planner tool rules are fixed in code (`src/roles/worker.ts` and `src/engine/actions/plan.ts`), so these lists do not change what a worker or planner may do in this version.
+- The schema has no ask list. A settings file that still has one under `permissions` fails validation, and the file must be edited to remove it.
 
 ### `sandbox`
 
@@ -256,4 +258,4 @@ Default: `on_scope_violation` `revert`, `branch_prefix` `substrate/`, `auto_merg
 
 ### `hooks`
 
-- Accepted by the schema and not executed. No code outside `src/hooks/` calls the hook runner, so hook entries have no effect in this version.
+- Accepted by the schema and ignored. Hook execution is not part of this version, so hook entries have no effect.

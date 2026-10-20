@@ -357,4 +357,3 @@ export function createEngine(opts?: EngineOptions): Engine {
   return new EngineImpl(opts);
 }
 
-export const engine: Engine = createEngine();

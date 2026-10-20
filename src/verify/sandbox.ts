@@ -106,4 +106,3 @@ export class BwrapSandboxImpl implements BwrapSandbox {
 }
 
 export const BwrapSandbox = BwrapSandboxImpl;
-export const bwrapSandbox = new BwrapSandboxImpl();

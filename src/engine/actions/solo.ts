@@ -94,6 +94,9 @@ export async function runSoloTask(
       ...route,
       backend: ctx.settings.roles.worker.backend ?? route.backend,
       model: ctx.settings.roles.worker.model ?? route.model,
+      ...(ctx.settings.roles.worker.effort !== undefined
+        ? { effort: ctx.settings.roles.worker.effort }
+        : {}),
     };
   }
   const adapter = adapterFor(ctx, route.backend);

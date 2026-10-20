@@ -148,5 +148,4 @@ export class GitCommitterImpl implements GitCommitter {
   }
 }
 
-export const GitCommitter = GitCommitterImpl;
 export const gitCommitter = new GitCommitterImpl();

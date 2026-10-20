@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
 
 import {
   parseManifest,
   parseTaskSpec,
-  loadPlan,
 } from "../../../src/spec/parser.js";
 import {
   createTempRepo,
@@ -273,8 +272,8 @@ Nothing.
   });
 });
 
-describe("spec parser: loadPlan", () => {
-  it("loads manifest and all linked task specs from disk", async () => {
+describe("spec parser: manifest and linked task specs from disk", () => {
+  it("parseManifest and parseTaskSpec load the manifest and all linked task specs from disk", () => {
     const repo = createTempRepo();
     const manifestPath = join(repo, "manifest.yaml");
 
@@ -292,28 +291,17 @@ describe("spec parser: loadPlan", () => {
     writeFileSync(t1Path, sampleTaskSpecMarkdown({ frontmatter: { id: "T1" } }), "utf8");
     writeFileSync(t2Path, sampleTaskSpecMarkdown({ frontmatter: { id: "T2" } }), "utf8");
 
-    const plan = await loadPlan(manifestPath);
+    const manifest = parseManifest(readFileSync(manifestPath, "utf8"), manifestPath);
+    const specs = new Map(
+      manifest.tasks.map((task) => [
+        task.id,
+        parseTaskSpec(readFileSync(join(repo, task.spec), "utf8"), task.spec),
+      ]),
+    );
 
-    expect(plan.manifest.run_id).toBe("r_234567ABCDEF");
-    expect(plan.manifestPath).toBe(manifestPath);
-    expect(plan.specs.size).toBe(2);
-    expect(plan.specs.get("T1")?.frontmatter.id).toBe("T1");
-    expect(plan.specs.get("T2")?.frontmatter.id).toBe("T2");
-  });
-
-  it("throws when manifest file does not exist", async () => {
-    const missingManifest = join(createTempRepo(), "does_not_exist.yaml");
-    await expect(loadPlan(missingManifest)).rejects.toThrow();
-  });
-
-  it("throws or reports error when referenced task spec file is missing", async () => {
-    const repo = createTempRepo();
-    const manifestPath = join(repo, "manifest.yaml");
-    const manifestYaml = sampleManifestYaml({
-      tasks: [{ id: "T1", spec: "tasks/nonexistent.md" }],
-    });
-    writeFileSync(manifestPath, manifestYaml, "utf8");
-
-    await expect(loadPlan(manifestPath)).rejects.toThrow();
+    expect(manifest.run_id).toBe("r_234567ABCDEF");
+    expect(specs.size).toBe(2);
+    expect(specs.get("T1")?.frontmatter.id).toBe("T1");
+    expect(specs.get("T2")?.frontmatter.id).toBe("T2");
   });
 });

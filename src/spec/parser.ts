@@ -173,26 +173,3 @@ export function parseTaskSpec(content: string, filePath?: string): ParsedTaskSpe
     filePath: filePath ?? "",
   };
 }
-
-export async function loadPlan(manifestPath: string): Promise<ParsedPlan> {
-  const resolvedManifestPath = path.resolve(manifestPath);
-  const rawManifest = await fs.promises.readFile(resolvedManifestPath, "utf8");
-  const manifest = parseManifest(rawManifest, manifestPath);
-
-  const manifestDir = path.dirname(resolvedManifestPath);
-  const specs = new Map<TaskId, ParsedTaskSpec>();
-
-  for (const task of manifest.tasks) {
-    const specPath = path.resolve(manifestDir, task.spec);
-    const rawSpec = await fs.promises.readFile(specPath, "utf8");
-    const parsedSpec = parseTaskSpec(rawSpec, task.spec);
-    specs.set(task.id, parsedSpec);
-  }
-
-  return {
-    manifest,
-    specs,
-    rawManifest,
-    manifestPath,
-  };
-}

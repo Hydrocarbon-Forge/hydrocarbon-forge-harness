@@ -15,7 +15,6 @@ function getBwrapSandbox(): BwrapSandbox {
     }
     return mod.BwrapSandbox;
   }
-  if (mod.bwrapSandbox) return mod.bwrapSandbox;
   return mod as BwrapSandbox;
 }
 

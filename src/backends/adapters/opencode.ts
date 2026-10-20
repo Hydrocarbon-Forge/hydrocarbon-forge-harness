@@ -366,13 +366,6 @@ export function generateOpenCodeRunConfigSync(
   };
 }
 
-export async function generateOpenCodeRunConfig(
-  req: SpawnRequest,
-  options?: OpenCodeAdapterOptions
-): Promise<GeneratedOpenCodeConfig> {
-  return generateOpenCodeRunConfigSync(req, options);
-}
-
 type SubagentHeadlessKey = `native_${"sub"}${"agents"}_headless`;
 
 const OPENCODE_CAPABILITIES: Capabilities = Object.assign(

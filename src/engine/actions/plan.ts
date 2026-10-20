@@ -28,6 +28,7 @@ import { checkRunBudget } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
+import { bindAbort } from "../../backends/process.js";
 import { runLintAction } from "./approve.js";
 import { log } from "../../util/log.js";
 import { plannerCharter, plannerHistory } from "../../charter/index.js";
@@ -173,25 +174,31 @@ export async function runPlanAction(
       };
 
       const handle = adapter.spawn(spawnReq);
+      const unbind = bindAbort(ctx.signal, handle);
       let sawUsageEvent = false;
 
-      for await (const evt of handle.events) {
-        if (evt.type === "session.started" && evt.session_id) {
-          currentSessionId = evt.session_id;
-        }
-        if (evt.type === "usage" && evt.record) {
-          sawUsageEvent = true;
-          const { delta, next } = toDelta(sessionTotals, evt.record, Boolean(evt.cumulative));
-          sessionTotals = next;
-          totalUsd += delta.cost_usd;
-          emit("usage.recorded", { record: delta, role: "planner" });
-          if (checkRunBudget(ctx, emit, totalUsd)) {
-            stoppedForBudget = true;
+      const res = await (async () => {
+        try {
+          for await (const evt of handle.events) {
+            if (evt.type === "session.started" && evt.session_id) {
+              currentSessionId = evt.session_id;
+            }
+            if (evt.type === "usage" && evt.record) {
+              sawUsageEvent = true;
+              const { delta, next } = toDelta(sessionTotals, evt.record, Boolean(evt.cumulative));
+              sessionTotals = next;
+              totalUsd += delta.cost_usd;
+              emit("usage.recorded", { record: delta, role: "planner" });
+              if (checkRunBudget(ctx, emit, totalUsd)) {
+                stoppedForBudget = true;
+              }
+            }
           }
+          return await handle.result();
+        } finally {
+          unbind();
         }
-      }
-
-      const res = await handle.result();
+      })();
       if (res.session_id) currentSessionId = res.session_id;
       if (!sawUsageEvent && res.usage) {
         totalUsd += res.usage.cost_usd;
@@ -202,6 +209,9 @@ export async function runPlanAction(
       }
 
       if (stoppedForBudget) return;
+      // An abort ends the run as user_cancel (the engine loop emits it); the
+      // killed planner session is not a task or run failure.
+      if (ctx.signal?.aborted) return;
 
       if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
         emit("task.failed", { failure_class: "worker_crashed" });
@@ -370,9 +380,11 @@ export async function runPlanAction(
       onEvent: plannerEmit,
       charter,
       history,
+      signal: ctx.signal,
     });
   } catch (err) {
     if (stoppedForBudget) return;
+    if (ctx.signal?.aborted) return;
 
     if (err instanceof PlannerFailure) {
       const failureClass = err.reason === "session" ? "worker_crashed" : "spec_invalid";

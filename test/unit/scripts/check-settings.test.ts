@@ -51,4 +51,17 @@ describe("check-settings script", () => {
     expect(res.stdout).toContain("Debt of finished WP R0.1 still present");
     expect(res.stdout).toMatch(/^FAIL:\s+\d+\s+violation\(s\)$/m);
   });
+
+  it("counts leaf reads through values taken from wildcard records, but still reports unread wildcard leaves", () => {
+    const root = path.resolve("test/fixtures/check/settings-wildcard");
+    const res = run(["--root", root]);
+    expect(res.status).toBe(1);
+    // Read live as `rates.input_per_mtok` and `route.model`: not reported.
+    expect(res.stdout).not.toContain("pricing.models.*.input_per_mtok");
+    expect(res.stdout).not.toContain("routing.*.model");
+    // Seeded true positives: never read.
+    expect(res.stdout).toMatch(/^unread-settings-key\s+src\/contracts\/index\.ts:1 Settings key "pricing\.models\.\*\.unused_rate"/m);
+    expect(res.stdout).toMatch(/^unread-settings-key\s+src\/contracts\/index\.ts:1 Settings key "routing\.\*\.bogus_field"/m);
+    expect(res.stdout).toMatch(/^FAIL:\s+2\s+violation\(s\)$/m);
+  });
 });

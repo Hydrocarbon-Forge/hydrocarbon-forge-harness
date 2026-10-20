@@ -105,7 +105,3 @@ export function parseNdjsonLine<T = unknown>(line: string): T {
     throw new ProtocolError(`Invalid JSON: ${err?.message ?? String(err)}`);
   }
 }
-
-export function serializeNdjson(obj: unknown): string {
-  return JSON.stringify(obj) + "\n";
-}

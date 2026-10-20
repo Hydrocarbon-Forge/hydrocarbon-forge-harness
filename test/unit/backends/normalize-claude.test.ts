@@ -11,7 +11,6 @@ import {
 } from "../../../src/contracts/index.js";
 import {
   normalizeClaudeEvent,
-  normalizeClaudeStream,
   extractClaudeUsage,
   extractClaudeSessionResult,
 } from "../../../src/backends/normalize/claude.js";
@@ -37,9 +36,11 @@ function loadFixtureEvents(filename: string): unknown[] {
   return loadFixtureLines(filename).map((line) => JSON.parse(line));
 }
 
-async function* toAsyncIterable<T>(items: T[]): AsyncIterable<T> {
+// Mirrors the live claude adapter loop: one normalizeClaudeEvent call per parsed line.
+async function* normalizeClaudeFixture(items: unknown[]): AsyncIterable<BackendEvent> {
+  const seenDenials = new Set<string>();
   for (const item of items) {
-    yield item;
+    yield* normalizeClaudeEvent(item, { seenDenials });
   }
 }
 
@@ -49,7 +50,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     expect(rawEvents.length).toBeGreaterThan(0);
 
     const events: BackendEvent[] = [];
-    for await (const event of normalizeClaudeStream(toAsyncIterable(rawEvents))) {
+    for await (const event of normalizeClaudeFixture(rawEvents)) {
       expect(BackendEvent.safeParse(event).success).toBe(true);
       events.push(event);
     }
@@ -104,7 +105,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     const rawEvents = loadFixtureEvents("tool-call.ndjson");
     const events: BackendEvent[] = [];
 
-    for await (const event of normalizeClaudeStream(toAsyncIterable(rawEvents))) {
+    for await (const event of normalizeClaudeFixture(rawEvents)) {
       expect(BackendEvent.safeParse(event).success).toBe(true);
       events.push(event);
     }
@@ -157,7 +158,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     const targetSessionId = "64001678-4648-4d8d-800e-7e703f98d320";
 
     const events: BackendEvent[] = [];
-    for await (const event of normalizeClaudeStream(toAsyncIterable(rawEvents))) {
+    for await (const event of normalizeClaudeFixture(rawEvents)) {
       expect(BackendEvent.safeParse(event).success).toBe(true);
       events.push(event);
     }
@@ -184,7 +185,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     const rawEvents = loadFixtureEvents("denial.ndjson");
     const events: BackendEvent[] = [];
 
-    for await (const event of normalizeClaudeStream(toAsyncIterable(rawEvents))) {
+    for await (const event of normalizeClaudeFixture(rawEvents)) {
       expect(BackendEvent.safeParse(event).success).toBe(true);
       events.push(event);
     }
@@ -212,7 +213,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     const rawEvents = loadFixtureEvents("budget-exceeded.ndjson");
     const events: BackendEvent[] = [];
 
-    for await (const event of normalizeClaudeStream(toAsyncIterable(rawEvents))) {
+    for await (const event of normalizeClaudeFixture(rawEvents)) {
       expect(BackendEvent.safeParse(event).success).toBe(true);
       events.push(event);
     }

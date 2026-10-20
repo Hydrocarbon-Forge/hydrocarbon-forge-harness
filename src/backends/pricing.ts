@@ -1,5 +1,4 @@
-import type { PricingTable, Settings, UsageRecord } from "../contracts/index.js";
-import { UsageRecord as UsageRecordSchema } from "../contracts/index.js";
+import type { PricingTable, Settings } from "../contracts/index.js";
 import { DEFAULT_PRICING } from "./default-pricing.js";
 
 export function pricingTableFor(settings: Settings): PricingTable {
@@ -101,17 +100,4 @@ export function calculateCostUsd(
 
   const cost_usd = (inputCost + outputCost + cacheReadCost + cacheWriteCost) / 1_000_000;
   return { cost_usd, cost_source: "computed" };
-}
-
-export function computeUsageRecord(
-  pricing: PricingTable,
-  raw: Omit<UsageRecord, "cost_usd" | "cost_source">
-): UsageRecord {
-  const { cost_usd, cost_source } = calculateCostUsd(pricing, raw.model, raw);
-  const record = {
-    ...raw,
-    cost_usd,
-    cost_source,
-  };
-  return UsageRecordSchema.parse(record);
 }

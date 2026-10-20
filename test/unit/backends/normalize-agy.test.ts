@@ -12,7 +12,6 @@ import {
 import { parseNdjsonLine } from "../../../src/backends/ndjson.js";
 import {
   AgyNormalizer,
-  normalizeAgyStream,
   type AgyNormalizerOptions,
   type AgyRawEvent,
 } from "../../../src/backends/normalize/agy.js";
@@ -594,7 +593,7 @@ describe("AgyNormalizer - Invariants and Edge Cases", () => {
     }
   });
 
-  it("normalizeAgyStream consumes async streams and yields ordered BackendEvent sequence", async () => {
+  it("AgyNormalizer consumes an async event sequence and yields ordered BackendEvent sequence", async () => {
     async function* makeEvents(): AsyncIterable<AgyRawEvent> {
       yield {
         event: "init",
@@ -621,17 +620,18 @@ describe("AgyNormalizer - Invariants and Edge Cases", () => {
       };
     }
 
-    async function* makeStderr(): AsyncIterable<string> {
-      // Empty stderr stream
-    }
-
-    const events: BackendEvent[] = [];
-    for await (const event of normalizeAgyStream(makeEvents(), makeStderr(), {
+    // Mirrors the live agy adapter: one AgyNormalizer call per event, then finalize at exit.
+    const normalizer = new AgyNormalizer({
       model: "gemini-3.8-flash-low",
       pricing: samplePricing,
-    })) {
+    });
+    const events: BackendEvent[] = [];
+    for await (const raw of makeEvents()) {
+      events.push(...normalizer.normalizeEvent(raw));
+    }
+    events.push(...normalizer.finalize(0));
+    for (const event of events) {
       expect(BackendEvent.safeParse(event).success).toBe(true);
-      events.push(event);
     }
 
     expect(events.length).toBeGreaterThanOrEqual(3);

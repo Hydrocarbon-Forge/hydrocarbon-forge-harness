@@ -8,11 +8,6 @@ import {
   buildPlannerPrompt,
   type PlannerPromptOptions,
 } from "../../../src/roles/prompts/planner.js";
-import { buildWorkerPrompt } from "../../../src/roles/prompts/worker.js";
-import {
-  buildTestWriterPrompt,
-  type TestWriterPromptOptions,
-} from "../../../src/roles/prompts/test-writer.js";
 import { buildReplanPrompt } from "../../../src/roles/prompts/replan.js";
 import { buildReviewerPrompt } from "../../../src/roles/prompts/reviewer.js";
 
@@ -39,31 +34,6 @@ function assetFirstLine(file: string): string {
 }
 
 describe("Role prompt builders (src/roles/prompts/**)", () => {
-  describe("Worker prompt (buildWorkerPrompt)", () => {
-    it("renders the absolute spec path into the user prompt", () => {
-      const prompt = buildWorkerPrompt("/abs/spec.md");
-      expect(prompt.user).toContain("/abs/spec.md");
-      expect(prompt.user).not.toContain("{{");
-    });
-
-    it("assembles a system prompt from assets, not from code", () => {
-      const prompt = buildWorkerPrompt("/abs/spec.md");
-      expect(prompt.system.length).toBeGreaterThan(0);
-      expect(prompt.system).not.toContain("{{");
-      // The worker agent body never carries the "You are the Substrate ..."
-      // literal that the other role bodies do.
-      expect(prompt.system).not.toContain("You are the Substrate");
-      expect(prompt.system).toContain(assetAgentBody("worker.md").split("\n")[0]);
-    });
-
-    it("throws when the spec path is relative or empty", () => {
-      expect(() => buildWorkerPrompt("tasks/T1.md")).toThrow(/absolute/i);
-      expect(() => buildWorkerPrompt("./tasks/T1.md")).toThrow(/absolute/i);
-      expect(() => buildWorkerPrompt("../tasks/T1.md")).toThrow(/absolute/i);
-      expect(() => buildWorkerPrompt("")).toThrow(/absolute/i);
-    });
-  });
-
   describe("Planner prompt (buildPlannerPrompt)", () => {
     const baseOpts: PlannerPromptOptions = {
       request: "Add user profile settings endpoint",
@@ -114,46 +84,6 @@ describe("Role prompt builders (src/roles/prompts/**)", () => {
       expect(prompt.system).toContain("manifest.yaml");
       expect(prompt.system).toContain(assetAgentBody("planner.md").split("\n")[0]);
       expect(prompt.system).toContain(assetFirstLine("planner/format.md"));
-    });
-  });
-
-  describe("Test-writer prompt (buildTestWriterPrompt)", () => {
-    const validOpts: TestWriterPromptOptions = {
-      specContent: "## Objective\nImplement auth login function.\n",
-      contractStubs: [
-        {
-          path: "src/auth.ts",
-          content: "export declare function login(user: string): Promise<boolean>;",
-        },
-      ],
-    };
-
-    it("renders the task template with no placeholders left and empty variables as (none)", () => {
-      const prompt = buildTestWriterPrompt(validOpts);
-      expect(prompt.user).not.toContain("{{");
-      expect(prompt.user).toContain("(none)");
-    });
-
-    it("assembles the system prompt from the worker and test-writer agent bodies", () => {
-      const prompt = buildTestWriterPrompt(validOpts);
-      expect(prompt.system).not.toContain("{{");
-      expect(prompt.system).toContain(assetAgentBody("worker.md").split("\n")[0]);
-      expect(prompt.system).toContain(assetAgentBody("test-writer.md").split("\n")[0]);
-    });
-
-    it("throws when specContent is missing or empty", () => {
-      expect(() =>
-        buildTestWriterPrompt({ ...validOpts, specContent: "" }),
-      ).toThrow(/missing.*spec/i);
-      expect(() =>
-        buildTestWriterPrompt({ ...validOpts, specContent: "   " }),
-      ).toThrow(/missing.*spec/i);
-    });
-
-    it("throws when contractStubs are empty", () => {
-      expect(() =>
-        buildTestWriterPrompt({ ...validOpts, contractStubs: [] }),
-      ).toThrow(/missing.*contract/i);
     });
   });
 

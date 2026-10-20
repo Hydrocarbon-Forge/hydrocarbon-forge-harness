@@ -5,33 +5,11 @@ import crypto from "node:crypto";
 
 import * as Contracts from "../../../src/contracts/index.js";
 import { createTestRepo, type TestRepo } from "./test-repo.js";
-import * as ScopeModule from "../../../src/git/scope.js";
+import { scopeEnforcer } from "../../../src/git/scope.js";
 import type { ScopeEnforcer, ScopeCheckResult } from "../../../src/git/scope.js";
 
 function getScopeEnforcer(): ScopeEnforcer {
-  const mod = ScopeModule as any;
-  if (mod.ScopeEnforcer) {
-    if (typeof mod.ScopeEnforcer === "function") {
-      try {
-        return new mod.ScopeEnforcer();
-      } catch {
-        return mod.ScopeEnforcer;
-      }
-    }
-    return mod.ScopeEnforcer;
-  }
-  if (mod.GitScopeEnforcer) {
-    if (typeof mod.GitScopeEnforcer === "function") {
-      try {
-        return new mod.GitScopeEnforcer();
-      } catch {
-        return mod.GitScopeEnforcer;
-      }
-    }
-    return mod.GitScopeEnforcer;
-  }
-  if (mod.scopeEnforcer) return mod.scopeEnforcer;
-  return mod as ScopeEnforcer;
+  return scopeEnforcer;
 }
 
 function sha256(content: string): string {

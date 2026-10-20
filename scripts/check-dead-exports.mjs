@@ -40,8 +40,9 @@ export function getDeadUntil(symbol, filePath) {
  */
 export function analyzeDead({
   root = findProjectRoot(),
-  entries = ["src/cli/dispatcher.ts", "src/index.ts"],
+  entries = ["src/cli/main.ts", "src/cli/dispatcher.ts", "src/index.ts"],
   excludeDirs = [],
+  consumers = ["scripts/export-schemas.mjs"],
 } = {}) {
   const allFiles = listFiles(root, "src", [".ts"]);
   const normalizedExclude = excludeDirs.map((d) => normalizeSlashes(d).replace(/\/+$/, ""));
@@ -50,6 +51,11 @@ export function analyzeDead({
   });
   const fileSet = new Set(files);
   const entryFiles = entries.map((e) => normalizeSlashes(e));
+  // Non-src consumers whose value references keep src exports alive (e.g. the
+  // schema exporter that lists contract consts). They are roots, not scanned for dead code.
+  const consumerFiles = consumers
+    .map((c) => normalizeSlashes(c))
+    .filter((c) => fs.existsSync(path.join(root, c)));
 
   // 1. Build TS program
   const tsconfigPath = path.join(root, "tsconfig.json");
@@ -77,16 +83,17 @@ export function analyzeDead({
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     target: ts.ScriptTarget.ES2022,
+    allowJs: true,
     noEmit: true,
   };
 
-  const absRootFiles = files.map((f) => path.resolve(root, f));
+  const absRootFiles = [...files, ...consumerFiles].map((f) => path.resolve(root, f));
   const program = ts.createProgram(absRootFiles, compilerOptions);
   const checker = program.getTypeChecker();
 
   // 2. File reachability from entries
   const graph = new Map();
-  for (const file of files) {
+  for (const file of [...files, ...consumerFiles]) {
     graph.set(file, new Set());
     const absPath = path.resolve(root, file);
     try {
@@ -103,8 +110,8 @@ export function analyzeDead({
 
   const reachableFiles = new Set();
   const fileQueue = [];
-  for (const entry of entryFiles) {
-    if (fileSet.has(entry)) {
+  for (const entry of [...entryFiles, ...consumerFiles]) {
+    if (fileSet.has(entry) || consumerFiles.includes(entry)) {
       reachableFiles.add(entry);
       fileQueue.push(entry);
     }
@@ -259,13 +266,20 @@ export function analyzeDead({
     return false;
   }
 
+  // True for `X` in `typeof X` (also `typeof ns.X`): a TypeQuery names a value binding.
+  function isTypeQueryOperand(node) {
+    let top = node;
+    while (ts.isQualifiedName(top.parent)) top = top.parent;
+    return ts.isTypeQueryNode(top.parent) && top.parent.exprName === top;
+  }
+
   const edges = new Map(); // ownerId -> Set<targetDeclId>
   function addEdge(ownerId, targetDeclId) {
     if (!edges.has(ownerId)) edges.set(ownerId, new Set());
     edges.get(ownerId).add(targetDeclId);
   }
 
-  for (const file of files) {
+  for (const file of [...files, ...consumerFiles]) {
     const absPath = path.resolve(root, file);
     const sf = program.getSourceFile(absPath);
     if (!sf) continue;
@@ -274,8 +288,9 @@ export function analyzeDead({
       if (ts.isIdentifier(node)) {
         // Skip import/export specifiers
         if (isInsideImportOrExport(node)) return;
-        // Skip type positions
-        if (isTypePosition(node)) return;
+        // Skip type positions, except the operand of a `typeof X` type query,
+        // which is a use of the value binding X (e.g. z.infer<typeof X>).
+        if (isTypePosition(node) && !isTypeQueryOperand(node)) return;
         // Skip declaration names
         if (
           (ts.isFunctionDeclaration(node.parent) ||
@@ -290,8 +305,10 @@ export function analyzeDead({
           return;
         }
 
-        // Resolve symbol
-        let sym = checker.getSymbolAtLocation(node);
+        // Resolve symbol (a shorthand `{ X }` names the value binding X, not the property)
+        let sym = ts.isShorthandPropertyAssignment(node.parent)
+          ? checker.getShorthandAssignmentValueSymbol(node.parent)
+          : checker.getSymbolAtLocation(node);
         if (sym) {
           while (sym && (sym.flags & ts.SymbolFlags.Alias)) {
             try {
@@ -469,7 +486,7 @@ function parseArgs(args) {
   let allowlist = null;
   let progress = null;
   let initAllowlist = false;
-  let entries = ["src/cli/dispatcher.ts", "src/index.ts"];
+  let entries = ["src/cli/main.ts", "src/cli/dispatcher.ts", "src/index.ts"];
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--root" && i + 1 < args.length) {

@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { applyOverlay, DEFAULT_SETTINGS, validateProfiles } from "../../src/config/index.js";
+import { DEFAULT_SETTINGS, validateProfiles } from "../../src/config/index.js";
+import { deepMerge } from "../../src/util/merge.js";
 import { Settings } from "../../src/contracts/index.js";
 import { pricingTableFor } from "../../src/backends/pricing.js";
 import {
@@ -143,7 +144,7 @@ describe("appendRecord and recordPath", () => {
 describe("liveSettings", () => {
   it.each(LIVE_HARNESSES)("%s: validates against Settings with caps, slots and routes", (harness) => {
     const overlay = liveSettings(harness, "some-model");
-    const merged = applyOverlay(DEFAULT_SETTINGS, overlay as never);
+    const merged = deepMerge(DEFAULT_SETTINGS, overlay as never);
     expect(() => Settings.parse(merged)).not.toThrow();
     expect(() => validateProfiles(merged)).not.toThrow();
     expect(merged.budgets.run.max_usd).toBe(RUN_CAP_USD);

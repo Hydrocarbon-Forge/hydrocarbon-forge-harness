@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { TaskId, Command, Settings } from "../contracts/index.js";
+import type { Command, Settings } from "../contracts/index.js";
 import { VerifyRunner } from "../verify/runner.js";
 import { isRegisteredWorktree, ensureGitExclude } from "./workspace.js";
 
@@ -11,46 +11,12 @@ export interface PreflightResult {
   treeSha?: string;
 }
 
-export interface TaskEntry {
-  id: TaskId;
-  branch: string;
-}
-
-export interface BatchMergeResult {
-  ok: boolean;
-  mergedTasks: TaskId[];
-  failedTask?: TaskId;
-  failureClass?: "merge_conflict" | "integration_failed";
-  culprit?: TaskId;
-  checkpointSha: string;
-  conflictFiles?: string[];
-  verifyRuns: number;
-}
-
 export interface TaskMerger {
   preflight(
     repoRoot: string,
     target: string,
     taskBranch: string
   ): Promise<PreflightResult>;
-}
-
-export interface BatchIntegrationMerger {
-  runBatchMerge(
-    repoRoot: string,
-    runId: string,
-    tasks: TaskEntry[],
-    verify: Command[],
-    settings: Settings
-  ): Promise<BatchMergeResult>;
-  bisectBatch(
-    repoRoot: string,
-    runId: string,
-    checkpoint: string,
-    tasks: TaskEntry[],
-    verify: Command[],
-    settings: Settings
-  ): Promise<TaskId>;
 }
 
 export async function createIntegrationWorktree(
@@ -219,157 +185,3 @@ class TaskMergerImpl implements TaskMerger {
 }
 
 export const TaskMerger = TaskMergerImpl;
-export const taskMerger = new TaskMergerImpl();
-
-async function bisectBatchInternal(
-  repoRoot: string,
-  runId: string,
-  checkpoint: string,
-  tasks: TaskEntry[],
-  verify: Command[],
-  settings: Settings,
-  worktreePath?: string
-): Promise<{ culprit: TaskId; runs: number }> {
-  const wt = worktreePath ?? (await createIntegrationWorktree(repoRoot, runId, checkpoint));
-  execFileSync("git", ["reset", "--hard", checkpoint], { cwd: wt, encoding: "utf8", stdio: "pipe" });
-  execFileSync("git", ["clean", "-fd"], { cwd: wt, encoding: "utf8", stdio: "pipe" });
-
-  let lastGoodSha = checkpoint;
-  let runs = 0;
-
-  for (const task of tasks) {
-    const newHead = await mergeInto(wt, task.branch, `bisect: ${task.id}`);
-    runs++;
-    const passed = await verifyIn(wt, verify, settings);
-    if (!passed) {
-      execFileSync("git", ["reset", "--hard", lastGoodSha], { cwd: wt, encoding: "utf8", stdio: "pipe" });
-      execFileSync("git", ["clean", "-fd"], { cwd: wt, encoding: "utf8", stdio: "pipe" });
-      return { culprit: task.id, runs };
-    }
-    lastGoodSha = newHead;
-  }
-
-  return { culprit: tasks[tasks.length - 1].id, runs };
-}
-
-export async function bisectBatch(
-  repoRoot: string,
-  runId: string,
-  checkpoint: string,
-  tasks: TaskEntry[],
-  verify: Command[],
-  settings: Settings
-): Promise<TaskId> {
-  const { culprit } = await bisectBatchInternal(repoRoot, runId, checkpoint, tasks, verify, settings);
-  return culprit;
-}
-
-export async function runBatchMerge(
-  repoRoot: string,
-  runId: string,
-  tasks: TaskEntry[],
-  verify: Command[],
-  settings: Settings
-): Promise<BatchMergeResult> {
-  let runBranch = `refs/heads/substrate/runs/${runId}`;
-  try {
-    execFileSync("git", ["show-ref", "--verify", "--quiet", runBranch], { cwd: repoRoot, stdio: "ignore" });
-  } catch {
-    const doubleRef = `refs/heads/refs/heads/substrate/runs/${runId}`;
-    try {
-      execFileSync("git", ["show-ref", "--verify", "--quiet", doubleRef], { cwd: repoRoot, stdio: "ignore" });
-      runBranch = doubleRef;
-    } catch {}
-  }
-  const preBatchSha = execFileSync("git", ["rev-parse", runBranch], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  }).trim();
-
-  const worktreePath = await createIntegrationWorktree(repoRoot, runId, preBatchSha);
-  let currentHead = preBatchSha;
-  let verifyRuns = 0;
-  const mergedTasks: TaskId[] = [];
-
-  for (const task of tasks) {
-    const pf = await preflight(repoRoot, currentHead, task.branch);
-    if (!pf.clean) {
-      return {
-        ok: false,
-        mergedTasks,
-        failedTask: task.id,
-        failureClass: "merge_conflict",
-        conflictFiles: pf.conflictFiles,
-        checkpointSha: preBatchSha,
-        verifyRuns,
-      };
-    }
-
-    currentHead = await mergeInto(worktreePath, task.branch, `merge: task ${task.id}`);
-    mergedTasks.push(task.id);
-  }
-
-  verifyRuns++;
-  const verified = await verifyIn(worktreePath, verify, settings);
-  if (verified) {
-    await advanceRunRef(repoRoot, runId, currentHead, preBatchSha);
-    return {
-      ok: true,
-      mergedTasks,
-      checkpointSha: preBatchSha,
-      verifyRuns,
-    };
-  }
-
-  if (tasks.length === 1) {
-    const culprit = tasks[0].id;
-    execFileSync("git", ["reset", "--hard", preBatchSha], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    execFileSync("git", ["clean", "-fd"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    return {
-      ok: false,
-      mergedTasks: [],
-      failedTask: culprit,
-      failureClass: "integration_failed",
-      culprit,
-      checkpointSha: preBatchSha,
-      verifyRuns,
-    };
-  }
-
-  const { culprit, runs: bisectRuns } = await bisectBatchInternal(
-    repoRoot,
-    runId,
-    preBatchSha,
-    tasks,
-    verify,
-    settings,
-    worktreePath
-  );
-  verifyRuns += bisectRuns;
-
-  return {
-    ok: false,
-    mergedTasks: [],
-    failedTask: culprit,
-    failureClass: "integration_failed",
-    culprit,
-    checkpointSha: preBatchSha,
-    verifyRuns,
-  };
-}
-
-class BatchIntegrationMergerImpl implements BatchIntegrationMerger {
-  runBatchMerge = runBatchMerge;
-  bisectBatch = bisectBatch;
-}
-
-export const BatchIntegrationMerger = BatchIntegrationMergerImpl;
-export const batchIntegrationMerger = new BatchIntegrationMergerImpl();

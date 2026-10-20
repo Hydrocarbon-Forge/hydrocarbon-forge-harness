@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 
 import * as Contracts from "../../../src/contracts/index.js";
 import { createRunId, nowIsoTimestamp } from "../../../src/util/index.js";
-import { EventStore } from "../../../src/store/index.js";
+import { EventStoreImpl as EventStore } from "../../../src/store/event-store.js";
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "substrate-event-store-"));

@@ -6,7 +6,6 @@ import type {
   EngineEvent,
   HarnessAdapter,
   Manifest,
-  SessionHandle,
   TaskId,
 } from "../../contracts/index.js";
 import type { EngineState } from "../reducer.js";
@@ -94,23 +93,6 @@ export async function safeLoadPlan(
     rawManifest,
     manifestPath,
     cleanup,
-  };
-}
-
-export function bindAbort(ctx: EffectContext, handle: SessionHandle): () => void {
-  if (!ctx.signal) {
-    return () => {};
-  }
-  if (ctx.signal.aborted) {
-    handle.kill("cancel");
-    return () => {};
-  }
-  const onAbort = () => {
-    handle.kill("cancel");
-  };
-  ctx.signal.addEventListener("abort", onAbort, { once: true });
-  return () => {
-    ctx.signal?.removeEventListener("abort", onAbort);
   };
 }
 

@@ -29,6 +29,7 @@ import {
 } from "../spec/index.js";
 import type { UsageTotals } from "../ledger/usage.js";
 import { toDelta } from "../ledger/usage.js";
+import { bindAbort } from "../backends/process.js";
 import { buildPlannerPrompt, buildCorrectionPrompt } from "./prompts/planner.js";
 
 /**
@@ -55,6 +56,8 @@ export interface PlannerRunOptions {
   onEvent?: PlannerEmit;
   charter?: string;
   history?: string;
+  /** Run abort signal: the planner session is killed when it aborts. */
+  signal?: AbortSignal;
 }
 
 export type PlannerOutcome =
@@ -425,21 +428,26 @@ export async function runPlanner(
     };
 
     const handle = opts.adapter.spawn(spawnReq);
+    const unbind = bindAbort(opts.signal, handle);
 
     let sawUsageEvent = false;
     let sessionTotals: UsageTotals | undefined;
-    for await (const evt of handle.events) {
-      if (evt.type === "session.started") sessionId = evt.session_id;
-      if (evt.type === "usage" && evt.record) {
-        sawUsageEvent = true;
-        const { delta, next } = toDelta(sessionTotals, evt.record, Boolean(evt.cumulative));
-        sessionTotals = next;
-        totals = addTotals(totals, delta);
-        opts.onEvent?.("usage.recorded", { record: delta, role: "planner" });
+    let res: Awaited<ReturnType<typeof handle.result>>;
+    try {
+      for await (const evt of handle.events) {
+        if (evt.type === "session.started") sessionId = evt.session_id;
+        if (evt.type === "usage" && evt.record) {
+          sawUsageEvent = true;
+          const { delta, next } = toDelta(sessionTotals, evt.record, Boolean(evt.cumulative));
+          sessionTotals = next;
+          totals = addTotals(totals, delta);
+          opts.onEvent?.("usage.recorded", { record: delta, role: "planner" });
+        }
       }
+      res = await handle.result();
+    } finally {
+      unbind();
     }
-
-    const res = await handle.result();
     if (res.session_id) sessionId = res.session_id;
 
     // Adapters that report usage only in the session result.

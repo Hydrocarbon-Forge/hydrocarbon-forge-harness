@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { createRunId, nowIsoTimestamp } from "../../../src/util/index.js";
-import { RunLock } from "../../../src/store/index.js";
+import { RunLockImpl as RunLock } from "../../../src/store/run-lock.js";
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "substrate-run-lock-"));

@@ -99,4 +99,45 @@ describe("Scenario 16: Solo Mode (§14.5 #16)", () => {
     expect(summary.tasks["SOLO"]).toBeDefined();
     expect(summary.tasks["SOLO"].state).toBe("PASSED");
   });
+
+  it("roles.worker.effort reaches the solo worker spawn request", async () => {
+    const spawnRequests: SpawnRequest[] = [];
+
+    fakeClaude = fakeClaudeAdapter([
+      {
+        edits: { "src/solo.ts": "export const solo = true;\n" },
+        reply: "Solo worker completed task",
+      },
+    ]);
+
+    const origSpawn = fakeClaude.adapter.spawn.bind(fakeClaude.adapter);
+    fakeClaude.adapter.spawn = (req: SpawnRequest) => {
+      if (req.role === "worker") spawnRequests.push(req);
+      return origSpawn(req);
+    };
+
+    env.settings = {
+      ...env.settings,
+      roles: {
+        ...env.settings.roles,
+        worker: { backend: "claude", model: "claude-sonnet-5-5", effort: "high" },
+      },
+    };
+
+    const engine = engineMod.createEngine({
+      settings: env.settings,
+      adapter: fakeClaude.adapter,
+    });
+
+    const summary: RunSummary = await engine.run({
+      prompt: "Fix typo in src/solo.ts directly",
+      cwd: env.repoRoot,
+      mode: "solo",
+      permission_mode: "bypassPermissions",
+    });
+
+    expect(summary.status).toBe("finished");
+    expect(spawnRequests.length).toBeGreaterThan(0);
+    expect(spawnRequests[0].effort).toBe("high");
+  });
 });

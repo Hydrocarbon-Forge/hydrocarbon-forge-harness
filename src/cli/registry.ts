@@ -69,27 +69,3 @@ export class CommandRegistry {
 }
 
 export const registry = new CommandRegistry();
-
-export async function dispatchCommand(
-  args: string[],
-  ctx: Partial<CommandContext>,
-): Promise<number> {
-  const fullCtx: CommandContext = {
-    cwd: ctx.cwd ?? process.cwd(),
-    flags: ctx.flags ?? {},
-    rawArgs: ctx.rawArgs ?? args,
-    stdin: ctx.stdin,
-    stdout: ctx.stdout ?? (process.stdout as NodeJS.WriteStream),
-    stderr: ctx.stderr ?? (process.stderr as NodeJS.WriteStream),
-    engine: ctx.engine,
-    sessionStore: ctx.sessionStore,
-  };
-
-  const cmdName = args[0];
-  const cmd = cmdName ? registry.get(cmdName) : undefined;
-  if (!cmd) {
-    fullCtx.stderr.write(`Error: Unknown command "${cmdName}".\n`);
-    return 2;
-  }
-  return cmd.execute(fullCtx);
-}

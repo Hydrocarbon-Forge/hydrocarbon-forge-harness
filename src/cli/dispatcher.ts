@@ -409,7 +409,7 @@ export async function runCli(
         async run(opts: any) {
           opts.historyAll = true;
           if (!realEngine) {
-            const { EngineImpl } = await import(`../engine/engine.js`);
+            const { createEngine } = await import(`../engine/engine.js`);
             const { loadSettings, sandboxProblem } = await import(`../config/index.js`);
             const settings = await loadSettings({
               projectDir: commandCtx.cwd,
@@ -422,7 +422,7 @@ export async function runCli(
               return { exit_code: 2 } as any;
             }
             (settings as any).historyAll = true;
-            realEngine = new EngineImpl({ settings });
+            realEngine = createEngine({ settings });
           } else if (realEngine.options?.settings) {
             (realEngine.options.settings as any).historyAll = true;
           }
@@ -432,7 +432,7 @@ export async function runCli(
           const runOpts = opts ?? {};
           runOpts.historyAll = true;
           if (!realEngine) {
-            const { EngineImpl } = await import(`../engine/engine.js`);
+            const { createEngine } = await import(`../engine/engine.js`);
             const { loadSettings, sandboxProblem } = await import(`../config/index.js`);
             const settings = await loadSettings({
               projectDir: commandCtx.cwd,
@@ -445,7 +445,7 @@ export async function runCli(
               return { exit_code: 2 } as any;
             }
             (settings as any).historyAll = true;
-            realEngine = new EngineImpl({ settings });
+            realEngine = createEngine({ settings });
           } else if (realEngine.options?.settings) {
             (realEngine.options.settings as any).historyAll = true;
           }

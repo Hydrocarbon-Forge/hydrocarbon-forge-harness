@@ -5,13 +5,12 @@ import { tmpdir } from "node:os";
 
 import * as Contracts from "../../../src/contracts/index.js";
 import {
-  applyOverlay,
   DEFAULT_SETTINGS,
   loadSettings,
-  mergeSettings,
   parseJsonc,
   sandboxProblem,
 } from "../../../src/config/index.js";
+import { deepMerge } from "../../../src/util/merge.js";
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "substrate-cfg-"));
@@ -83,7 +82,7 @@ describe("config JSONC tolerance", () => {
 
 describe("config merge: objects merge, scalars and arrays replace", () => {
   it("higher layer wins; objects merge key-wise", () => {
-    const merged = mergeSettings(
+    const merged = deepMerge(
       { concurrency: { workers: 1 }, sandbox: { enabled: false, network: "allow" } },
       { concurrency: { workers: 5 } },
     ) as Record<string, Record<string, unknown>>;
@@ -92,7 +91,7 @@ describe("config merge: objects merge, scalars and arrays replace", () => {
   });
 
   it("scalars and arrays replace instead of concatenating", () => {
-    const merged = mergeSettings(
+    const merged = deepMerge(
       { permissions: { allow: ["A"], deny: ["B"] } },
       { permissions: { allow: ["C"], deny: ["D"] } },
     ) as Record<string, Record<string, unknown[]>>;
@@ -101,7 +100,7 @@ describe("config merge: objects merge, scalars and arrays replace", () => {
   });
 
   it("skips undefined layers", () => {
-    expect(mergeSettings(undefined, { a: 1 })).toEqual({ a: 1 });
+    expect(deepMerge<unknown>(undefined, { a: 1 })).toEqual({ a: 1 });
   });
 });
 
@@ -227,14 +226,24 @@ describe("config overlay: env and flag values validate against Settings", () => 
     expect(settingsValidates(settings)).toBe(true);
   });
 
-  it("invalid overlay is rejected, file value is left otherwise", () => {
-    expect(() =>
-      applyOverlay(MINIMAL_FILE_SETTINGS as never, { concurrency: { workers: "many" } } as never),
-    ).toThrow();
-    const kept = applyOverlay(
-      MINIMAL_FILE_SETTINGS as never,
-      { concurrency: { workers: 7 } } as never,
-    ) as { concurrency: { workers: number } };
+  it("invalid overlay is rejected, file value is left otherwise", async () => {
+    const projectDir = tmp();
+    const userDir = tmp();
+    writeSettingsFile(projectDir, ".substrate/settings.json", JSON.stringify(MINIMAL_FILE_SETTINGS));
+    await expect(
+      loadSettings({
+        projectDir,
+        userConfigDir: userDir,
+        flags: { concurrency: { workers: "many" } } as never,
+        env: {},
+      }),
+    ).rejects.toThrow();
+    const kept = (await loadSettings({
+      projectDir,
+      userConfigDir: userDir,
+      flags: { concurrency: { workers: 7 } } as never,
+      env: {},
+    })) as { concurrency: { workers: number } };
     expect(kept.concurrency.workers).toBe(7);
   });
 });
@@ -275,9 +284,14 @@ describe("config edge cases from the spec", () => {
     const settings = await loadSettings({ projectDir, userConfigDir: userDir, env: {} });
     expect(settingsValidates(settings)).toBe(true);
 
-    expect(() =>
-      applyOverlay(MINIMAL_FILE_SETTINGS as never, { pricing: { invalid_extra: 123 } } as never),
-    ).toThrow();
+    await expect(
+      loadSettings({
+        projectDir,
+        userConfigDir: userDir,
+        flags: { pricing: { invalid_extra: 123 } } as never,
+        env: {},
+      }),
+    ).rejects.toThrow();
   });
 });
 

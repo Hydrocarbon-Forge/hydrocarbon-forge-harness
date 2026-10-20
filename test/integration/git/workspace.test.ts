@@ -6,6 +6,7 @@ import * as Contracts from "../../../src/contracts/index.js";
 import { createRunId } from "../../../src/util/index.js";
 import { createTestRepo, type TestRepo } from "./test-repo.js";
 import * as WorkspaceModule from "../../../src/git/workspace.js";
+import { workspaceManager, workspaceLifecycle } from "../../../src/git/workspace.js";
 import type {
   WorkspaceManager,
   WorkspaceLifecycle,
@@ -13,65 +14,11 @@ import type {
 } from "../../../src/git/workspace.js";
 
 function getWorkspaceManager(): WorkspaceManager {
-  const mod = WorkspaceModule as any;
-  if (mod.WorkspaceManager) {
-    if (typeof mod.WorkspaceManager === "function") {
-      try {
-        return new mod.WorkspaceManager();
-      } catch {
-        return mod.WorkspaceManager;
-      }
-    }
-    return mod.WorkspaceManager;
-  }
-  if (mod.GitWorkspaceManager) {
-    if (typeof mod.GitWorkspaceManager === "function") {
-      try {
-        return new mod.GitWorkspaceManager();
-      } catch {
-        return mod.GitWorkspaceManager;
-      }
-    }
-    return mod.GitWorkspaceManager;
-  }
-  if (mod.workspaceManager) return mod.workspaceManager;
-  return mod as WorkspaceManager;
+  return workspaceManager;
 }
 
 function getWorkspaceLifecycle(): WorkspaceLifecycle {
-  const mod = WorkspaceModule as any;
-  if (mod.WorkspaceLifecycle) {
-    if (typeof mod.WorkspaceLifecycle === "function") {
-      try {
-        return new mod.WorkspaceLifecycle();
-      } catch {
-        return mod.WorkspaceLifecycle;
-      }
-    }
-    return mod.WorkspaceLifecycle;
-  }
-  if (mod.GitWorkspaceLifecycle) {
-    if (typeof mod.GitWorkspaceLifecycle === "function") {
-      try {
-        return new mod.GitWorkspaceLifecycle();
-      } catch {
-        return mod.GitWorkspaceLifecycle;
-      }
-    }
-    return mod.GitWorkspaceLifecycle;
-  }
-  if (mod.GitWorkspaceManager) {
-    if (typeof mod.GitWorkspaceManager === "function") {
-      try {
-        return new mod.GitWorkspaceManager();
-      } catch {
-        return mod.GitWorkspaceManager;
-      }
-    }
-    return mod.GitWorkspaceManager;
-  }
-  if (mod.workspaceLifecycle) return mod.workspaceLifecycle;
-  return mod as WorkspaceLifecycle;
+  return workspaceLifecycle;
 }
 
 function getRunBranch(runId: Contracts.RunId): string {

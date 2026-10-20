@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { assertSafePath, isSafePath, matchGlob } from "../../../src/util/index.js";
+import { isSafePath, matchGlob } from "../../../src/util/index.js";
 
 function makeRepo(): string {
   return mkdtempSync(join(tmpdir(), "substrate-repo-"));
@@ -15,14 +15,14 @@ describe("util safe paths: repo-contained checks", () => {
     expect(isSafePath(root, "src/a.ts")).toBe(true);
     expect(isSafePath(root, "a/b/c.md")).toBe(true);
     expect(isSafePath(root, ".substrate/settings.json")).toBe(true);
-    expect(() => assertSafePath(root, "src/a.ts")).not.toThrow();
+    expect(isSafePath(root, "src/a.ts")).toBe(true);
   });
 
   it("rejects absolute paths", () => {
     const root = makeRepo();
     expect(isSafePath(root, "/etc/passwd")).toBe(false);
     expect(isSafePath(root, join(root, "src/a.ts"))).toBe(false);
-    expect(() => assertSafePath(root, "/etc/passwd")).toThrow();
+    expect(isSafePath(root, "/etc/passwd")).toBe(false);
   });
 
   it("rejects .. segments and escapes", () => {
@@ -30,7 +30,7 @@ describe("util safe paths: repo-contained checks", () => {
     for (const p of ["..", "../out", "a/../../b", "a/..", "a/../..", "./../x"]) {
       expect(isSafePath(root, p), p).toBe(false);
     }
-    expect(() => assertSafePath(root, "../out")).toThrow();
+    expect(isSafePath(root, "../out")).toBe(false);
   });
 
   it("rejects empty and null-byte paths", () => {
@@ -51,7 +51,7 @@ describe("util safe paths: repo-contained checks", () => {
       return;
     }
     expect(isSafePath(root, "link/secret.txt")).toBe(false);
-    expect(() => assertSafePath(root, "link/secret.txt")).toThrow();
+    expect(isSafePath(root, "link/secret.txt")).toBe(false);
   });
 
   it("accepts nested safe path but rejects normalized escape", () => {

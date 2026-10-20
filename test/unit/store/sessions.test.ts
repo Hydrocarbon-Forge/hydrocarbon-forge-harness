@@ -33,15 +33,8 @@ export interface SessionStore {
 }
 
 export type CreateSessionStoreFn = (substrateDir?: string) => SessionStore;
-export type ResolveResumeTargetFn = (
-  target: string,
-  sessions: SessionStore,
-  runsDir: string,
-) => Promise<{ runId: Contracts.RunId; sessionId?: string }>;
-
 async function loadSessionsModule(): Promise<{
   createSessionStore: CreateSessionStoreFn;
-  resolveResumeTarget: ResolveResumeTargetFn;
 }> {
   return (await import("../../../src/store/sessions.js" as any)) as any;
 }
@@ -279,97 +272,6 @@ describe("store: SessionStore persistence and resolution", () => {
       const store = createSessionStore(substrateDir);
 
       await expect(store.fork("missing-session-id")).rejects.toThrow();
-    });
-  });
-
-  describe("resolveResumeTarget()", () => {
-    it("resolves session ID to its latest run ID (session thread disambiguation)", async () => {
-      const { createSessionStore, resolveResumeTarget } = await loadSessionsModule();
-      const store = createSessionStore(substrateDir);
-
-      const session = await store.create({ mode: "auto", prompt: "Build task" });
-      const runId1 = createRunId() as Contracts.RunId;
-      const runId2 = createRunId() as Contracts.RunId;
-      await store.addRun(session.sessionId, runId1);
-      await store.addRun(session.sessionId, runId2);
-
-      const target = await resolveResumeTarget(session.sessionId, store, runsDir);
-      expect(target.runId).toBe(runId2);
-      expect(target.sessionId).toBe(session.sessionId);
-    });
-
-    it("resolves direct run ID when target matches a run directory", async () => {
-      const { createSessionStore, resolveResumeTarget } = await loadSessionsModule();
-      const store = createSessionStore(substrateDir);
-
-      const runId = createRunId() as Contracts.RunId;
-      const runDir = join(runsDir, runId);
-      mkdirSync(runDir, { recursive: true });
-
-      const target = await resolveResumeTarget(runId, store, runsDir);
-      expect(target.runId).toBe(runId);
-    });
-
-    it("prefers session resolution when an identifier matches session record", async () => {
-      const { createSessionStore, resolveResumeTarget } = await loadSessionsModule();
-      const store = createSessionStore(substrateDir);
-
-      const session = await store.create({ mode: "auto" });
-      const runId = createRunId() as Contracts.RunId;
-      await store.addRun(session.sessionId, runId);
-
-      // Create a conflicting directory named with the session ID
-      mkdirSync(join(runsDir, session.sessionId), { recursive: true });
-
-      const target = await resolveResumeTarget(session.sessionId, store, runsDir);
-      // Disambiguation checks session store first
-      expect(target.sessionId).toBe(session.sessionId);
-      expect(target.runId).toBe(runId);
-    });
-
-    it("resolves to latest run of latest session when target is empty or omitted", async () => {
-      const { createSessionStore, resolveResumeTarget } = await loadSessionsModule();
-      const store = createSessionStore(substrateDir);
-
-      const s1 = await store.create({ mode: "auto" });
-      const r1 = createRunId() as Contracts.RunId;
-      await store.addRun(s1.sessionId, r1);
-
-      await new Promise((r) => setTimeout(r, 10));
-      const s2 = await store.create({ mode: "auto" });
-      const r2 = createRunId() as Contracts.RunId;
-      await store.addRun(s2.sessionId, r2);
-
-      const target = await resolveResumeTarget("", store, runsDir);
-      expect(target.runId).toBe(r2);
-      expect(target.sessionId).toBe(s2.sessionId);
-    });
-
-    it("throws when session exists but contains no runs", async () => {
-      const { createSessionStore, resolveResumeTarget } = await loadSessionsModule();
-      const store = createSessionStore(substrateDir);
-
-      const session = await store.create({ mode: "auto" });
-
-      await expect(resolveResumeTarget(session.sessionId, store, runsDir)).rejects.toThrow();
-    });
-
-    it("throws when target matches neither session nor run directory", async () => {
-      const { createSessionStore, resolveResumeTarget } = await loadSessionsModule();
-      const store = createSessionStore(substrateDir);
-
-      await expect(
-        resolveResumeTarget("unknown-target-xyz", store, runsDir),
-      ).rejects.toThrow(/Neither session nor run found/i);
-    });
-
-    it("throws when target is empty and no sessions or runs exist", async () => {
-      const { createSessionStore, resolveResumeTarget } = await loadSessionsModule();
-      const store = createSessionStore(substrateDir);
-
-      await expect(
-        resolveResumeTarget("", store, runsDir),
-      ).rejects.toThrow();
     });
   });
 });

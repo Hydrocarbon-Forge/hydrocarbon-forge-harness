@@ -202,6 +202,4 @@ export class ScopeEnforcerImpl implements ScopeEnforcer {
   }
 }
 
-export const ScopeEnforcer = ScopeEnforcerImpl;
-export const GitScopeEnforcer = ScopeEnforcerImpl;
 export const scopeEnforcer = new ScopeEnforcerImpl();

@@ -4,23 +4,11 @@ import { join } from "node:path";
 
 import * as Contracts from "../../../src/contracts/index.js";
 import { createTestRepo, type TestRepo } from "./test-repo.js";
-import * as CommitModule from "../../../src/git/commit.js";
+import { gitCommitter } from "../../../src/git/commit.js";
 import type { GitCommitter, GitDiffResult } from "../../../src/git/commit.js";
 
 function getGitCommitter(): GitCommitter {
-  const mod = CommitModule as any;
-  if (mod.GitCommitter) {
-    if (typeof mod.GitCommitter === "function") {
-      try {
-        return new mod.GitCommitter();
-      } catch {
-        return mod.GitCommitter;
-      }
-    }
-    return mod.GitCommitter;
-  }
-  if (mod.gitCommitter) return mod.gitCommitter;
-  return mod as GitCommitter;
+  return gitCommitter;
 }
 
 function makeSpec(overrides?: Partial<Contracts.TaskSpecFrontmatter>): Contracts.TaskSpecFrontmatter {

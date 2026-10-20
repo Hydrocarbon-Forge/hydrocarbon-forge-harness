@@ -43,12 +43,13 @@ export function scanEvents(root, observeOnly = []) {
   const vocab = getEventVocabulary(root);
   const observeSet = new Set(observeOnly);
 
-  // 1. Emitted events in src/engine/**
-  // Emitted = first string-literal argument of emit(...) or type: "..." in engine
+  // 1. Emitted events in src/engine/** and src/roles/**
+  // Emitted = first string-literal argument of emit(...), onEvent(...) or onEvent?.(...), or type: "..." in engine
   const engineFiles = listFiles(root, "src/engine", [".ts"]);
+  const roleFiles = listFiles(root, "src/roles", [".ts"]);
   const emittedMap = new Map(); // eventType -> { path, line }[]
 
-  for (const relPath of engineFiles) {
+  for (const relPath of [...engineFiles, ...roleFiles]) {
     const absPath = path.resolve(root, relPath);
     const content = fs.readFileSync(absPath, "utf8");
     const lines = content.split(/\r?\n/);
@@ -56,8 +57,8 @@ export function scanEvents(root, observeOnly = []) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      // emit("x", ...) or emit('x', ...)
-      const emitRe = /\bemit\(\s*["']([a-z0-9_.-]+)["']/g;
+      // emit("x", ...), emit('x', ...), onEvent("x", ...) or opts.onEvent?.("x", ...)
+      const emitRe = /\b(?:emit|onEvent)\??\.?\(\s*["']([a-z0-9_.-]+)["']/g;
       let m;
       while ((m = emitRe.exec(line)) !== null) {
         const type = m[1];

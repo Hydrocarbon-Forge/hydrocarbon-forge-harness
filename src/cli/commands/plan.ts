@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, RunOptions } from "../../contracts/index.js";
-import { EngineImpl } from "../../engine/engine.js";
+import { createEngine } from "../../engine/engine.js";
 import { loadSettings, sandboxProblem } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionStore } from "../../store/sessions.js";
@@ -133,7 +133,7 @@ export const planCommand: CliCommand = {
           ctx.stderr.write(`Error: ${problem}\n`);
           return 2;
         }
-        engine = new EngineImpl({ settings });
+        engine = createEngine({ settings });
       } catch (err: any) {
         ctx.stderr.write(`Error loading settings: ${err.message}\n`);
         return 2;

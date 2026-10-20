@@ -6,13 +6,11 @@ import { Readable } from "node:stream";
 import {
   spawnSupervisedProcess,
   killProcessGroup,
-  terminateProcessGroup,
 } from "../../../src/backends/process.js";
 import {
   readNdjsonLines,
   readNdjsonStream,
   parseNdjsonLine,
-  serializeNdjson,
   ProtocolError,
 } from "../../../src/backends/ndjson.js";
 
@@ -287,7 +285,7 @@ describe("Process Supervisor: process group management and guards", () => {
     }
   });
 
-  it("terminateProcessGroup terminates a process group standalone", async () => {
+  it("killProcessGroup sends SIGTERM to a process group standalone", async () => {
     const cwd = makeTmpDir();
     try {
       const proc = spawnSupervisedProcess({
@@ -297,7 +295,7 @@ describe("Process Supervisor: process group management and guards", () => {
       });
 
       expect(proc.processGroupPid).toBeGreaterThan(0);
-      await terminateProcessGroup(proc.processGroupPid, 500);
+      expect(killProcessGroup(proc.processGroupPid, "SIGTERM")).toBe(true);
 
       const result = await proc.wait();
       expect(result.signal).toBeTruthy();
@@ -356,11 +354,6 @@ describe("Process Supervisor: streaming and backpressure", () => {
 });
 
 describe("NDJSON Reader & Serializer", () => {
-  it("serializeNdjson appends newline and serializes object", () => {
-    const serialized = serializeNdjson({ foo: "bar", count: 42 });
-    expect(serialized).toBe('{"foo":"bar","count":42}\n');
-  });
-
   it("parseNdjsonLine parses valid JSON and rejects empty/invalid lines with ProtocolError", () => {
     expect(parseNdjsonLine('{"a":1}')).toEqual({ a: 1 });
     expect(parseNdjsonLine("  [1, 2, 3]  ")).toEqual([1, 2, 3]);

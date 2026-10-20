@@ -3,12 +3,10 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PRICING } from "../../../src/backends/default-pricing.js";
 import {
   calculateCostUsd,
-  computeUsageRecord,
   pricingTableFor,
   ratesFor,
 } from "../../../src/backends/pricing.js";
 import { DEFAULT_SETTINGS } from "../../../src/config/index.js";
-import { nowIsoTimestamp } from "../../../src/util/index.js";
 
 describe("pricing: calculateCostUsd", () => {
   it("calculates computed cost for a priced model (haiku, 1000 in, 1000 out)", () => {
@@ -97,36 +95,25 @@ describe("pricing: calculateCostUsd", () => {
   });
 });
 
-describe("pricing: computeUsageRecord", () => {
-  it("keeps record with cost_usd: 0 and cost_source: 'unknown' for unlisted model without throwing", () => {
-    const raw = {
-      backend: "opencode" as const,
-      model: "custom-unlisted-model",
+describe("pricing: calculateCostUsd (cost source for unlisted and listed models)", () => {
+  it("returns cost_usd: 0 and cost_source: 'unknown' for unlisted model without throwing", () => {
+    const { cost_usd, cost_source } = calculateCostUsd(DEFAULT_PRICING, "custom-unlisted-model", {
       input_tokens: 500,
       output_tokens: 200,
-      at: nowIsoTimestamp(),
-    };
+    });
 
-    const record = computeUsageRecord(DEFAULT_PRICING, raw);
-
-    expect(record.cost_source).toBe("unknown");
-    expect(record.cost_usd).toBe(0);
-    expect(record.model).toBe("custom-unlisted-model");
+    expect(cost_source).toBe("unknown");
+    expect(cost_usd).toBe(0);
   });
 
   it("computes cost for a listed model", () => {
-    const raw = {
-      backend: "claude" as const,
-      model: "claude-haiku-5-5",
+    const { cost_usd, cost_source } = calculateCostUsd(DEFAULT_PRICING, "claude-haiku-5-5", {
       input_tokens: 1000,
       output_tokens: 1000,
-      at: nowIsoTimestamp(),
-    };
+    });
 
-    const record = computeUsageRecord(DEFAULT_PRICING, raw);
-
-    expect(record.cost_source).toBe("computed");
-    expect(record.cost_usd).toBeCloseTo(0.0006, 6);
+    expect(cost_source).toBe("computed");
+    expect(cost_usd).toBeCloseTo(0.0006, 6);
   });
 });
 

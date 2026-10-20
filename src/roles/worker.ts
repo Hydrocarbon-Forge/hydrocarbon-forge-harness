@@ -30,6 +30,7 @@ import {
 } from "../git/index.js";
 import { VerifyRunner } from "../verify/index.js";
 import { resolveTaskRoute } from "./router.js";
+import { bindAbort } from "../backends/process.js";
 import { capBytes, HEAL_TAIL_MAX_BYTES } from "../util/index.js";
 
 /** The action's typed emit (R1.2): every event is checked against the catalog. */
@@ -319,18 +320,8 @@ async function runAttempt(
     return { ...base, stopped: true, decision };
   };
 
-  let unbind = () => {};
-  if (opts.signal) {
-    if (opts.signal.aborted) {
-      await handle.kill("cancel");
-    } else {
-      const onAbort = () => {
-        void handle.kill("cancel");
-      };
-      opts.signal.addEventListener("abort", onAbort, { once: true });
-      unbind = () => opts.signal?.removeEventListener("abort", onAbort);
-    }
-  }
+  // Run abort kills this attempt's session; unbind runs once the session has ended.
+  const unbind = bindAbort(opts.signal, handle);
 
   try {
     for await (const event of handle.events) {

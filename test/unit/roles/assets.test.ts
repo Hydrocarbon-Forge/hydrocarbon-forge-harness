@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
 import * as Contracts from "../../../src/contracts/index.js";
-import { loadAgentDefinitions } from "../../../src/config/index.js";
+import { listAgents } from "../../../src/prompts/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -43,16 +44,12 @@ describe("Role Assets (assets/agents/*.md)", () => {
       },
     );
 
-    it("loads all 5 built-in agent definitions via loadAgentDefinitions", async () => {
-      const res = await loadAgentDefinitions({
-        builtinsDir: resolve(REPO_ROOT, "assets"),
-      });
+    it("lists all 5 built-in agent roles from assets/agents via listAgents", () => {
+      const empty = mkdtempSync(join(tmpdir(), "substrate-assets-"));
+      const res = listAgents({ projectRoot: empty, userConfigDir: empty });
 
-      expect(res.errors).toEqual([]);
-      expect(res.agents.length).toBe(5);
-
-      const loadedNames = res.agents.map((a) => a.name).sort();
-      expect(loadedNames).toEqual([...EXPECTED_AGENTS].sort());
+      expect(res.every((a) => a.source === "built-in")).toBe(true);
+      expect(res.map((a) => a.role).sort()).toEqual([...EXPECTED_AGENTS].sort());
     });
   });
 
@@ -196,16 +193,6 @@ describe("Role Assets (assets/agents/*.md)", () => {
       expect(body).toMatch(/cannot plan|never plan/i);
       expect(body).toMatch(/cannot implement|never implement/i);
       expect(body).toMatch(/never edit|cannot edit.*repo/i);
-    });
-  });
-
-  describe("Edge cases and invariants", () => {
-    it("throws clear error when loading from a non-existent assets directory", async () => {
-      const res = await loadAgentDefinitions({
-        builtinsDir: resolve(REPO_ROOT, "assets-nonexistent-path"),
-      });
-
-      expect(res.agents).toEqual([]);
     });
   });
 });

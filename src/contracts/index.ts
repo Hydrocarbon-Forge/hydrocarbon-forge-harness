@@ -454,7 +454,6 @@ export const Settings = z.object({
   permissions: z.object({
     allow: z.array(z.string()),
     deny: z.array(z.string()),
-    ask: z.array(z.string()).optional(),
   }).strict(),
   sandbox: z.object({
     enabled: z.boolean(),

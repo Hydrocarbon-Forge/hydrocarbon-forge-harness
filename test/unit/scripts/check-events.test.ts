@@ -52,4 +52,15 @@ describe("check-events script", () => {
     expect(res.stdout).toContain("Debt of finished WP R0.1 still present");
     expect(res.stdout).toMatch(/^FAIL:\s+\d+\s+violation\(s\)$/m);
   });
+
+  it("counts events emitted via onEvent?.() in src/roles, and still reports a consumed event with no emitter", () => {
+    const root = path.resolve("test/fixtures/check/events-roles");
+    const res = run(["--root", root]);
+    expect(res.status).toBe(1);
+    // False positive removed: emitted from src/roles/worker.ts.
+    expect(res.stdout).not.toContain("task.emitted.fromrole");
+    // True positive kept: consumed in the reducer, emitted nowhere.
+    expect(res.stdout).toMatch(/^consumed-not-emitted\s+src\/engine\/reducer\.ts:\d+ Event type "task\.never\.emitted"/m);
+    expect(res.stdout).toMatch(/^FAIL:\s+1\s+violation\(s\)$/m);
+  });
 });

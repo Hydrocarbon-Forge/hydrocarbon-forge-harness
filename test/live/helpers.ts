@@ -18,7 +18,8 @@ import type {
   PricingTable,
   Settings,
 } from "../../src/contracts/index.js";
-import { loadSettings, mergeSettings } from "../../src/config/index.js";
+import { loadSettings } from "../../src/config/index.js";
+import { deepMerge } from "../../src/util/merge.js";
 import { DEFAULT_PRICING } from "../../src/backends/default-pricing.js";
 import { ratesFor } from "../../src/backends/pricing.js";
 import { runSubstrate, type RunSubstrateResult } from "../e2e/helpers/run-substrate.js";
@@ -357,7 +358,7 @@ export function appendRecord(rec: LiveRecord): string {
  */
 export async function probeSettings(): Promise<Settings> {
   const loaded = await loadSettings({ projectDir: PROJECT_ROOT });
-  const withBins = mergeSettings(loaded, BIN_OVERLAY) as Settings;
+  const withBins = deepMerge(loaded, BIN_OVERLAY) as Settings;
   return {
     ...withBins,
     pricing: {
