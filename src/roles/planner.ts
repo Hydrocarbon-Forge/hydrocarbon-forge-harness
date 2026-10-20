@@ -30,6 +30,7 @@ import {
 import type { UsageTotals } from "../ledger/usage.js";
 import { toDelta } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
+import { resolveBaseRef } from "../git/base-ref.js";
 import { boundedMessage } from "../util/index.js";
 import { buildPlannerPrompt, buildCorrectionPrompt } from "./prompts/planner.js";
 
@@ -67,6 +68,8 @@ export type PlannerOutcome =
       plan: ParsedPlan;
       usage: UsageRecord;
       commitSha: string;
+      /** Set when the planner's base_ref was ignored (see resolveBaseRef). */
+      baseNote?: string;
       sessionId: string;
     }
   | {
@@ -672,10 +675,11 @@ export async function runPlanner(
       continue;
     }
 
+    const base = resolveBaseRef(opts.repoRoot, manifest.base_ref);
     const commitSha = await commitContractStubs(
       opts.repoRoot,
       opts.runId,
-      manifest.base_ref ?? "HEAD",
+      base.sha,
       manifest.contracts,
       opts.runDir,
     );
@@ -685,6 +689,7 @@ export async function runPlanner(
       plan: parsedPlan,
       usage: usageRecord(route, totals),
       commitSha,
+      baseNote: base.note,
       sessionId,
     };
   }

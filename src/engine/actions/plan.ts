@@ -15,6 +15,7 @@ import {
   type PlannerEmit,
 } from "../../roles/planner.js";
 import { resolvePlannerRoute } from "../../roles/router.js";
+import { resolveBaseRef } from "../../git/base-ref.js";
 import {
   lintPlan,
   parseManifest,
@@ -332,15 +333,16 @@ export async function runPlanAction(
         continue;
       }
 
+      const base = resolveBaseRef(ctx.repoRoot, manifest.base_ref);
       const commitSha = await commitContractStubs(
         ctx.repoRoot,
         ctx.runId,
-        manifest.base_ref ?? "HEAD",
+        base.sha,
         manifest.contracts,
         ctx.runDir,
       );
 
-      emit("contracts.committed", { commit_sha: commitSha });
+      emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });
       emit("plan.produced", {
         manifest,
         tasks: planTasksForEvent(manifest, specs),
@@ -434,7 +436,10 @@ export async function runPlanAction(
     return;
   }
 
-  emit("contracts.committed", { commit_sha: outcome.commitSha });
+  emit("contracts.committed", {
+    commit_sha: outcome.commitSha,
+    ...(outcome.baseNote ? { note: outcome.baseNote } : {}),
+  });
   emit("plan.produced", {
     manifest: outcome.plan.manifest,
     tasks: planTasksForEvent(outcome.plan.manifest, outcome.plan.specs),

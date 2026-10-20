@@ -194,7 +194,7 @@ export const PlanReadyEvent = member("plan.ready", z.object({}).strict());
 
 export const ContractsCommittedEvent = member(
   "contracts.committed",
-  z.object({ commit_sha: z.string().optional() }).strict()
+  z.object({ commit_sha: z.string().optional(), note: z.string().optional() }).strict()
 );
 
 export const SetupDoneEvent = member(

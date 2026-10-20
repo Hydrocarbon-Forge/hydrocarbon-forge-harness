@@ -15,7 +15,7 @@ If your tools cannot write files, emit each file instead as a fenced block whose
 version: 1
 run_id: <given in the request>
 goal: <one sentence>
-base_ref: <given in the request>
+base_ref: <copy the base_ref from the request exactly, character for character>
 ecosystem: node-ts            # optional: node-ts | python | rust | go | other
 setup:                        # run once per task worktree, with network; may be empty
   - run: npm ci

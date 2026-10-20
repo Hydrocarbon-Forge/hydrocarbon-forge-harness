@@ -136,6 +136,8 @@ export class RunProgress {
           : [];
         return lines;
       }
+      case "contracts.committed":
+        return typeof data.note === "string" && data.note !== "" ? [`note: ${data.note}`] : [];
       case "plan.approved":
       case "plan.ready": {
         this.setPhase("setup", at);

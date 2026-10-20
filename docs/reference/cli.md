@@ -75,6 +75,7 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
   - `task.session.started` gains `backend` and `model`.
   - `task.verify.finished` gains `failed_command` and `failed_output` (one line, at most 300 characters) when a verify fails.
   - `plan.produced` lists each task as `id`, `spec`, `title`, `class` and `depends_on`.
+  - `contracts.committed` gains `note` when the planner's manifest `base_ref` was ignored. The run's own base (HEAD when the run starts, the commit the planner is given in its request) is authoritative, and the manifest's `base_ref` is advisory: a value that is absent, `(none)`, the current branch's name, or unresolvable, or that names the run base's commit under another name, is ignored and the run base is used. Text mode prints the note as `note: planner base_ref 'main' ignored; using run base <short sha>`. A manifest `base_ref` that names a different commit that does resolve is used as the base, as before.
   - the final `result` line carries `branch`, `merged`, `base_branch`, `files_changed`, `files_changed_total` and `next`, and for a failed run `failure_class`, `message` and `drafts_dir`, with the same meaning as in `json`.
 
 A `text` run looks like this (the fake harness, two tasks, timestamps all under one second):

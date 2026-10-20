@@ -7,6 +7,7 @@ import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { safeParseManifest } from "./shared.js";
+import { resolveBaseRef } from "../../git/base-ref.js";
 import {
   advanceRunRef,
   createIntegrationWorktree,
@@ -65,14 +66,7 @@ export async function runMergeAction(
   // Behavior 8: base-ref check before first batch
   if (verifyCommands.length > 0 && !ctx.baseChecked) {
     ctx.baseChecked = true;
-    const baseRef = manifest?.base_ref ?? "main";
-    let baseSha = baseRef;
-    try {
-      baseSha = execFileSync("git", ["rev-parse", baseRef], {
-        cwd: ctx.repoRoot,
-        encoding: "utf8",
-      }).trim();
-    } catch {}
+    const baseSha = resolveBaseRef(ctx.repoRoot, manifest?.base_ref).sha;
     const baseWt = await createIntegrationWorktree(ctx.repoRoot, ctx.runId, baseSha);
     const baseVerified = await verifyIn(baseWt, verifyCommands, ctx.settings);
     if (!baseVerified) {
