@@ -15,7 +15,6 @@ These items are still open. Each one has its detail in the numbered section belo
 - Item 7: the opencode adapter writes config files into the task worktree (relocation needs a documented mechanism).
 - Item 8: cost rates for effort-suffixed model ids are an approximation (owner decision on price entries).
 - Item 10: `execution.strategy`, `budgets.run.max_wall_min` and the reviewer settings (owner decisions).
-- Item 11: `config set` of the opencode provider key without `--local` still writes it to the project file.
 - Item 12: minor adapter and asset issues.
 - Item 13: the reviewer role (deferred, DECISIONS A2).
 - Item 14: test gaps and test-helper masking (the open parts).
@@ -95,9 +94,9 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 - FIXED: `config get` of an unknown key exits 2 with `unknown settings key: <key>` (stderr in text mode, a one-line error object in json mode). A known key that is unset still prints `undefined` and exits 0 in text mode.
 - FIXED (R6.9): with `--output-format json`, `config list` and `config get` print a settings-load failure as one `{"error":...}` object on stdout and exit 2, the same convention as `run` and `status`. Text mode still prints `Error:` on stderr. `config get` prints a string as a valid JSON value (`"claude"`), and an unset key prints `null`. Tests: `test/unit/config/config-command.test.ts`; `docs/reference/cli.md` and `config.md` updated.
 - FIXED (R5.2, verified in R6.9): the base-URL error names `backends.opencode.provider.base_url`, the key the code reads (`src/backends/adapters/opencode.ts:612`); the earlier text named a key nothing read.
-- OPEN: `config set` of the opencode provider base URL without the local flag writes the key to the shared settings file, after which every command exits 2 (verified in R6.9). `config set` should refuse that key without the local flag. Reported.
+- FIXED (R6.10): `config set` of the opencode provider base URL without `--local` exits 2 and writes nothing. Before it writes, `config set` now runs the loader's provider rule (`assertNoProviderOutsideLocal`) and profile check (`validateProfiles`) on the merged result, which it did not do before (it ran only the schema parse). The message names the key and hints at `--local`. Tests: `test/unit/config/config-command.test.ts` and `test/e2e/config-set-validation.test.ts`; `docs/reference/cli.md` and `config.md` updated.
 - FIXED (R6.5): profiles beat the built-in routing defaults. The built-in claude route is no longer a settings default. It is the last step of route resolution, after an explicit `routing.<class>` and the selected profile slot (`BUILTIN_FALLBACK_ROUTE` in `src/roles/router.ts`). `roles.worker` is a partial route, so a request or environment variable can set only the model. Precedence is in `docs/reference/config.md` (Route precedence). Tests: `test/unit/roles/router-profiles.test.ts` and `test/integration/scenarios/scenario-profile-precedence.test.ts`. The R6.5 analysis (the probe results and the old cause) is in commit 7b3591c.
-- Current state: the key text, the unknown-key exit and profile precedence are fixed. Open: the `config set` provider key above.
+- Current state: the key text, the unknown-key exit, profile precedence and the `config set` provider key are fixed. Nothing is open in item 11.
 
 ## 12. Minor adapter and asset issues
 

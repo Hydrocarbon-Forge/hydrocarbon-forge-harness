@@ -50,7 +50,7 @@ The loader starts from the built-in defaults (`DEFAULT_SETTINGS` in `src/config/
 - If the settings files fail to load, `list` and `get` exit 2. In text mode the error goes to stderr. In json mode it is one `{"error":...}` object on stdout.
 - `substrate config set <key> <value>` writes the project file. With `--local` it writes the local file. It validates the merged result before writing.
 
-`config set` does not apply the provider rule itself. Without `--local`, `backends.opencode.provider` is written to the project file, the command still exits 0, and every later load then fails (exit 2). Always pass `--local` for the provider key. The endpoint setup is described in [local-model.md](local-model.md).
+`config set` applies the same provider rule as the loader. Without `--local`, `backends.opencode.provider` is refused with exit 2 and nothing is written, so later loads are not broken. Pass `--local` for the provider key. The endpoint setup is described in [local-model.md](local-model.md).
 
 ---
 

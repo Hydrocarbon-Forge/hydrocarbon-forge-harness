@@ -483,4 +483,57 @@ describe("config command", () => {
     expect(exitCode).toBe(2);
     expect(stderr.getOutput()).toContain("Usage:");
   });
+
+  it("set of a provider key without --local exits 2, names the key, hints --local and writes nothing", async () => {
+    const cwd = tmp();
+    mkdirSync(join(cwd, ".substrate"), { recursive: true });
+    const settingsFile = join(cwd, ".substrate", "settings.json");
+    writeFileSync(settingsFile, '{"defaults":{}}');
+    const before = readFileSync(settingsFile);
+    const stderr = createMockWritable();
+    const exitCode = await configCommand.execute({
+      cwd,
+      flags: {},
+      rawArgs: ["set", "backends.opencode.provider.base_url", "http://example.invalid/v1"],
+      stdout: createMockWritable(),
+      stderr,
+    });
+    expect(exitCode).toBe(2);
+    expect(stderr.getOutput()).toContain("Invalid setting backends.opencode.provider.base_url");
+    expect(stderr.getOutput()).toContain("--local");
+    expect(Buffer.compare(readFileSync(settingsFile), before)).toBe(0);
+    await expect(loadSettings({ projectDir: cwd, userConfigDir: tmp() })).resolves.toBeDefined();
+  });
+
+  it("set of a provider key with --local writes settings.local.json and the loader accepts it", async () => {
+    const cwd = tmp();
+    const stdout = createMockWritable();
+    const exitCode = await configCommand.execute({
+      cwd,
+      flags: { local: true },
+      rawArgs: ["set", "backends.opencode.provider.base_url", "http://example.invalid/v1"],
+      stdout,
+      stderr: createMockWritable(),
+    });
+    expect(exitCode).toBe(0);
+    expect(existsSync(join(cwd, ".substrate", "settings.json"))).toBe(false);
+    const settings = await loadSettings({ projectDir: cwd, userConfigDir: tmp() });
+    expect(settings.backends.opencode.provider?.base_url).toBe("http://example.invalid/v1");
+  });
+
+  it("set of a defaults provider with no profile exits 2 and writes nothing", async () => {
+    const cwd = tmp();
+    const stderr = createMockWritable();
+    const exitCode = await configCommand.execute({
+      cwd,
+      flags: {},
+      rawArgs: ["set", "defaults.planner_provider", "nope"],
+      stdout: createMockWritable(),
+      stderr,
+    });
+    expect(exitCode).toBe(2);
+    expect(stderr.getOutput()).toContain("Invalid setting defaults.planner_provider");
+    expect(stderr.getOutput()).not.toContain("--local");
+    expect(existsSync(join(cwd, ".substrate"))).toBe(false);
+  });
 });

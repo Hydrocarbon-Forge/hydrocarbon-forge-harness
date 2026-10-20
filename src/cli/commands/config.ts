@@ -4,7 +4,14 @@ import path from "node:path";
 import * as Contracts from "../../contracts/index.js";
 import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
-import { foldLayers, loadSettings, parseJsonc, settingsLayers } from "../../config/index.js";
+import {
+  assertNoProviderOutsideLocal,
+  foldLayers,
+  loadSettings,
+  parseJsonc,
+  settingsLayers,
+  validateProfiles,
+} from "../../config/index.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -196,6 +203,24 @@ export const configCommand: CliCommand = {
       const result = Contracts.Settings.safeParse(foldLayers(layers));
       if (!result.success) {
         ctx.stderr.write(`Invalid setting ${key}: ${result.error.issues[0]?.message ?? "invalid"}\n`);
+        return 2;
+      }
+      // The loader applies two more rules to the merged layers (the provider key is local-only,
+      // and every defaults provider needs a profile). Run them here too, so a write the loader
+      // would reject is refused before anything is written.
+      try {
+        assertNoProviderOutsideLocal(layers);
+      } catch (err) {
+        const hint = ctx.flags.local
+          ? ""
+          : "\nHint: this key is valid only in the local (gitignored) layer; rerun with --local.";
+        ctx.stderr.write(`Invalid setting ${key}: ${(err as Error).message}${hint}\n`);
+        return 2;
+      }
+      try {
+        validateProfiles(result.data);
+      } catch (err) {
+        ctx.stderr.write(`Invalid setting ${key}: ${(err as Error).message}\n`);
         return 2;
       }
 
