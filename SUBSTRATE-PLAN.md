@@ -1,13 +1,13 @@
 # Substrate — Architecture & Implementation Plan (v2)
 
-> **Status (2026-10-17): this document is the original v2 design and is partly SUPERSEDED. `docs/plan/DECISIONS.md` is binding; where this file disagrees with it, DECISIONS.md wins.** Work is tracked in `docs/plan/`; start at `START-HERE.md`. The original draft v1 plan ("Valence") is archived at `docs/archive/PLAN-v1-valence.md`.
+> **Status (2026-10-17): this document is the original v2 design and is partly SUPERSEDED. `docs/plan/DECISIONS.md` is binding; where this file disagrees with it, DECISIONS.md wins.** The R-series work plan is archived at `docs/archive/2026-10-20-r-series/`; start at `START-HERE.md`. The original draft v1 plan ("Valence") is archived at `docs/archive/PLAN-v1-valence.md`.
 
 | Section here | Status | Authority |
 |---|---|---|
 | §1 line 24, §6.1 governor row, §6.3, §4.2 governor wording, §18 OD3, App. A `GovernorTool`/`RoutingDecision`, App. B `governor` | **Superseded.** The governor/local triage model is retired from the default path; a local model is only an OpenCode worker route. | DECISIONS A2, A5 |
 | §3 diagram "governor" box, §10 sandbox/network-denial, A10, G5 "P6.2 findings" | **Superseded.** Security hardening is out of scope. | DECISIONS A6 |
 | §4.7 interactive UX, P5.3 TUI, the `tui/` entries in §15 and the import-boundary rule | **Superseded.** No TUI; `src/tui/` is deleted (R0.7). | DECISIONS |
-| §16 work-package table, §14 test counts, gates G0-G5 | **Historical.** All 24 original WPs are merged. New work is `docs/plan/IMPLEMENTATION-PLAN.md`. | docs/plan |
+| §16 work-package table, §14 test counts, gates G0-G5 | **Historical.** All 24 original WPs are merged. The later R-series plan (`IMPLEMENTATION-PLAN.md`) is archived at `docs/archive/2026-10-20-r-series/`. | docs/archive/2026-10-20-r-series |
 | §4.6 stream-json names, §7 `contracts/` layout, §7 worktree path | **Superseded** by the resolved-contradictions table. | DECISIONS |
 | Everything else (invariants §2, state machine §5, git/merge §8, verify §9, linter §12, App. A contracts, App. C, App. D) | **Still authoritative** unless DECISIONS says otherwise. | this file |
 
@@ -21,7 +21,7 @@
 | If you are… | Read |
 |---|---|
 | The user | §1, §4, §16 (cut lines), §18 (assumptions to confirm) |
-| The implementer (human or model) | `START-HERE.md`, then `docs/plan/DECISIONS.md`, then your WP spec in `docs/plan/wp/` |
+| The implementer (human or model) | `START-HERE.md`, then `docs/plan/DECISIONS.md`, then the archived WP specs in `docs/archive/2026-10-20-r-series/wp/` (history only) |
 | A spec-writer / worker | your task spec + the Appendix A declarations it references; do not read the rest |
 
 Evidence base: `research/01-harness-conventions.md` (Claude Code / OpenCode / Antigravity CLI facts, real samples) and `research/02-principles-and-prior-art.md` (principles). Only their *Planner digests* were used to write this plan. Two research gaps are known: the Reddit thread could not be retrieved (its principles are not attributed anywhere here), and prior-art coverage beyond Claude Code subagents, Roo Orchestrator and Aider is thin.
