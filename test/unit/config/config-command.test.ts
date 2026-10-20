@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { configCommand } from "../../../src/cli/commands/config.js";
+import { configCommand, isKnownSettingsKey } from "../../../src/cli/commands/config.js";
 import { DEFAULT_SETTINGS, loadSettings } from "../../../src/config/index.js";
 
 function tmp(): string {
@@ -95,7 +95,7 @@ describe("config command", () => {
     expect(out).toContain("\n  ");
   });
 
-  it("get prints undefined for an absent key", async () => {
+  it("get exits 2 with the key and a hint for an unknown key (text mode)", async () => {
     const cwd = tmp();
     const stdout = createMockWritable();
     const stderr = createMockWritable();
@@ -106,8 +106,106 @@ describe("config command", () => {
       stdout,
       stderr,
     });
+    expect(exitCode).toBe(2);
+    expect(stdout.getOutput()).toBe("");
+    expect(stderr.getOutput()).toContain("Error: unknown settings key: no.such.key\n");
+    expect(stderr.getOutput()).toContain("Hint: run substrate config list");
+  });
+
+  it("get prints one error object line for an unknown key (json mode)", async () => {
+    const cwd = tmp();
+    const stdout = createMockWritable();
+    const stderr = createMockWritable();
+    const exitCode = await configCommand.execute({
+      cwd,
+      flags: { outputFormat: "json" },
+      rawArgs: ["get", "no.such.key"],
+      stdout,
+      stderr,
+    });
+    expect(exitCode).toBe(2);
+    expect(stderr.getOutput()).toBe("");
+    const out = stdout.getOutput();
+    expect(out.endsWith("\n") && out.indexOf("\n") === out.length - 1).toBe(true);
+    const parsed = JSON.parse(out) as { error: string };
+    expect(parsed.error).toContain("unknown settings key: no.such.key");
+  });
+
+  it("get prints undefined and exits 0 for a known key that is unset", async () => {
+    const cwd = tmp();
+    const stdout = createMockWritable();
+    const exitCode = await configCommand.execute({
+      cwd,
+      flags: {},
+      rawArgs: ["get", "hooks.stop"],
+      stdout,
+      stderr: createMockWritable(),
+    });
     expect(exitCode).toBe(0);
     expect(stdout.getOutput()).toBe("undefined\n");
+  });
+
+  it("get accepts wildcard map keys under pricing, routing and profiles", async () => {
+    const cwd = tmp();
+    for (const key of [
+      "pricing.models.some-model.input_per_mtok",
+      "profiles.anyprovider.plan.model",
+      "routing.feature.model",
+      "backends.opencode.extra.anything",
+    ]) {
+      const stdout = createMockWritable();
+      const stderr = createMockWritable();
+      const exitCode = await configCommand.execute({
+        cwd,
+        flags: {},
+        rawArgs: ["get", key],
+        stdout,
+        stderr,
+      });
+      expect(exitCode, key).toBe(0);
+      expect(stderr.getOutput(), key).toBe("");
+    }
+  });
+
+  it("get rejects a key that goes below a leaf or names a missing branch", async () => {
+    const cwd = tmp();
+    for (const key of ["concurrency.workers.extra", "budgets.nope", "routing.feature.nope.model"]) {
+      const stderr = createMockWritable();
+      const exitCode = await configCommand.execute({
+        cwd,
+        flags: {},
+        rawArgs: ["get", key],
+        stdout: createMockWritable(),
+        stderr,
+      });
+      expect(exitCode, key).toBe(2);
+      expect(stderr.getOutput(), key).toContain(`unknown settings key: ${key}`);
+    }
+  });
+
+  it("isKnownSettingsKey separates schema paths from unknown ones", () => {
+    expect(isKnownSettingsKey("concurrency.workers")).toBe(true);
+    expect(isKnownSettingsKey("execution.strategy")).toBe(true);
+    expect(isKnownSettingsKey("backends.claude.bin")).toBe(true);
+    expect(isKnownSettingsKey("no.such.key")).toBe(false);
+    expect(isKnownSettingsKey("constructor")).toBe(false);
+    expect(isKnownSettingsKey("__proto__.x")).toBe(false);
+  });
+
+  it("list in json mode prints one compact line", async () => {
+    const cwd = tmp();
+    const stdout = createMockWritable();
+    const exitCode = await configCommand.execute({
+      cwd,
+      flags: { outputFormat: "json" },
+      rawArgs: ["list"],
+      stdout,
+      stderr: createMockWritable(),
+    });
+    expect(exitCode).toBe(0);
+    const out = stdout.getOutput();
+    expect(out.indexOf("\n")).toBe(out.length - 1);
+    expect(JSON.parse(out)).toHaveProperty("concurrency");
   });
 
   it("list prints the merged settings as indented JSON", async () => {

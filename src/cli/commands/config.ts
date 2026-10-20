@@ -76,6 +76,60 @@ function setNested(obj: any, keyPath: string, value: any): void {
   cur[parts[parts.length - 1]] = value;
 }
 
+// Strips the Zod wrappers that do not change the shape of a value.
+function unwrapZod(schema: any): any {
+  let cur = schema;
+  while (cur?._def) {
+    const t = cur._def.typeName;
+    if (t === "ZodOptional" || t === "ZodNullable" || t === "ZodDefault") cur = cur._def.innerType;
+    else if (t === "ZodEffects") cur = cur._def.schema;
+    else break;
+  }
+  return cur;
+}
+
+// True when the path names a place in the settings schema. Record maps accept any
+// key (wildcards such as pricing.models.<id>.*), unions accept a path through any
+// option, and a leaf accepts nothing below it.
+function isSchemaPath(schema: any, parts: string[]): boolean {
+  if (parts.length === 0) return true;
+  const node = unwrapZod(schema);
+  const typeName = node?._def?.typeName;
+  const [head, ...rest] = parts;
+  switch (typeName) {
+    case "ZodObject":
+      return Object.prototype.hasOwnProperty.call(node.shape, head) && isSchemaPath(node.shape[head], rest);
+    case "ZodRecord":
+      return head !== "" && isSchemaPath(node._def.valueType, rest);
+    case "ZodUnion":
+    case "ZodDiscriminatedUnion":
+      return node._def.options.some((opt: any) => isSchemaPath(opt, parts));
+    case "ZodArray":
+      return /^\d+$/.test(head) && isSchemaPath(node._def.type, rest);
+    case "ZodAny":
+    case "ZodUnknown":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** True when a dotted key names a settings key in the Settings schema (set or unset). */
+export function isKnownSettingsKey(key: string): boolean {
+  return isSchemaPath(Contracts.Settings, key.split("."));
+}
+
+// Writes the unknown-key error: a stderr line with a hint in text mode, the usual
+// one-line error object on stdout in json mode.
+function reportUnknownKey(ctx: CommandContext, key: string): void {
+  const msg = `unknown settings key: ${key}`;
+  if (ctx.flags.outputFormat === "json") {
+    ctx.stdout.write(JSON.stringify({ error: `${msg}. Run substrate config list to see the settings keys.` }) + "\n");
+  } else {
+    ctx.stderr.write(`Error: ${msg}\nHint: run substrate config list to see the settings keys.\n`);
+  }
+}
+
 function parseVal(v: string): any {
   if (v === "true") return true;
   if (v === "false") return false;
@@ -87,6 +141,11 @@ function parseVal(v: string): any {
   } catch {
     return v;
   }
+}
+
+// Indented JSON in text mode; one compact line in json mode.
+function jsonText(ctx: CommandContext, value: unknown): string {
+  return ctx.flags.outputFormat === "json" ? JSON.stringify(value) : JSON.stringify(value, null, 2);
 }
 
 export const configCommand: CliCommand = {
@@ -155,13 +214,17 @@ export const configCommand: CliCommand = {
         ctx.stderr.write("Usage: substrate config get <key>\n");
         return 2;
       }
+      if (!isKnownSettingsKey(key)) {
+        reportUnknownKey(ctx, key);
+        return 2;
+      }
       const settings = await loadMerged();
       if (settings === null) return 2;
       const val = getNested(settings, key);
       if (val === undefined) {
         ctx.stdout.write(`undefined\n`);
       } else {
-        ctx.stdout.write(typeof val === "object" ? JSON.stringify(val, null, 2) + "\n" : `${val}\n`);
+        ctx.stdout.write(typeof val === "object" ? jsonText(ctx, val) + "\n" : `${val}\n`);
       }
       return 0;
     }
@@ -169,7 +232,7 @@ export const configCommand: CliCommand = {
     if (sub === "list" || !sub) {
       const settings = await loadMerged();
       if (settings === null) return 2;
-      ctx.stdout.write(JSON.stringify(settings, null, 2) + "\n");
+      ctx.stdout.write(jsonText(ctx, settings) + "\n");
       return 0;
     }
 

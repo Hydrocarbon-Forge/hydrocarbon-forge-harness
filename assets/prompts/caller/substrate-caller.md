@@ -1,6 +1,6 @@
 # Substrate caller guide
 
-Substrate runs a coding task for you. A planner model writes a plan, cheaper worker models carry it out, and Substrate merges only what passes its checks. You call the `substrate` CLI. Pass `--output-format json` and read the JSON object on stdout. Use the exit code to decide what to do next.
+Substrate runs a coding task for you. A planner model writes a plan, cheaper worker models carry it out, and Substrate merges only what passes its checks. You call the `substrate` CLI. Pass `--output-format json` and read the JSON object on stdout. The object is one compact line. Use the exit code to decide what to do next.
 
 ## Before you start
 

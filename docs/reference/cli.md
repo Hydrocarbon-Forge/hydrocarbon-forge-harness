@@ -43,7 +43,7 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
 | `--resume <target>` | run | resume a run or session by id |
 | `--session-id <id>` | run, resume | bind to or create a session |
 | `--fork-session` | run, plan, resume | branch a session; `run` needs `--resume` or `--continue`, `resume` needs a session target |
-| `--output-format <fmt>` | run, plan, resume, status, models, usage, doctor, backends, sessions, history | `text` (default), `json`, or `stream-json`. Commands that do not read it always print text. |
+| `--output-format <fmt>` | run, plan, resume, status, models, usage, doctor, backends, sessions, history | `text` (default), `json`, or `stream-json`. `json` prints one compact line (no indentation), so a caller can parse all of stdout at once or line by line. `stream-json` prints one object per line. Commands that do not read it always print text. |
 | `--settings <file>` | most commands | read this settings file instead of the project's |
 | `--sandbox` | run, verify | enable the bubblewrap sandbox (`sandbox.enabled`) |
 | `--no-governor` | all | deprecated no-op. The governor was deleted on 2026-10-20; the flag is still accepted and ignored so existing callers do not break |
@@ -237,8 +237,8 @@ substrate config get <key>
 substrate config set <key> <value> [--local]
 ```
 
-- `list` prints the merged configuration as JSON.
-- `get` prints one value by dotted key path. An unknown key prints `undefined` and exits 0.
+- `list` prints the merged configuration as JSON: indented in text mode, one compact line with `--output-format json`.
+- `get` prints one value by dotted key path. A key that is not in the settings schema exits 2 with `unknown settings key: <key>` on stderr, with a hint, or with a one-line `{"error":...}` object on stdout in json mode. Wildcard maps (`pricing.models.<id>.*`, `routing.<class>.*`, `profiles.<name>.*`) accept any name in their place. A known key with no value in any file prints `undefined` and exits 0.
 - `set` writes the value into `.substrate/settings.json`. With `--local` it writes `.substrate/settings.local.json` instead. It prints `Set <key> = <value>`.
 - A bad operation exits 2 (`Unknown config operation`). `set` with missing arguments exits 2 with its usage line.
 

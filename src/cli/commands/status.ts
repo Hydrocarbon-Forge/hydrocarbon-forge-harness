@@ -189,7 +189,7 @@ export const statusCommand: CliCommand = {
         ),
         usage: state.usage,
       };
-      ctx.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      ctx.stdout.write(JSON.stringify(payload) + "\n");
       return 0;
     }
 

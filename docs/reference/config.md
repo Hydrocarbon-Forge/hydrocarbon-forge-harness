@@ -46,7 +46,7 @@ The loader starts from the built-in defaults (`DEFAULT_SETTINGS` in `src/config/
 ## The `config` Command
 
 - `substrate config list` prints the merged settings as JSON.
-- `substrate config get <key>` prints one value by dotted path.
+- `substrate config get <key>` prints one value by dotted path. A key that is not in the settings schema exits 2 with `unknown settings key: <key>`. A known key that is unset prints `undefined` and exits 0.
 - `substrate config set <key> <value>` writes the project file. With `--local` it writes the local file. It validates the merged result before writing.
 
 `config set` does not apply the provider rule itself. Without `--local`, `backends.opencode.provider` is written to the project file, the command still exits 0, and every later load then fails (exit 2). Always pass `--local` for the provider key. The endpoint setup is described in [local-model.md](local-model.md).

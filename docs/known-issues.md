@@ -2,7 +2,7 @@
 
 ## How to use this file
 
-This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Items 1, 2 and 16 are fixed and kept as short notes until the next cleanup. Each open item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
+This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Items 1, 2, 9 and 16 are fixed and kept as short notes until the next cleanup. Each open item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
 
 ## 1. Planner failure diagnostics reach task.failed (FIXED)
 
@@ -57,12 +57,9 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 - Direction: add explicit price entries when the owner has the rates.
 - Decision: the owner ratified the mapping on 2026-10-19. The gap is the missing OpenCode price table: `src/backends/default-pricing.ts` has no OpenCode Go or Zen entries. OpenCode Go is a flat subscription, so token prices are nominal. Owner to decide what to ship.
 
-## 9. The json output is one pretty-printed document
+## 9. The json output is one pretty-printed document (FIXED)
 
-- What: the json output format (the output-format option set to json) prints one indented object for the whole run. The work-package wording says each output line parses on its own. Only `stream-json` is line by line.
-- Where: `src/cli/output.ts`.
-- Impact: a consumer must read the whole stdout as one document.
-- Direction: owner decision. Either read the wording as stream-json only, or change the json format to a single line.
+- Fixed: the json output format now prints the same object as one compact line (`src/cli/output.ts`, `config list` and `config get`, and `status`). `stream-json` is unchanged.
 
 ## 10. Settings keys that are accepted, ignored, or rejected
 
@@ -75,7 +72,7 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 
 ## 11. Configuration command behaviour
 
-- `config get` of an unknown key prints `undefined` and exits 0. Reported.
+- FIXED: `config get` of an unknown key exits 2 with `unknown settings key: <key>` (stderr in text mode, a one-line error object in json mode). A known key that is unset still prints `undefined` and exits 0.
 - `config set` of the opencode provider base URL without the local flag writes the key to the shared settings file, after which every command exits 2. The error text names a key the code does not read (`backends.opencode.extra.base_url`). Reported.
 - Built-in routing defaults (`routing.feature`, and `roles.worker`, both claude) override profile routes, so a profile does not reach the feature class or the solo worker. A profile named other than a backend pauses with `backend_unavailable`, which exits 3, the same code as `needs_input`. Reported.
 - Direction: fix the key text, make unknown keys exit non-zero, and let profiles beat the built-in defaults.

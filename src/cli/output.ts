@@ -120,7 +120,7 @@ class JsonFormatter implements OutputFormatter {
       session_id: sessionId,
       events: this.events,
     };
-    this.out.write(JSON.stringify(payload, null, 2) + "\n");
+    this.out.write(JSON.stringify(payload) + "\n");
   }
 
   onError(error: Error | string): void {
