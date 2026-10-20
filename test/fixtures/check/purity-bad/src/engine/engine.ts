@@ -11,5 +11,5 @@ export function bad() {
   const p = "You are the Substrate something";
   const code = "export const val_${id} = 1;";
   const f = FakeAdapter;
-  const ip = "192.168.1.1";
+  const ip = "203.0.113.7";
 }
