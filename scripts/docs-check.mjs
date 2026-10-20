@@ -458,7 +458,6 @@ export async function checkDocs(opts = {}) {
     "git",
     "instructions",
     "execution",
-    "hooks",
   ];
 
   try {

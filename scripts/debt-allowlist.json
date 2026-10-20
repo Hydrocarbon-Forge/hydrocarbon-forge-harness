@@ -31,10 +31,6 @@
       "until": "DEFERRED"
     },
     {
-      "key": "git.branch_prefix",
-      "until": "DEFERRED"
-    },
-    {
       "key": "roles.reviewer.backend",
       "until": "DEFERRED"
     },
@@ -48,10 +44,6 @@
     },
     {
       "key": "roles.reviewer.model",
-      "until": "DEFERRED"
-    },
-    {
-      "key": "sandbox.network",
       "until": "DEFERRED"
     }
   ],

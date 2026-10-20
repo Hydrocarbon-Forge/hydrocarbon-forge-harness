@@ -137,7 +137,7 @@ describe("config command", () => {
     const exitCode = await configCommand.execute({
       cwd,
       flags: {},
-      rawArgs: ["get", "hooks.stop"],
+      rawArgs: ["get", "backends.claude.bin"],
       stdout,
       stderr: createMockWritable(),
     });
@@ -186,6 +186,10 @@ describe("config command", () => {
   it("isKnownSettingsKey separates schema paths from unknown ones", () => {
     expect(isKnownSettingsKey("concurrency.workers")).toBe(true);
     expect(isKnownSettingsKey("execution.strategy")).toBe(true);
+    // R6.7: keys removed from the schema are no longer schema paths.
+    expect(isKnownSettingsKey("hooks.stop")).toBe(false);
+    expect(isKnownSettingsKey("git.branch_prefix")).toBe(false);
+    expect(isKnownSettingsKey("sandbox.network")).toBe(false);
     expect(isKnownSettingsKey("backends.claude.bin")).toBe(true);
     expect(isKnownSettingsKey("no.such.key")).toBe(false);
     expect(isKnownSettingsKey("constructor")).toBe(false);

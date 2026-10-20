@@ -61,14 +61,17 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 
 - Fixed: the json output format now prints the same object as one compact line (`src/cli/output.ts`, `config list` and `config get`, and `status`). `stream-json` is unchanged.
 
-## 10. Settings keys that are accepted, ignored, or rejected
+## 10. Settings keys that are accepted, ignored, or rejected (partly FIXED)
 
-- The `hooks` settings key is accepted by the schema and ignored, since the hook code was deleted in R5.3. Where: `src/contracts/index.ts`.
-- The `permissions.ask` key was removed from the schema. A settings file that still contains it now fails validation, with an unrecognized-key error. Users must delete the key. Recorded in `docs/reference/config.md`.
-- Keys accepted by the schema but not read by the engine: `budgets.run.max_wall_min`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`, `routing.*.budget.*`, `backends.*.extra` (except the custom base URL), and the `roles.reviewer.*` keys, which are deferred (see item 13).
-- The command-line options for allowed tools, disallowed tools and timeout write settings keys that nothing reads. A solo run on the local route was verified with zero tokens.
-- Direction: remove the keys from the schema or wire them. Removing the `hooks` key would need a rule for old files.
-- Decision: owner, together with item 3.
+- Fixed (R6.7): three keys that nothing read were removed from the strict schema, with their defaults and their allowlist entries: `hooks` (out of scope in DECISIONS), `git.branch_prefix` (DECISIONS: branch names are fixed in code) and `sandbox.network` (DECISIONS A6). A settings file that still holds one now fails to load with exit 2 and names the key. `docs/reference/config.md` has a "Removed keys" section. Tests: `test/unit/config/loader.test.ts`, `test/unit/config/config-command.test.ts`, `test/e2e/removed-settings-keys.test.ts`. `execution.strategy` and its `ExecutionStrategy` contract stay (see below).
+- The `permissions.ask` key was removed from the schema earlier. A settings file that still contains it fails validation, with an unrecognized-key error. Users must delete the key. Recorded in `docs/reference/config.md`.
+- Kept on purpose in R6.7, because they are not dead by the rule used (no reader in `src/`, not documented as working):
+  - `execution.strategy`: the `ExecutionStrategy` seam (`direct` or `dispatcher`) is reserved in the original design (`SUBSTRATE-PLAN.md` OD1 and the Appendix A contract list). The contract tests in `test/unit/contracts/schemas.test.ts` and `test/unit/contracts/export-schemas.test.ts` pin it. Removing it is a design decision for the owner.
+  - `roles.reviewer.enabled`, `.backend`, `.model`, `.effort`: DECISIONS A2 keeps the reviewer as an optional role, and item 13 covers it.
+  - `budgets.run.max_wall_min`: nothing reads the settings key in the engine, but the `--timeout` flag (`src/cli/commands/run.ts:135-136`) and the request `budget.max_wall_min` (`src/cli/request.ts:208`, `:418-419`) write it. Removing it would make `--timeout` fail validation, so it is a CLI decision.
+  - `routing.*.budget.*` and `backends.*.extra` (except the custom base URL): not on the allowlist, so `check-settings` counts them as read. Not re-checked in R6.7.
+- The command-line options for allowed tools, disallowed tools and timeout write settings keys that nothing reads. A solo run on the local route was verified with zero tokens. The timeout option is the `budgets.run.max_wall_min` case above.
+- Direction: owner decision on `execution.strategy` (keep the seam or remove it with its Appendix A entry) and on `budgets.run.max_wall_min` with the `--timeout` flag.
 
 ## 11. Configuration command behaviour
 
@@ -99,8 +102,8 @@ The governor was deleted on 2026-10-20 on the owner's decision: the governor and
 These allowlist entries stay on purpose, with `until: "DEFERRED"` (owner approved on 2026-10-20). They are the only entries left in `scripts/debt-allowlist.json`:
 
 - wired: `src/roles/prompts/reviewer.ts`.
-- dead: `aggregateLedger` in `src/ledger/index.ts`, `buildReviewerPrompt` in `src/roles/prompts/reviewer.ts`.
-- settings: `roles.reviewer.enabled`, `roles.reviewer.backend`, `roles.reviewer.model`, `roles.reviewer.effort`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`.
+- dead: `aggregateLedger` in `src/ledger/index.ts` (imported by `test/unit/ledger/ledger.test.ts`), `buildReviewerPrompt` in `src/roles/prompts/reviewer.ts` (imported by `test/unit/roles/prompts.test.ts`). Both stay until their tests move with the reviewer phase.
+- settings: `roles.reviewer.enabled`, `roles.reviewer.backend`, `roles.reviewer.model`, `roles.reviewer.effort`, and `execution.strategy` (R6.7 removed `git.branch_prefix` and `sandbox.network`; see item 10).
 
 The reviewer role needs a new engine phase (DECISIONS A2). Item 16 (the mechanical-file rule on the auto path) is fixed.
 

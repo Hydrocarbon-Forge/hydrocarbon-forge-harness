@@ -148,8 +148,8 @@ describe("R4.3 local provider config and adapter", () => {
       },
       concurrency: { workers: 3 },
       permissions: { allow: [], deny: [] },
-      sandbox: { enabled: false, network: "deny" as const },
-      git: { on_scope_violation: "revert" as const, branch_prefix: "substrate/", auto_merge: false },
+      sandbox: { enabled: false },
+      git: { on_scope_violation: "revert" as const, auto_merge: false },
       instructions: { workers: "none" as const },
       execution: { strategy: "direct" as const },
     };

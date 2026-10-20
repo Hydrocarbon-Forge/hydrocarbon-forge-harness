@@ -395,8 +395,8 @@ describe("the L1 ladder route comes from the profile chain (DECISIONS A6)", () =
     },
     concurrency: { workers: 3 },
     permissions: { allow: [], deny: [] },
-    sandbox: { enabled: false, network: "deny" },
-    git: { on_scope_violation: "revert", branch_prefix: "substrate/", auto_merge: false },
+    sandbox: { enabled: false },
+    git: { on_scope_violation: "revert", auto_merge: false },
     instructions: { workers: "none" },
     execution: { strategy: "direct" },
   });

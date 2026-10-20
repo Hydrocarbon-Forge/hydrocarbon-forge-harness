@@ -38,8 +38,8 @@ const MINIMAL_FILE_SETTINGS = {
   },
   concurrency: { workers: 3 },
   permissions: { allow: [], deny: [] },
-  sandbox: { enabled: true, network: "deny" },
-  git: { on_scope_violation: "revert", branch_prefix: "substrate/", auto_merge: false },
+  sandbox: { enabled: true },
+  git: { on_scope_violation: "revert", auto_merge: false },
   instructions: { workers: "none" },
   execution: { strategy: "direct" },
 };
@@ -83,11 +83,11 @@ describe("config JSONC tolerance", () => {
 describe("config merge: objects merge, scalars and arrays replace", () => {
   it("higher layer wins; objects merge key-wise", () => {
     const merged = deepMerge(
-      { concurrency: { workers: 1 }, sandbox: { enabled: false, network: "allow" } },
+      { concurrency: { workers: 1 }, sandbox: { enabled: false } },
       { concurrency: { workers: 5 } },
     ) as Record<string, Record<string, unknown>>;
     expect(merged["concurrency"]).toEqual({ workers: 5 });
-    expect(merged["sandbox"]).toEqual({ enabled: false, network: "allow" });
+    expect(merged["sandbox"]).toEqual({ enabled: false });
   });
 
   it("scalars and arrays replace instead of concatenating", () => {
@@ -155,6 +155,24 @@ describe("config loading: precedence and defaults", () => {
       }),
     );
     await expect(loadSettings({ projectDir, userConfigDir: userDir, env: {} })).rejects.toThrow(/governor/);
+  });
+
+  it("R6.7: keys nothing read (git.branch_prefix, sandbox.network, hooks) are rejected by the strict schema", async () => {
+    const removed: Array<[string, Record<string, unknown>, RegExp]> = [
+      ["git.branch_prefix", { git: { on_scope_violation: "revert", branch_prefix: "substrate/", auto_merge: false } }, /branch_prefix/],
+      ["sandbox.network", { sandbox: { enabled: false, network: "deny" } }, /network/],
+      ["hooks", { hooks: { stop: [{ command: "true" }] } }, /hooks/],
+    ];
+    for (const [label, patch, pattern] of removed) {
+      const projectDir = tmp();
+      const userDir = tmp();
+      writeSettingsFile(
+        projectDir,
+        ".substrate/settings.json",
+        JSON.stringify({ ...MINIMAL_FILE_SETTINGS, ...patch }),
+      );
+      await expect(loadSettings({ projectDir, userConfigDir: userDir, env: {} }), label).rejects.toThrow(pattern);
+    }
   });
 
   it("precedence: project < local < --settings < flags, higher wins", async () => {
@@ -339,7 +357,7 @@ describe("R1.5: settings schema and sandbox", () => {
   });
 
   it("sandboxProblem returns the bwrap message when enabled and which says false", () => {
-    const enabled = { ...DEFAULT_SETTINGS, sandbox: { enabled: true, network: "deny" } } as unknown as Contracts.Settings;
+    const enabled = { ...DEFAULT_SETTINGS, sandbox: { enabled: true } } as unknown as Contracts.Settings;
     expect(sandboxProblem(enabled, () => false)).toBe(
       "sandbox.enabled is true but bwrap is not installed; install bubblewrap or set sandbox.enabled to false",
     );

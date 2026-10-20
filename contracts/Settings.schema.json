@@ -458,18 +458,10 @@
       "properties": {
         "enabled": {
           "type": "boolean"
-        },
-        "network": {
-          "type": "string",
-          "enum": [
-            "deny",
-            "allow"
-          ]
         }
       },
       "required": [
-        "enabled",
-        "network"
+        "enabled"
       ],
       "additionalProperties": false
     },
@@ -483,16 +475,12 @@
             "fail"
           ]
         },
-        "branch_prefix": {
-          "type": "string"
-        },
         "auto_merge": {
           "type": "boolean"
         }
       },
       "required": [
         "on_scope_violation",
-        "branch_prefix",
         "auto_merge"
       ],
       "additionalProperties": false
@@ -540,27 +528,6 @@
         "strategy"
       ],
       "additionalProperties": false
-    },
-    "hooks": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "command": {
-              "type": "string"
-            },
-            "timeout_s": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "command"
-          ],
-          "additionalProperties": false
-        }
-      }
     }
   },
   "required": [

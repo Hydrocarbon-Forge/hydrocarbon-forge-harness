@@ -234,15 +234,15 @@ Default: `run.max_usd` 5, `task.max_usd` 0.5, `l1_replans_per_task` 2, `l2_per_r
 ### `sandbox`
 
 - `enabled`: default `false`. When `true`, verify commands run inside `bwrap` where it is available. When it is `true` and `bwrap` is not installed, `run`, `plan` and `resume` refuse to start with an error.
-- `network`: accepted by the schema and not read by this version. Verify commands always get a fixed network setting in the code.
+- `network` was removed in R6.7 (see [Removed keys](#removed-keys)). Verify commands always get a fixed network setting in the code.
 
 ### `git`
 
-Default: `on_scope_violation` `revert`, `branch_prefix` `substrate/`, `auto_merge` `false`.
+Default: `on_scope_violation` `revert`, `auto_merge` `false`.
 
 - `on_scope_violation`: `revert` or `fail`. It is read when a worker changes files outside its allowed paths.
 - `auto_merge`: when `true`, a run that finishes with exit code 0 is merged with the same code the merge command uses.
-- `branch_prefix`: accepted by the schema and not read by this version. Branch names are fixed in code.
+- `branch_prefix` was removed in R6.7 (see [Removed keys](#removed-keys)). Branch names are fixed in code (`substrate/tasks/...` and `substrate/runs/...`, DECISIONS).
 
 ### `instructions`
 
@@ -256,6 +256,10 @@ Default: `on_scope_violation` `revert`, `branch_prefix` `substrate/`, `auto_merg
 
 - `strategy`: default `direct`. The schema accepts `direct` and `dispatcher`. The engine does not read this key; `direct` is the only behaviour in this version.
 
-### `hooks`
+## Removed keys
 
-- Accepted by the schema and ignored. Hook execution is not part of this version, so hook entries have no effect.
+These keys were removed in R6.7 because nothing read them and the decisions put them out of scope (`hooks`: DECISIONS, Out of scope; `git.branch_prefix`: DECISIONS, task and run branch names are fixed; `sandbox.network`: DECISIONS A6). The settings schema is strict, so a settings file that still contains one fails to load with exit 2, and the error names the key. Delete the key from the file to fix it:
+
+- `hooks` (any layer)
+- `git.branch_prefix`
+- `sandbox.network`

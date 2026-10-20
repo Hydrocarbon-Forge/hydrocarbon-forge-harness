@@ -449,11 +449,9 @@ export const Settings = z.object({
   }).strict(),
   sandbox: z.object({
     enabled: z.boolean(),
-    network: z.enum(["deny", "allow"]),
   }).strict(),
   git: z.object({
     on_scope_violation: z.enum(["revert", "fail"]),
-    branch_prefix: z.string(),
     auto_merge: z.boolean(),
   }).strict(),
   instructions: z.object({
@@ -465,10 +463,6 @@ export const Settings = z.object({
   execution: z.object({
     strategy: ExecutionStrategy,
   }).strict(),
-  hooks: z.record(z.string(), z.array(z.object({
-    command: z.string(),
-    timeout_s: z.number().optional(),
-  }).strict())).optional(),
 }).strict();
 export type Settings = z.infer<typeof Settings>;
 

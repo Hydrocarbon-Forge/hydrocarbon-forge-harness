@@ -30,8 +30,8 @@ function makeSettings(workers = 3, maxUsd = 10): Contracts.Settings {
     },
     concurrency: { workers },
     permissions: { allow: [], deny: [] },
-    sandbox: { enabled: true, network: "deny" },
-    git: { on_scope_violation: "revert", branch_prefix: "substrate/", auto_merge: false },
+    sandbox: { enabled: true },
+    git: { on_scope_violation: "revert", auto_merge: false },
     instructions: { workers: "none" },
     execution: { strategy: "direct" },
   });

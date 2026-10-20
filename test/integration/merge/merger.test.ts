@@ -49,7 +49,7 @@ const RUN_ID = "r_MERGERTESTAA";
 const RUN_REF = `refs/heads/substrate/runs/${RUN_ID}`;
 
 function testSettings(): Settings {
-  return { sandbox: { enabled: false, network: "allow" } } as unknown as Settings;
+  return { sandbox: { enabled: false } } as unknown as Settings;
 }
 
 function getTaskMerger(): TaskMergerR36 {

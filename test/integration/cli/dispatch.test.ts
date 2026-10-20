@@ -147,6 +147,7 @@ describe("R1.6: dispatch rules", () => {
     let savedSettings: string | undefined;
     let savedHome: string | undefined;
     let fakeHome: string;
+    let fakeProject: string;
 
     beforeAll(() => {
       savedConfigDir = process.env.SUBSTRATE_CONFIG_DIR;
@@ -158,6 +159,9 @@ describe("R1.6: dispatch rules", () => {
       delete process.env.SUBSTRATE_SETTINGS;
       fakeHome = mkdtempSync(join(tmpdir(), "substrate-dispatch-home-"));
       process.env.HOME = fakeHome;
+      // R6.7: isolate the project layer too, so a local .substrate/settings.json in the checkout is not read.
+      fakeProject = mkdtempSync(join(tmpdir(), "substrate-dispatch-project-"));
+      process.env.SUBSTRATE_PROJECT_DIR = fakeProject;
     });
 
     afterAll(() => {
@@ -170,6 +174,7 @@ describe("R1.6: dispatch rules", () => {
       if (savedHome === undefined) delete process.env.HOME;
       else process.env.HOME = savedHome;
       rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(fakeProject, { recursive: true, force: true });
     });
 
     it("config list resolves 0 and prints JSON containing a concurrency key", async () => {
