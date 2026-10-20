@@ -281,11 +281,10 @@ describe("registry passes the settings model ids to Claude", () => {
       pricing: { models: {} },
     };
     const models = await listedModels(createAdapters(settings).claude);
-    // DEFAULT_SETTINGS.routing.feature is a claude route, so its model is a
-    // settings id too; its escalation ids deduplicate against the static aliases.
+    // R6.5: DEFAULT_SETTINGS no longer holds routing.feature, so the built-in claude
+    // model is not a settings id. Only the ids the settings name are passed through.
     expect(models.filter((model) => model.source === "settings")).toEqual([
       { id: "fable-5", efforts: CLAUDE_EFFORTS, source: "settings" },
-      { id: "claude-sonnet-5-5", efforts: CLAUDE_EFFORTS, source: "settings" },
     ]);
   });
 });

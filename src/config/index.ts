@@ -89,12 +89,13 @@ export interface LoadSettingsOptions {
 
 export const DEFAULT_SETTINGS: Contracts.Settings & { pricing: Contracts.PricingTable } = {
   backends: {},
+  // roles.worker and routing.feature are not defaults here: the built-in claude route
+  // (BUILTIN_FALLBACK_ROUTE in src/roles/router.ts) is the last step of route resolution,
+  // so a profile or a user value always wins over it (known issues item 11).
   roles: {
     planner: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
-    worker: { backend: "claude", model: "claude-sonnet-5-5" },
   },
   routing: {
-    feature: { backend: "claude", model: "claude-sonnet-5-5", effort: "medium" },
     escalation: ["haiku", "sonnet", "opus"],
   },
   pricing: {

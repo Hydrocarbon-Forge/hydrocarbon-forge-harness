@@ -9,6 +9,7 @@ import { evaluateEscalation } from "../../../src/engine/ladder.js";
 import type { EngineState } from "../../../src/engine/reducer.js";
 import { createRunId } from "../../../src/util/index.js";
 import {
+  BUILTIN_FALLBACK_ROUTE,
   TASK_CLASSES,
   escalationChain,
   resolvePlannerRoute,
@@ -135,14 +136,18 @@ describe("route precedence (DECISIONS A6)", () => {
     });
   });
 
-  it("throws for a class with no routing entry and no profile", () => {
+  it("falls back to the built-in claude route when nothing else is configured (known issues item 11)", () => {
+    // Before R6.5 this threw. The built-in route is now the last step, so it never throws.
     const settings = makeSettings({
       routing: { escalation: ["profile-fast", "profile-work", "profile-plan"] },
     });
 
-    expect(() => resolveTaskRoute("feature", 2, settings)).toThrow(
-      "no route configured for class 'feature': set routing.<cls> or profiles plus defaults.worker_provider",
-    );
+    expect(resolveTaskRoute("feature", 1, settings)).toEqual(BUILTIN_FALLBACK_ROUTE);
+    expect(resolveTaskRoute("feature", 2, settings)).toEqual({
+      backend: "claude",
+      model: "profile-work",
+      effort: "medium",
+    });
   });
 
   it("never throws for a configured class in TASK_CLASSES", () => {
@@ -435,6 +440,75 @@ describe("the L1 ladder route comes from the profile chain (DECISIONS A6)", () =
     expect(action.level).toBe("L1");
     if (action.level === "L1") {
       expect(action.route.model).toBe("profile-work");
+    }
+  });
+});
+
+// R6.5 (known issues item 11): built-in fallback < selected profile slots < explicit user
+// settings. The solo worker resolves through resolveTaskRoute("feature"), so these cover
+// the feature class and the solo route; scenario-profile-precedence covers the spawn request.
+describe("route precedence: profiles beat the built-in fallback (R6.5)", () => {
+  const PROFILE_PROVIDER = { profiles: { claude: CLAUDE_PROFILE }, defaults: { worker_provider: "claude" } };
+
+  it("with no profile, the feature class is the built-in claude route", () => {
+    const settings = makeSettings({});
+
+    expect(settings.routing.feature).toBeUndefined();
+    for (const cls of TASK_CLASSES) {
+      expect(resolveTaskRoute(cls, 1, settings)).toEqual(BUILTIN_FALLBACK_ROUTE);
+    }
+    expect(BUILTIN_FALLBACK_ROUTE).toEqual({
+      backend: "claude",
+      model: "claude-sonnet-5-5",
+      effort: "medium",
+    });
+  });
+
+  it("DEFAULT_SETTINGS holds neither roles.worker nor routing.feature", () => {
+    expect(DEFAULT_SETTINGS.roles.worker).toBeUndefined();
+    expect(DEFAULT_SETTINGS.routing.feature).toBeUndefined();
+  });
+
+  it("with only a worker profile configured, the feature class uses the profile slot", () => {
+    const settings = makeSettings(PROFILE_PROVIDER);
+
+    expect(resolveTaskRoute("feature", 1, settings)).toEqual({
+      backend: "claude",
+      model: "profile-work",
+      effort: "medium",
+    });
+  });
+
+  it("an explicit routing.feature beats the profile for the feature class", () => {
+    const settings = makeSettings({
+      ...PROFILE_PROVIDER,
+      routing: { feature: { backend: "agy", model: "explicit-feature", effort: "low" } },
+    });
+
+    expect(resolveTaskRoute("feature", 1, settings)).toEqual({
+      backend: "agy",
+      model: "explicit-feature",
+      effort: "low",
+    });
+  });
+
+  it("an explicit roles.worker survives the settings layers and leaves the feature route to the profile", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "precedence-test-"));
+    try {
+      const settings = await loadSettings({
+        projectDir: dir,
+        userConfigDir: dir,
+        flags: { ...PROFILE_PROVIDER, roles: { worker: { model: "explicit-worker" } } } as never,
+      });
+
+      expect(settings.roles.worker).toEqual({ model: "explicit-worker" });
+      expect(resolveTaskRoute("feature", 1, settings)).toEqual({
+        backend: "claude",
+        model: "profile-work",
+        effort: "medium",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

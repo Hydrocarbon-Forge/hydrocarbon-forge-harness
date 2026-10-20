@@ -9,7 +9,7 @@ import {
   type Settings,
 } from "../contracts/index.js";
 import { isSafePath, matchGlob, redactSecrets } from "../util/index.js";
-import { slotForClass } from "../roles/router.js";
+import { BUILTIN_FALLBACK_CLASS, slotForClass } from "../roles/router.js";
 import type { ParsedPlan, ParsedTaskSpec } from "./parser.js";
 import type { LintOptions } from "./linter.js";
 import { typecheckContracts } from "./typecheck.js";
@@ -688,8 +688,8 @@ export const ruleL014: LintRule = (ctx) => {
   return diags;
 };
 
-// L015: spec.class present in settings.routing, or configured through the worker
-// provider's profile slot for that class (DECISIONS A6).
+// L015: spec.class present in settings.routing, configured through the worker
+// provider's profile slot for that class (DECISIONS A6), or the built-in fallback class.
 export const ruleL015: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
   const workerProvider = ctx.settings.defaults?.worker_provider;
@@ -701,6 +701,7 @@ export const ruleL015: LintRule = (ctx) => {
     if (!cls) continue;
 
     if (cls in ctx.settings.routing) continue;
+    if (cls === BUILTIN_FALLBACK_CLASS) continue;
 
     if (profile) {
       const slot = slotForClass(cls);

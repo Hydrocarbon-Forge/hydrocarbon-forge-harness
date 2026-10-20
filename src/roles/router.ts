@@ -16,6 +16,16 @@ export interface RouteRequestOptions {
   repoRoot?: string;
 }
 
+// Built-in fallback, the last step of route resolution (after explicit settings and the
+// profile slot). It is not a settings default, so a user value is never mistaken for it.
+// The solo worker resolves through the same path, so it uses this route too.
+export const BUILTIN_FALLBACK_CLASS = "feature";
+export const BUILTIN_FALLBACK_ROUTE: Route = {
+  backend: "claude",
+  model: "claude-sonnet-5-5",
+  effort: "medium",
+};
+
 const MECHANICAL_VERBS = [
   "update dependency",
   "fix typo",
@@ -175,9 +185,10 @@ function normalizeRoute(route: Route): Route {
   return buildProfileRoute(route.backend, route.model, route.effort);
 }
 
-// Route precedence (DECISIONS A6): explicit `routing.<class>`, then the worker
-// provider's profile slot for the class (fast falling back to work), then the feature
-// route. The hard-coded model fallback is removed, so an unconfigured class throws.
+// Route precedence (DECISIONS A6, known issues item 11): explicit `routing.<class>`, then
+// the worker provider's profile slot for the class (fast falling back to work), then an
+// explicit `routing.feature` for any class, then BUILTIN_FALLBACK_ROUTE. The built-in
+// route is never a settings default, so every user value above it wins.
 function baseRouteForClass(taskClass: string, settings: Settings): Route {
   const routing = settings.routing as Record<string, unknown>;
 
@@ -204,9 +215,7 @@ function baseRouteForClass(taskClass: string, settings: Settings): Route {
     return normalizeRoute(feature as Route);
   }
 
-  throw new Error(
-    `no route configured for class '${taskClass}': set routing.<cls> or profiles plus defaults.worker_provider`,
-  );
+  return normalizeRoute(BUILTIN_FALLBACK_ROUTE);
 }
 
 export function resolveTaskRoute(

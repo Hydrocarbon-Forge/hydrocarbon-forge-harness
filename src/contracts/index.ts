@@ -406,7 +406,9 @@ export const Settings = z.object({
   }).strict()),
   roles: z.object({
     planner: Route,
-    worker: Route.optional(),
+    // Partial: a request, environment variable or flag may set only the model (or only
+    // the backend). Solo mode fills the rest from the resolved task route.
+    worker: Route.partial().optional(),
     reviewer: Route.extend({ enabled: z.boolean() }).strict().optional(),
   }).strict(),
   routing: z.record(z.string(), z.union([

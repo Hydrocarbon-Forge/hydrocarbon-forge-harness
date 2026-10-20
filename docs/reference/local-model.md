@@ -75,8 +75,8 @@ A profile whose name is not a backend name (for example `local-worker`) is not u
 
 Two built-in settings take precedence over profiles:
 
-- `routing.feature` is always present (claude, `claude-sonnet-5-5`). An explicit route for a task class wins over a profile slot, so the `feature` class uses claude unless `routing.feature` is set.
-- `roles.worker` is always present (claude, `claude-sonnet-5-5`). In solo mode it replaces the route of the single worker.
+- `routing.feature` is not a default. The `feature` class uses an explicit `routing.feature` if set, else the worker profile's slot, else the built-in claude route (`claude-sonnet-5-5`). An explicit route for a task class wins over a profile slot (see Route precedence in `config.md`).
+- `roles.worker` is not a default. When set, it replaces the backend and model of the single worker in solo mode; when unset, solo mode uses the `feature` route above.
 
 To run a solo task on the local model, set the solo worker route:
 

@@ -21,7 +21,7 @@ The project directory is `SUBSTRATE_PROJECT_DIR` when that variable is set. Othe
 
 The loader starts from the built-in defaults (`DEFAULT_SETTINGS` in `src/config/index.ts`) and applies these layers in this order. Each later layer overrides the earlier ones:
 
-1. **Built-in defaults.** `DEFAULT_SETTINGS`, listed in each section below.
+1. **Built-in defaults.** `DEFAULT_SETTINGS`, listed in each section below. The built-in worker route is not one of them; see Route precedence.
 2. **User file.**
 3. **Project file.**
 4. **Local file.**
@@ -101,8 +101,8 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `roles.planner.backend` | string | Backend of the planner route. Default `claude`. |
 | `roles.planner.model` | string | Model of the planner route. Default `claude-sonnet-5-5`. |
 | `roles.planner.effort` | effort level | Effort of the planner route. Default `medium`. |
-| `roles.worker.backend` | string | Backend of the solo worker. Also the backend whose `max_concurrency` the scheduler applies. Default `claude`. |
-| `roles.worker.model` | string | Model of the solo worker. Default `claude-sonnet-5-5`. |
+| `roles.worker.backend` | string | Backend of the solo worker. Also the backend whose `max_concurrency` the scheduler applies. No default: unset, the solo worker uses the resolved `feature` route (see Route precedence). |
+| `roles.worker.model` | string | Model of the solo worker. No default (see Route precedence). |
 | `roles.worker.effort` | effort level | Effort of the solo worker. When unset, the effort of the `feature` route is used. |
 | `routing.escalation` | array of strings | Model ids for escalation when no worker profile is set. Default `haiku`, `sonnet`, `opus`. |
 | `routing.*.backend` | string | Backend of the route for one task class. |
@@ -148,10 +148,10 @@ Default: none (`{}`). Without an entry, `bin` is the harness name (`claude`, `op
 
 The planner and worker routes. Each route has `backend`, `model` and an optional `effort`.
 
-Default: planner and worker are both `claude` / `claude-sonnet-5-5` / `medium`.
+Default: the planner route is `claude` / `claude-sonnet-5-5` / `medium`. `worker` has no default.
 
 - `planner`: the planner route when `defaults.planner_provider` is not set.
-- `worker`: in solo mode, its `backend` and `model` replace the task route for the single worker. Because this default is always present, solo mode uses claude unless `roles.worker` is set. Its `effort`, when set, replaces the effort of the feature route for the single worker, as its `backend` and `model` do. Its `backend` is also the backend the scheduler caps with `max_concurrency`.
+- `worker`: in solo mode, its `backend` and `model` replace the task route for the single worker. It is a partial route: a request, environment variable or flag may set only `model` (or only `backend`), and the rest comes from the resolved `feature` route. Its `effort`, when set, replaces the effort of the feature route for the single worker, as its `backend` and `model` do. Its `backend` is also the backend the scheduler caps with `max_concurrency`. Unset, solo mode uses the resolved `feature` route.
 - `reviewer`: accepted by the schema and not read by this version.
 - `governor`: removed. The governor was deleted on 2026-10-20 (DECISIONS A2). A settings file that contains `roles.governor` is rejected by the strict schema, like any unknown key.
 
@@ -159,10 +159,9 @@ Default: planner and worker are both `claude` / `claude-sonnet-5-5` / `medium`.
 
 Per-class routes, plus the escalation list.
 
-Default: `feature` is `claude` / `claude-sonnet-5-5` / `medium`, and `escalation` is `["haiku", "sonnet", "opus"]`.
+Default: `escalation` is `["haiku", "sonnet", "opus"]`. There is no default route: the built-in claude route (`claude` / `claude-sonnet-5-5` / `medium`) applies only when nothing else selects a route (see Route precedence).
 
 - `routing.<class>`: a route for one task class (for example `feature`, `tests`, `refactor`). Only `backend`, `model` and `effort` are read. A `budget` entry is accepted and not read.
-- An explicit `routing.<class>` entry takes precedence over a profile slot for that class. The built-in `feature` entry is always present, so a profile does not route the `feature` class unless `routing.feature` is changed.
 - `escalation`: a list of model ids. It is used for escalation only when no worker profile is set (`defaults.worker_provider` names no profile). With a worker profile, the chain is the profile's `fast`, `work` and `plan` models, in that order, without repeats.
 
 ### `profiles`
@@ -183,7 +182,17 @@ Per-provider model slots. Each provider name maps to `plan`, `work` and an optio
 - `plan` routes the planner (when `defaults.planner_provider` names the provider). It also routes the `debug` and `review` classes.
 - `work` routes the `tests`, `feature` and `refactor` classes, and is the fallback for every other class.
 - `fast` routes the `search`, `mechanical` and `boilerplate` classes. Those classes use `work` when `fast` is absent.
-- A profile routes worker tasks only when `defaults.worker_provider` names it and the task class has no explicit `routing.<class>` entry.
+- A profile routes worker tasks only when `defaults.worker_provider` names it and the task class has no explicit `routing.<class>` entry. A profile is selected by `defaults.planner_provider` and `defaults.worker_provider`, or by a request that sets `planner` or `worker`; there is no `profile` key.
+
+### Route precedence
+
+A worker task's route is chosen in this order. The first step that gives a route wins:
+
+1. **Explicit user settings.** `routing.<class>` for the task's class. For the solo worker, the class is `feature`, and `roles.worker` (its `backend`, `model` and `effort`, from any layer or request flag) replaces the route after that.
+2. **Selected profile.** The `fast`, `work` or `plan` slot of the `defaults.worker_provider` profile, for the task's class.
+3. **Built-in fallback.** `claude` / `claude-sonnet-5-5` / `medium`, the last step. It is not a settings default, so a user value is never confused with it. `config list` and `config get` do not print it: `roles.worker` and `routing.feature` appear only when set.
+
+The planner is not part of this order. When `defaults.planner_provider` names a profile, its `plan` slot routes the planner, even if `roles.planner` is also set; otherwise `roles.planner` applies. That planner rule is unchanged in R6.5.
 
 ### `defaults`
 
