@@ -93,7 +93,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `defaults.planner_provider` | string | Provider whose `plan` profile slot routes the planner. |
 | `defaults.worker_provider` | string | Provider whose profile routes worker tasks and the escalation chain. |
 | `git.on_scope_violation` | `revert` or `fail` | What happens when a worker changes files outside its allowed paths. Default `revert`. |
-| `git.auto_merge` | boolean | When `true`, a run that finishes with exit code 0 is merged with the same code the merge command uses. Default `false`. |
+| `git.auto_merge` | boolean | When `true`, a run that finishes with exit code 0 is merged with the same code the merge command uses. Default `false`. The `--merge` flag and the request's `merge: true` do the same for one run (see cli.md). |
 | `instructions.workers` | `none` or `project` | When `project`, the planner request lists the project instruction files that exist (`CLAUDE.md`, `AGENTS.md`, `SUBSTRATE.md`). Default `none`. |
 | `pricing.asOf` | string | Date the price table was last refreshed. |
 | `pricing.sources` | array of strings | URLs that document the rates. |
@@ -255,7 +255,7 @@ Default: `run.max_usd` 5, `task.max_usd` 0.5, `l1_replans_per_task` 2, `l2_per_r
 Default: `on_scope_violation` `revert`, `auto_merge` `false`.
 
 - `on_scope_violation`: `revert` or `fail`. It is read when a worker changes files outside its allowed paths.
-- `auto_merge`: when `true`, a run that finishes with exit code 0 is merged with the same code the merge command uses.
+- `auto_merge`: when `true`, a run that finishes with exit code 0 is merged with the same code the merge command uses. A caller opts in for one run with `--merge` or `merge: true` in the request; the setting itself stays `false` by default.
 - `branch_prefix` was removed in R6.7 (see [Removed keys](#removed-keys)). Branch names are fixed in code (`substrate/tasks/...` and `substrate/runs/...`, DECISIONS).
 
 ### `instructions`

@@ -33,6 +33,7 @@ export interface CliGlobalFlags {
   fast?: string;
   dryRun?: boolean;
   abortOnConflict?: boolean;
+  merge?: boolean;
   hard?: boolean;
   verify?: string[];
   request?: string;
@@ -132,6 +133,7 @@ const CLI_OPTIONS = {
   fast: { type: "string" },
   "dry-run": { type: "boolean" },
   "abort-on-conflict": { type: "boolean" },
+  merge: { type: "boolean" },
   hard: { type: "boolean" },
   request: { type: "string" },
   answers: { type: "string" },
@@ -206,6 +208,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.fast !== undefined) flags.fast = parsedValues.fast as string;
   if (parsedValues["dry-run"]) flags.dryRun = true;
   if (parsedValues["abort-on-conflict"]) flags.abortOnConflict = true;
+  if (parsedValues.merge) flags.merge = true;
   if (parsedValues.hard) flags.hard = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);

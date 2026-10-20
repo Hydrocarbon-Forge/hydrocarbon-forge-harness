@@ -46,6 +46,7 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
 | `--output-format <fmt>` | run, plan, resume, status, models, usage, doctor, backends, sessions, history | `text` (default), `json`, or `stream-json`. `json` prints one compact line (no indentation), so a caller can parse all of stdout at once or line by line. `stream-json` prints one object per line. In `text` mode, `run`, `plan` and `resume` print live progress on stdout (see Progress output). Commands that do not read it always print text. |
 | `--settings <file>` | most commands | read this settings file instead of the project's |
 | `--sandbox` | run, verify | enable the bubblewrap sandbox (`sandbox.enabled`) |
+| `--merge` | run | merge a passing run into the checked-out branch for this run only, as if `git.auto_merge` were `true`. The request's `merge: true` does the same. The setting itself is unchanged (default `false`), so without this flag the run branch is left for `substrate merge` |
 | `--no-governor` | all | deprecated no-op. The governor was deleted on 2026-10-20; the flag is still accepted and ignored so existing callers do not break |
 
 ## Progress output
@@ -62,11 +63,11 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
   - `integration verify started`, `integration verify passed` or `failed`, `budget warning: ...`, `run paused: <reason>`
   - `run <id> <status>: <passed>/<total> passed, $<cost>`, then the summary block
 
-  The summary block keeps its existing lines and adds `Merged:` (`yes` when a task reached the run branch, `no` otherwise, `pending (git.auto_merge)` when the run is merged after the summary). A run that did not finish with exit `0` also prints `Drafts and logs: .substrate/runs/<id>/` (relative to the project directory) and `Next: substrate resume <id>`. A run paused for answers prints its own resume line instead.
+  The summary block keeps its existing lines and adds `Merged:` (`yes` when the run's work is in the checked-out branch, `no` otherwise). A run that finished with exit `0` also prints a `Result:` block: `Result: <n> files changed on branch <run branch>`, then `Merged into <base branch> (working tree updated)` or `NOT merged into <base branch> yet — run: substrate merge <id>  (or pass the merge flag next time)`, then `Files:` with up to 10 changed file names (`  ... and <k> more` when there are more). The summary is written after the run is merged, when the merge is asked for, so `Merged:` is final when it prints. A run that did not finish with exit `0` prints `Drafts and logs: .substrate/runs/<id>/` (relative to the project directory), `Next: substrate resume <id>` and `Reason: <failure_class>: <message>`. A run paused for answers prints its own resume line instead.
 
 - **Heartbeat.** When no progress line has been written for 15 seconds, the run writes `[mm:ss] still working: <phase> (<s>s, $<cost>)`, and again every 15 seconds until the next progress line. The phase is `planning`, `setup`, `task <id> running`, `verifying <id>`, `merging <id>`, `scheduling` (between tasks), or a named step such as `integration verify`, `replanning <id>` or `paused`. The seconds count the time in that phase. `SUBSTRATE_HEARTBEAT_MS` changes the interval (see [config.md](config.md)).
 
-- **`json`.** One compact line when the run ends. It carries no progress, so use `text` or `stream-json` to watch a run.
+- **`json`.** One compact line when the run ends. It carries no progress, so use `text` or `stream-json` to watch a run. Besides the run's fields it carries where the work landed: `merged` (boolean), `branch`, `base_branch`, `files_changed` (up to 50 file names), `files_changed_total`, and `next` (exact command strings a caller may run, such as `substrate merge <id>` or `substrate resume <id>`). A failed run also carries `failure_class`, `message` (empty when the failing event had none) and `drafts_dir` (relative to the project).
 
 - **`stream-json`.** One JSON object per line, in order: every engine event as it happens, the heartbeats, and a final `result` line. Event lines carry the catalog name in `type` (`usage.recorded` streams as `usage`), with `run_id`, `seq` and `ts`. A heartbeat line has `"type": "heartbeat"`, `run_id`, `ts`, `elapsed_s` (seconds since the run started), `phase`, `phase_elapsed_s` and `cost_usd`, and no `seq`. Fields added for progress:
   - `plan.format_rejected` (new event): `attempt`, `max_attempts`, and `errors`, at most 5 strings of 300 characters each. It is emitted for each refused planner output, before the retry.
@@ -74,6 +75,7 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
   - `task.session.started` gains `backend` and `model`.
   - `task.verify.finished` gains `failed_command` and `failed_output` (one line, at most 300 characters) when a verify fails.
   - `plan.produced` lists each task as `id`, `spec`, `title`, `class` and `depends_on`.
+  - the final `result` line carries `branch`, `merged`, `base_branch`, `files_changed`, `files_changed_total` and `next`, and for a failed run `failure_class`, `message` and `drafts_dir`, with the same meaning as in `json`.
 
 A `text` run looks like this (the fake harness, two tasks, timestamps all under one second):
 

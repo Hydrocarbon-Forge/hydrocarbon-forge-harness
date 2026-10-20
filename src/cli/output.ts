@@ -1,4 +1,5 @@
 import type { EngineEvent, Question, RunId, RunSummary } from "../contracts/index.js";
+import { TEXT_FILES_LIMIT } from "../engine/landing.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
 const { Heartbeat, RunProgress, formatCost, formatElapsed, heartbeatMsFromEnv } = await import(`./progress.js`);
@@ -9,8 +10,6 @@ type RunProgressState = InstanceType<typeof RunProgress>;
 export interface FormatterOptions {
   /** The models the run names, shown on its start line. */
   models?: { planner?: string; worker?: string };
-  /** git.auto_merge is on, so a passed run is merged after the summary. */
-  autoMerge?: boolean;
   /** Silence before a heartbeat. Defaults to SUBSTRATE_HEARTBEAT_MS, else 15 s. */
   heartbeatMs?: number;
   /** Clock in milliseconds; tests inject one. */
@@ -28,6 +27,16 @@ export interface StreamResultEvent {
   usage: { by_role: Record<string, number> };
   duration_ms: number;
   questions?: Question[];
+  // Where the work landed (R7.4); present on a run summary, not on a resumed run's.
+  branch?: string;
+  merged?: boolean;
+  base_branch?: string;
+  files_changed?: string[];
+  files_changed_total?: number;
+  next?: string[];
+  failure_class?: string;
+  message?: string;
+  drafts_dir?: string;
 }
 
 export interface OutputFormatter {
@@ -124,18 +133,47 @@ class TextFormatter implements OutputFormatter {
     this.out.write(`Tasks:      ${passed} passed / ${taskKeys.length} total\n`);
     this.out.write(`Total Cost: $${totalCost}\n`);
     this.out.write(`Exit Code:  ${summary.exit_code}\n`);
-    // The summary reports merged tasks as PASSED, so the merge is read from the events seen.
-    const merged = this.progress.merged > 0;
-    const mergedText = merged
-      ? "yes"
-      : summary.exit_code === 0 && this.options.autoMerge
-        ? "pending (git.auto_merge)"
-        : "no";
-    this.out.write(`Merged:     ${mergedText}\n`);
-    if (summary.exit_code !== 0) {
+    // The run command lands the run before the summary, so `merged` is known. A summary without
+    // it (a resumed run) falls back to the task merges seen in the events.
+    const merged = summary.merged ?? this.progress.merged > 0;
+    this.out.write(`Merged:     ${merged ? "yes" : "no"}\n`);
+    const landed = summary.merged !== undefined;
+    if (landed && summary.drafts_dir === undefined) {
+      this.writeResult(summary);
+    }
+    if (summary.drafts_dir !== undefined || (!landed && summary.exit_code !== 0)) {
       this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
       if (!needsInput) {
         this.out.write(`Next:       substrate resume ${summary.run_id}\n`);
+      }
+      if (summary.failure_class !== undefined) {
+        const message = summary.message ? `: ${summary.message}` : "";
+        this.out.write(`Reason:     ${summary.failure_class}${message}\n`);
+      }
+    }
+  }
+
+  // The landing block: where the work is, and the file names (up to TEXT_FILES_LIMIT).
+  private writeResult(summary: RunSummary): void {
+    const count = summary.files_changed_total ?? 0;
+    const base = summary.base_branch ?? "HEAD";
+    this.out.write(`Result:     ${count} files changed on branch ${summary.branch}\n`);
+    if (summary.merged) {
+      this.out.write(`Merged into ${base} (working tree updated)\n`);
+    } else {
+      this.out.write(
+        `NOT merged into ${base} yet — run: substrate merge ${summary.run_id}  (or pass the merge flag next time)\n`,
+      );
+    }
+    const files = summary.files_changed ?? [];
+    if (files.length > 0) {
+      this.out.write(`Files:\n`);
+      for (const file of files.slice(0, TEXT_FILES_LIMIT)) {
+        this.out.write(`  ${file}\n`);
+      }
+      const more = count - Math.min(files.length, TEXT_FILES_LIMIT);
+      if (more > 0) {
+        this.out.write(`  ... and ${more} more\n`);
       }
     }
   }
@@ -280,7 +318,9 @@ class StreamJsonFormatter implements OutputFormatter {
       total_cost_usd,
       usage,
       duration_ms,
+      branch: summary.branch,
       ...(questions !== undefined ? { questions } : {}),
+      ...landingFields(summary),
     };
 
     this.out.write(JSON.stringify(resultEvent) + "\n");
@@ -301,6 +341,20 @@ class StreamJsonFormatter implements OutputFormatter {
   async flush(): Promise<void> {
     this.heartbeat.stop();
   }
+}
+
+// The landing fields of a summary that carries them (see src/engine/landing.ts).
+function landingFields(summary: RunSummary): Partial<StreamResultEvent> {
+  const fields: Partial<StreamResultEvent> = {};
+  if (summary.merged !== undefined) fields.merged = summary.merged;
+  if (summary.base_branch !== undefined) fields.base_branch = summary.base_branch;
+  if (summary.files_changed !== undefined) fields.files_changed = summary.files_changed;
+  if (summary.files_changed_total !== undefined) fields.files_changed_total = summary.files_changed_total;
+  if (summary.next !== undefined) fields.next = summary.next;
+  if (summary.failure_class !== undefined) fields.failure_class = summary.failure_class;
+  if (summary.message !== undefined) fields.message = summary.message;
+  if (summary.drafts_dir !== undefined) fields.drafts_dir = summary.drafts_dir;
+  return fields;
 }
 
 export function createFormatter(

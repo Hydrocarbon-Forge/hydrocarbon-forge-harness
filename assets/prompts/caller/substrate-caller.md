@@ -61,6 +61,8 @@ substrate run --mode solo --work claude:haiku --request - --output-format json
 
 The output is one JSON object with `run_id`, `status`, `exit_code` and `events`. Read `run_id` and the exit code (see Exit codes). Exit code `3` means the run needs a human. When the JSON has `subtype` `needs_input`, the planner paused for answers (see Handle needs_input).
 
+Substrate keeps a passing run on its own run branch until it is merged. Pass `--merge` (or `"merge": true` in the request) when you want the work in the checked-out branch's working tree; the run is then merged and the JSON has `merged: true`. Without it, `merged` is `false` and `next` holds `substrate merge <run_id>`, which you may run to land the work. From the JSON, read `merged`, `base_branch`, `files_changed` (up to 50 names; `files_changed_total` counts all of them) and `next`. A failed run also has `failure_class`, `message` and `drafts_dir` (the logs), and `next` names the resume command.
+
 ## Watching a run
 
 Run `substrate run` in the foreground and read its stdout as it arrives. Do not poll `status` or read the event files. Stdout carries progress and the summary; stderr carries errors and warnings.

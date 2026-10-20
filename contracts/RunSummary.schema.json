@@ -109,6 +109,36 @@
     },
     "exit_code": {
       "type": "number"
+    },
+    "merged": {
+      "type": "boolean"
+    },
+    "base_branch": {
+      "type": "string"
+    },
+    "files_changed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "files_changed_total": {
+      "type": "number"
+    },
+    "next": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "failure_class": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "drafts_dir": {
+      "type": "string"
     }
   },
   "required": [

@@ -58,6 +58,8 @@ export interface CliCommand {
 export interface MergeRunOptions {
   dryRun?: boolean;
   abortOnConflict?: boolean;
+  /** Write nothing to stdout: the run command reports the landing itself (R7.4). */
+  quiet?: boolean;
 }
 
 function resolveRunBranch(repoRoot: string, runId: string): { branch: string; exists: boolean } {
@@ -178,7 +180,7 @@ export async function mergeRun(
       ["merge-base", "--is-ancestor", runBranch, "HEAD"],
       { cwd: ctx.cwd, stdio: "ignore" }
     );
-    ctx.stdout.write("Already up to date.\n");
+    if (opts?.quiet !== true) ctx.stdout.write("Already up to date.\n");
     return 0;
   } catch {}
 
@@ -227,7 +229,7 @@ export async function mergeRun(
       ["merge", "--no-ff", "-m", `merge run ${runId}`, runBranch],
       { cwd: ctx.cwd, encoding: "utf8", stdio: "pipe", env: gitIdentityEnv(ctx.cwd) }
     );
-    ctx.stdout.write(`Merged ${runBranch} into ${currentBranch}\n`);
+    if (opts?.quiet !== true) ctx.stdout.write(`Merged ${runBranch} into ${currentBranch}\n`);
     return 0;
   } catch (err: any) {
     ctx.stderr.write(`Error merging ${runBranch}: ${err.message}\n`);

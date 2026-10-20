@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Effort, Engine, PermissionMode, RunId, RunOptions, Settings } from "../../contracts/index.js";
+import type { Effort, Engine, EngineEvent, PermissionMode, RunId, RunOptions, RunSummary, Settings } from "../../contracts/index.js";
 import { createEngine } from "../../engine/engine.js";
 import { loadSettings, sandboxProblem, withRequestedRoles } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
+import { changedFilesOnRun, currentBranchName, runLandedInHead } from "../../git/landing.js";
+import { failureOf, withLanding } from "../../engine/landing.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -22,6 +24,8 @@ export interface CliGlobalFlags {
   request?: string;
   plan?: string;
   work?: string;
+  /** Merge a passing run into the checked-out branch, for this run only (R7.4). */
+  merge?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -144,6 +148,48 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
   return overrides;
 }
 
+interface LandResult {
+  summary: RunSummary;
+  exitCode: number;
+}
+
+// Where a finished run's work lands (R7.4). The changed files are read before any merge, since
+// the merge moves the fork point. The run is merged into the checked-out branch only when the
+// caller asked (--merge, the request's merge field, or git.auto_merge); otherwise the run branch
+// stays for `substrate merge`. A failed merge sets the exit code to the merge's.
+async function landRun(
+  ctx: CommandContext,
+  summary: RunSummary,
+  opts: { mergeRequested: boolean; events: EngineEvent[] },
+): Promise<LandResult> {
+  const runFailed = summary.exit_code !== 0;
+  const base_branch = currentBranchName(ctx.cwd);
+  const files = changedFilesOnRun(ctx.cwd, summary.branch);
+  let exitCode = summary.exit_code;
+  if (!runFailed && opts.mergeRequested) {
+    const { mergeRun } = await import(`./merge.js`);
+    const mergeCode = await mergeRun(ctx, summary.run_id, { dryRun: false, abortOnConflict: false, quiet: true });
+    if (mergeCode !== 0) {
+      exitCode = mergeCode;
+    }
+  }
+  // A failed run never lands, even when its branch has no commits of its own.
+  const merged = !runFailed && runLandedInHead(ctx.cwd, summary.branch);
+  const failure = runFailed ? failureOf(opts.events) : undefined;
+  const landed = withLanding(
+    { ...summary, exit_code: exitCode },
+    {
+      merged,
+      base_branch,
+      files,
+      runFailed,
+      needsInput: summary.pause_reason === "needs_human" && summary.questions !== undefined,
+      ...(failure !== undefined ? { failure } : {}),
+    },
+  );
+  return { summary: landed, exitCode };
+}
+
 export const runCommand: CliCommand = {
   name: "run",
   description: "Execute Substrate run with specified prompt",
@@ -180,6 +226,8 @@ export const runCommand: CliCommand = {
 
     let mode = ctx.flags.mode ?? "auto";
     let permission_mode = ctx.flags.permissionMode ?? "dontAsk";
+    // --merge or the request's merge field: merge a passing run for this run only (R7.4).
+    let mergeFlag = ctx.flags.merge === true;
     let overrides = buildSettingsOverrides(ctx.flags, mode);
     let prompt = ctx.rawArgs[0];
     let runVerify: string[] | undefined;
@@ -201,6 +249,9 @@ export const runCommand: CliCommand = {
       }
       if (reqRes.request.permission_mode) {
         permission_mode = reqRes.request.permission_mode;
+      }
+      if (reqRes.request.merge === true) {
+        mergeFlag = true;
       }
       if (reqRes.overrides.roles) {
         overrides.roles = { ...(overrides.roles ?? {}), ...reqRes.overrides.roles };
@@ -290,10 +341,11 @@ export const runCommand: CliCommand = {
       ctx.stdout,
       ctx.stderr,
       {
-        ...(loadedSettings ? { models: progressModelsFor(loadedSettings), autoMerge: loadedSettings.git?.auto_merge === true } : {}),
+        ...(loadedSettings ? { models: progressModelsFor(loadedSettings) } : {}),
       },
     );
 
+    const runEvents: EngineEvent[] = [];
     const runOpts: RunOptions = {
       cwd: ctx.cwd,
       mode,
@@ -305,6 +357,7 @@ export const runCommand: CliCommand = {
         if (mode === "auto" && warnNoVerify && event.type === "run.routed" && (event.data as { mode?: unknown }).mode === "solo") {
           ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
         }
+        runEvents.push(event);
         formatter.onEvent(event);
       },
     };
@@ -328,27 +381,20 @@ export const runCommand: CliCommand = {
       if (sessionStore && session) {
         await sessionStore.addRun(session.sessionId, summary.run_id, prompt);
       }
-      formatter.onSummary(summary, session?.sessionId ?? "");
+      const effectiveSettings =
+        loadedSettings ??
+        (await loadSettings({
+          projectDir: ctx.cwd,
+          settingsFile: ctx.flags.settings,
+          flags: overrides,
+        }));
+      const landed = await landRun(ctx, summary, {
+        mergeRequested: mergeFlag || effectiveSettings.git?.auto_merge === true,
+        events: runEvents,
+      });
+      formatter.onSummary(landed.summary, session?.sessionId ?? "");
       await formatter.flush();
-
-      if (summary.exit_code === 0) {
-        const effectiveSettings =
-          loadedSettings ??
-          (await loadSettings({
-            projectDir: ctx.cwd,
-            settingsFile: ctx.flags.settings,
-            flags: overrides,
-          }));
-        if (effectiveSettings.git?.auto_merge === true) {
-          const { mergeRun } = await import(`./merge.js`);
-          return await mergeRun(ctx, summary.run_id, {
-            dryRun: false,
-            abortOnConflict: false,
-          });
-        }
-      }
-
-      return summary.exit_code;
+      return landed.exitCode;
     } catch (err: any) {
       if (err instanceof RunLockError) {
         formatter.onError(err);

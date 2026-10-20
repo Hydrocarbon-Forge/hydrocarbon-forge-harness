@@ -168,7 +168,10 @@ describe("E2E progress: text mode writes the run's progress to stdout (R7.3)", (
         cursor = at + 1;
       }
       expect(res.stdout).toMatch(/Tasks:      2 passed \/ 2 total/);
-      expect(res.stdout).toMatch(/Merged:     yes/);
+      // R7.4: Merged means the work is in the checked-out branch. Without --merge the run
+      // branch is left for `substrate merge`, so the summary says so.
+      expect(res.stdout).toMatch(/Merged:     no/);
+      expect(res.stdout).toMatch(/NOT merged into main yet — run: substrate merge /);
       expect(res.stdout).not.toMatch(/Drafts and logs:/);
     } finally {
       res.cleanup();

@@ -520,6 +520,17 @@ export const RunSummary = z.object({
   }).strict(),
   branch: z.string(),
   exit_code: z.number(),
+  // Where the work landed (R7.4), set by the run command. Optional: a resumed run's summary
+  // does not carry them. files_changed is capped at 50; files_changed_total counts all.
+  merged: z.boolean().optional(),
+  base_branch: z.string().optional(),
+  files_changed: z.array(z.string()).optional(),
+  files_changed_total: z.number().int().nonnegative().optional(),
+  next: z.array(z.string()).optional(),
+  // Failed runs only: the failing event's class and message, and the drafts directory.
+  failure_class: z.string().optional(),
+  message: z.string().optional(),
+  drafts_dir: z.string().optional(),
 }).strict();
 export type RunSummary = z.infer<typeof RunSummary>;
 

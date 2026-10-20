@@ -37,6 +37,8 @@ export const RunRequest = z
     budget: RunBudget.optional(),
     permission_mode: PermissionMode.optional(),
     context: z.array(z.string()).optional(),
+    // Merge the run into the checked-out branch when it passes, for this run only (R7.4).
+    merge: z.boolean().optional(),
   })
   .strict();
 export type RunRequest = z.infer<typeof RunRequest>;
