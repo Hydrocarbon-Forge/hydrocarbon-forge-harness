@@ -2,7 +2,24 @@
 
 ## How to use this file
 
-This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Items 1, 2, 9 and 16 are fixed and kept as short notes until the next cleanup. Each open item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
+This file lists the findings that are still open after the R6 series (R6.9 is the last cleanup package). It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Items 1, 2, 9, 16 and 17 are fixed and kept as short notes until the next cleanup. Each open item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
+
+## Remaining open after R6
+
+These items are still open. Each one has its detail in the numbered section below. Items 4 and 5 need an owner go-ahead or a decision.
+
+- Item 3: permissions are bypassed and the allow and deny lists are advisory (owner decision).
+- Item 4: pending live experiments (claude disallowed tools, opencode external-directory permission, agy commit under bypass). Each needs the owner go-ahead.
+- Item 5: the agy environment allowlist (owner decision).
+- Item 6: the process environment option drops inherited variables (no live caller).
+- Item 7: the opencode adapter writes config files into the task worktree (relocation needs a documented mechanism).
+- Item 8: cost rates for effort-suffixed model ids are an approximation (owner decision on price entries).
+- Item 10: `execution.strategy`, `budgets.run.max_wall_min` and the reviewer settings (owner decisions).
+- Item 11: profiles do not beat the built-in routing defaults (design open, owner decision); `config set` of the opencode provider key without `--local` still writes it to the project file.
+- Item 12: minor adapter and asset issues.
+- Item 13: the reviewer role (deferred, DECISIONS A2).
+- Item 14: test gaps and test-helper masking (the open parts).
+- Item 15: the live opencode smoke needs the local base URL in the environment.
 
 ## 1. Planner failure diagnostics reach task.failed (FIXED)
 
@@ -75,14 +92,16 @@ Each experiment spends money or runs a real harness and needs a fresh owner go-a
 
 ## 11. Configuration command behaviour
 
-- FIXED: `config get` of an unknown key exits 2 with `unknown settings key: <key>` (stderr in text mode, a one-line error object in json mode). A known key that is unset still prints `undefined` and exits 0.
-- `config set` of the opencode provider base URL without the local flag writes the key to the shared settings file, after which every command exits 2. The error text names a key the code does not read (`backends.opencode.extra.base_url`). Reported.
+- FIXED: `config get` of an unknown key exits 2 with `unknown settings key: <key>` (stderr in text mode, a one-line error object in json mode). A known key that is unset still prints `undefined` and exits 0 in text mode.
+- FIXED (R6.9): with `--output-format json`, `config list` and `config get` print a settings-load failure as one `{"error":...}` object on stdout and exit 2, the same convention as `run` and `status`. Text mode still prints `Error:` on stderr. `config get` prints a string as a valid JSON value (`"claude"`), and an unset key prints `null`. Tests: `test/unit/config/config-command.test.ts`; `docs/reference/cli.md` and `config.md` updated.
+- FIXED (R5.2, verified in R6.9): the base-URL error names `backends.opencode.provider.base_url`, the key the code reads (`src/backends/adapters/opencode.ts:612`); the earlier text named a key nothing read.
+- OPEN: `config set` of the opencode provider base URL without the local flag writes the key to the shared settings file, after which every command exits 2 (verified in R6.9). `config set` should refuse that key without the local flag. Reported.
 - OPEN (R6.5, analysis only, no code change): built-in routing defaults (`routing.feature`, and `roles.worker`, both claude) override profile routes, so a profile does not reach the feature class or the solo worker. A profile named other than a backend pauses with `backend_unavailable`, which exits 3, the same code as `needs_input`. Reported.
   - How a profile is selected: there is no `profile` key. A profile applies when `defaults.planner_provider` or `defaults.worker_provider` names it (`src/config/index.ts:314-331`, `validateProfiles`), or when a request sets `planner` or `worker` (`src/cli/request.ts:403` builds `overrides.roles.worker`; `--plan` and `--work` take the same path).
   - (1) Profile-only result, probed with `defaults.planner_provider` and `defaults.worker_provider` set to `opencode`, with `plan` `plan-m`, `work` `work-m`, `fast` `fast-m` and no other settings: the planner gets `opencode` / `plan-m` (`src/roles/router.ts:153-154`, read by `src/engine/actions/plan.ts:70`); the `refactor` class gets `opencode` / `work-m` (`src/roles/router.ts:189-199`); the `feature` class gets `claude` / `claude-sonnet-5-5` / `medium`; the solo worker gets `claude` / `claude-sonnet-5-5`.
   - (2) Why the built-in entries win: `DEFAULT_SETTINGS` holds `roles.worker` (`src/config/index.ts:94`) and `routing.feature` (`src/config/index.ts:97`). `foldLayers` starts from it (`src/config/index.ts:260`), and the engine merges it again on every run (`src/engine/engine.ts:153` and `:247`). Once merged, a built-in value cannot be told from a user value. `baseRouteForClass` reads `routing[class]` before any profile slot (`src/roles/router.ts:184-185`), so `feature` never reaches the profile branch (`:189`). Solo reads `roles.worker` unconditionally (`src/engine/actions/solo.ts:91-99`).
   - (3) Proposed design, not implemented: remove `roles.worker` and `routing.feature` from `DEFAULT_SETTINGS`, and keep the claude fallback as the last step of the resolver, after the profile branch (`src/roles/router.ts:202-204`), with the same effort (`medium`) for the solo worker. Then a user value, from any layer or request flag, is present in the merged settings and wins, and a profile wins over the fallback. This is not a small change. It alters the settings contract (`DEFAULT_SETTINGS`, `src/config/index.ts:92-99`, and the engine re-merge at `src/engine/engine.ts:153` and `:247`). It also changes readers of `routing` that assume the feature entry exists: the lint rule L015 (`src/spec/rules.ts:703`) and the model catalog (`src/cli/model-catalog.ts:86`). It needs the docs in `docs/reference/config.md:153` and `:164` changed. It is therefore left open for the owner to decide.
-- Direction: fix the key text, make unknown keys exit non-zero (done), and let profiles beat the built-in defaults (open, design above).
+- Current state: the key text and the unknown-key exit are fixed. Open: let profiles beat the built-in defaults (design in (3) above, not implemented), and the `config set` provider key above.
 
 ## 12. Minor adapter and asset issues
 

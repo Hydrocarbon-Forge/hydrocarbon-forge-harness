@@ -238,7 +238,7 @@ substrate config set <key> <value> [--local]
 ```
 
 - `list` prints the merged configuration as JSON: indented in text mode, one compact line with `--output-format json`.
-- `get` prints one value by dotted key path. A key that is not in the settings schema exits 2 with `unknown settings key: <key>` on stderr, with a hint, or with a one-line `{"error":...}` object on stdout in json mode. Wildcard maps (`pricing.models.<id>.*`, `routing.<class>.*`, `profiles.<name>.*`) accept any name in their place. A known key with no value in any file prints `undefined` and exits 0.
+- `get` prints one value by dotted key path. A key that is not in the settings schema exits 2 with `unknown settings key: <key>` on stderr, with a hint, or with a one-line `{"error":...}` object on stdout in json mode. Wildcard maps (`pricing.models.<id>.*`, `routing.<class>.*`, `profiles.<name>.*`) accept any name in their place. A known key with no value in any file prints `undefined` and exits 0. In json mode the value is always valid JSON: a string prints quoted (`"claude"`), and an unset key prints `null`. If the settings files fail to load, `list` and `get` exit 2, with the error on stderr in text mode or as a one-line `{"error":...}` object on stdout in json mode.
 - `set` writes the value into `.substrate/settings.json`. With `--local` it writes `.substrate/settings.local.json` instead. It prints `Set <key> = <value>`.
 - A bad operation exits 2 (`Unknown config operation`). `set` with missing arguments exits 2 with its usage line.
 

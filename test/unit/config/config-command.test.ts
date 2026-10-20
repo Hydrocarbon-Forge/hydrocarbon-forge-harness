@@ -131,6 +131,71 @@ describe("config command", () => {
     expect(parsed.error).toContain("unknown settings key: no.such.key");
   });
 
+  it("get prints a string value quoted as JSON in json mode, and raw in text mode", async () => {
+    const cwd = tmp();
+    mkdirSync(join(cwd, ".substrate"), { recursive: true });
+    writeFileSync(join(cwd, ".substrate", "settings.json"), JSON.stringify({ backends: { claude: { bin: "claude" } } }));
+    const jsonOut = createMockWritable();
+    const jsonCode = await configCommand.execute({
+      cwd,
+      flags: { outputFormat: "json" },
+      rawArgs: ["get", "backends.claude.bin"],
+      stdout: jsonOut,
+      stderr: createMockWritable(),
+    });
+    expect(jsonCode).toBe(0);
+    expect(jsonOut.getOutput()).toBe('"claude"\n');
+    expect(JSON.parse(jsonOut.getOutput())).toBe("claude");
+
+    const textOut = createMockWritable();
+    const textCode = await configCommand.execute({
+      cwd,
+      flags: {},
+      rawArgs: ["get", "backends.claude.bin"],
+      stdout: textOut,
+      stderr: createMockWritable(),
+    });
+    expect(textCode).toBe(0);
+    expect(textOut.getOutput()).toBe("claude\n");
+  });
+
+  it("get and list print one json error object on stdout for an invalid settings file (json mode)", async () => {
+    const cwd = tmp();
+    mkdirSync(join(cwd, ".substrate"), { recursive: true });
+    writeFileSync(join(cwd, ".substrate", "settings.json"), "{ not valid json");
+    for (const rawArgs of [["get", "concurrency.workers"], ["list"]]) {
+      const stdout = createMockWritable();
+      const stderr = createMockWritable();
+      const exitCode = await configCommand.execute({
+        cwd,
+        flags: { outputFormat: "json" },
+        rawArgs,
+        stdout,
+        stderr,
+      });
+      expect(exitCode, rawArgs.join(" ")).toBe(2);
+      expect(stderr.getOutput(), rawArgs.join(" ")).toBe("");
+      const out = stdout.getOutput();
+      expect(out.indexOf("\n"), rawArgs.join(" ")).toBe(out.length - 1);
+      const parsed = JSON.parse(out) as { error: string };
+      expect(typeof parsed.error, rawArgs.join(" ")).toBe("string");
+      expect(parsed.error.length, rawArgs.join(" ")).toBeGreaterThan(0);
+    }
+  });
+
+  it("get prints null in json mode for a known key that is unset", async () => {
+    const stdout = createMockWritable();
+    const exitCode = await configCommand.execute({
+      cwd: tmp(),
+      flags: { outputFormat: "json" },
+      rawArgs: ["get", "backends.claude.bin"],
+      stdout,
+      stderr: createMockWritable(),
+    });
+    expect(exitCode).toBe(0);
+    expect(stdout.getOutput()).toBe("null\n");
+  });
+
   it("get prints undefined and exits 0 for a known key that is unset", async () => {
     const cwd = tmp();
     const stdout = createMockWritable();

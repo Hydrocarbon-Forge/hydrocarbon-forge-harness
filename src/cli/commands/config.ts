@@ -148,6 +148,15 @@ function jsonText(ctx: CommandContext, value: unknown): string {
   return ctx.flags.outputFormat === "json" ? JSON.stringify(value) : JSON.stringify(value, null, 2);
 }
 
+// Settings load failure: stderr in text mode, the one-line {"error":...} object on stdout in json mode.
+function reportLoadError(ctx: CommandContext, msg: string): void {
+  if (ctx.flags.outputFormat === "json") {
+    ctx.stdout.write(JSON.stringify({ error: msg }) + "\n");
+  } else {
+    ctx.stderr.write(`Error: ${msg}\n`);
+  }
+}
+
 export const configCommand: CliCommand = {
   name: "config",
   description: "Inspect or update project configuration settings",
@@ -203,7 +212,7 @@ export const configCommand: CliCommand = {
       try {
         return await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings });
       } catch (err) {
-        ctx.stderr.write(`Error: ${(err as Error).message}\n`);
+        reportLoadError(ctx, (err as Error).message);
         return null;
       }
     };
@@ -221,7 +230,10 @@ export const configCommand: CliCommand = {
       const settings = await loadMerged();
       if (settings === null) return 2;
       const val = getNested(settings, key);
-      if (val === undefined) {
+      if (ctx.flags.outputFormat === "json") {
+        // json mode always prints a valid JSON value: strings quoted, unset keys as null.
+        ctx.stdout.write(JSON.stringify(val === undefined ? null : val) + "\n");
+      } else if (val === undefined) {
         ctx.stdout.write(`undefined\n`);
       } else {
         ctx.stdout.write(typeof val === "object" ? jsonText(ctx, val) + "\n" : `${val}\n`);
