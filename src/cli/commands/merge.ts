@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
 import { TaskMerger } from "../../git/merger.js";
+import { gitIdentityEnv } from "../../git/identity.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -196,7 +197,7 @@ export async function mergeRun(
       execFileSync(
         "git",
         ["merge", "--no-ff", "-m", `merge run ${runId}`, runBranch],
-        { cwd: ctx.cwd, encoding: "utf8", stdio: "pipe" }
+        { cwd: ctx.cwd, encoding: "utf8", stdio: "pipe", env: gitIdentityEnv(ctx.cwd) }
       );
     } catch {
       try {
@@ -224,7 +225,7 @@ export async function mergeRun(
     execFileSync(
       "git",
       ["merge", "--no-ff", "-m", `merge run ${runId}`, runBranch],
-      { cwd: ctx.cwd, encoding: "utf8", stdio: "pipe" }
+      { cwd: ctx.cwd, encoding: "utf8", stdio: "pipe", env: gitIdentityEnv(ctx.cwd) }
     );
     ctx.stdout.write(`Merged ${runBranch} into ${currentBranch}\n`);
     return 0;

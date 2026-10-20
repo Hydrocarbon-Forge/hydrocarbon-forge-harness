@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import type { Command, Settings } from "../contracts/index.js";
 import { VerifyRunner } from "../verify/runner.js";
 import { isRegisteredWorktree, ensureGitExclude } from "./workspace.js";
+import { gitIdentityEnv } from "./identity.js";
 
 export interface PreflightResult {
   clean: boolean;
@@ -83,6 +84,7 @@ export async function mergeInto(
       cwd: worktreePath,
       encoding: "utf8",
       stdio: "pipe",
+      env: gitIdentityEnv(worktreePath),
     }
   );
   return execFileSync(
