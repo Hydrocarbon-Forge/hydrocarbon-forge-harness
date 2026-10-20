@@ -103,7 +103,7 @@ export async function routeRequest(opts: RouteRequestOptions): Promise<RoutingDe
   };
 }
 
-// Task classes driven by profile slots (DECISIONS A6). A class outside this list
+// Task classes driven by profile slots (DECISIONS A3). A class outside this list
 // behaves as "work".
 export const TASK_CLASSES = [
   "search",
@@ -134,7 +134,7 @@ export function slotForClass(cls: string): "fast" | "work" | "plan" {
 }
 
 // The chain generation escalation walks: the worker provider's slots in fast, work,
-// plan order with repeats removed (DECISIONS A6). With no profile configured, the
+// plan order with repeats removed (DECISIONS A3). With no profile configured, the
 // legacy `routing.escalation` array is the chain.
 export function escalationChain(settings: Settings): string[] {
   const provider = settings.defaults?.worker_provider;
@@ -154,7 +154,7 @@ export function escalationChain(settings: Settings): string[] {
   return Array.isArray(legacy) ? [...legacy] : [];
 }
 
-// DECISIONS A3, A6: the planner route comes from the planner provider's plan slot.
+// DECISIONS A3: the planner route comes from the planner provider's plan slot.
 // Consumed by the planner spawn in R3.1.
 export function resolvePlannerRoute(settings: Settings): Route {
   const provider = settings.defaults?.planner_provider;
@@ -185,7 +185,7 @@ function normalizeRoute(route: Route): Route {
   return buildProfileRoute(route.backend, route.model, route.effort);
 }
 
-// Route precedence (DECISIONS A6, known issues item 11): explicit `routing.<class>`, then
+// Route precedence (known issues item 11; the slots are DECISIONS A3): explicit `routing.<class>`, then
 // the worker provider's profile slot for the class (fast falling back to work), then an
 // explicit `routing.feature` for any class, then BUILTIN_FALLBACK_ROUTE. The built-in
 // route is never a settings default, so every user value above it wins.

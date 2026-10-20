@@ -360,9 +360,11 @@ export async function commitContractStubs(
     // when it does not exist yet. A ref that moved in between is not overwritten.
     let expectedOld = ZERO_OID;
     try {
+      // Expected to fail on the first commit of a run (the branch does not exist yet); stderr is silenced.
       const current = execFileSync("git", ["rev-parse", "--verify", `refs/heads/${branchName}`], {
         cwd: repoRoot,
         encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
       }).trim();
       if (current !== "") expectedOld = current;
     } catch {

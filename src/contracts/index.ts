@@ -363,7 +363,7 @@ export type ExecutionStrategy = z.infer<typeof ExecutionStrategy>;
 
 // One model+effort choice inside a provider profile (DECISIONS A3). A run names a
 // planner provider and a worker provider through Settings.defaults; each task class
-// maps to one of the three slots (DECISIONS A6).
+// maps to one of the three slots (DECISIONS A3).
 export const ProfileSlot = z.object({
   model: z.string(),
   effort: Effort.optional(),

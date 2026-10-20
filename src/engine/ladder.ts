@@ -62,7 +62,7 @@ export function evaluateEscalation(
   const maxL1Replans = settings.budgets.l1_replans_per_task ?? 2;
   if (generation <= maxL1Replans) {
     const nextGen = generation + 1;
-    // The route comes from profile-slot precedence (DECISIONS A6); the ladder no
+    // The route comes from profile-slot precedence (DECISIONS A3); the ladder no
     // longer names a model or reads routing.feature directly.
     const route = resolveTaskRoute(taskClass, nextGen, settings);
 

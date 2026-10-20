@@ -689,7 +689,7 @@ export const ruleL014: LintRule = (ctx) => {
 };
 
 // L015: spec.class present in settings.routing, configured through the worker
-// provider's profile slot for that class (DECISIONS A6), or the built-in fallback class.
+// provider's profile slot for that class (DECISIONS A3), or the built-in fallback class.
 export const ruleL015: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
   const workerProvider = ctx.settings.defaults?.worker_provider;
