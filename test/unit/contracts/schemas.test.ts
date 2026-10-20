@@ -33,11 +33,11 @@ const EXPECTED_DECLARATIONS = [
   "SessionHandle",
   "EnvReport",
   // ModelInfo is not in Appendix A; it was added by R2.6 per owner decision
-  // (2026-10-18), see docs/plan/BLOCKED.md.
+  // (2026-10-18), see docs/archive/2026-10-20-r-series/BLOCKED.md.
   "ModelInfo",
   // ProfileSlot and Profile are not in Appendix A either; they are the contracts R2.9's
-  // Interface mandates, added by following the R2.6 decision above (see docs/plan/BLOCKED.md),
-  // and recorded as a Deviation in R2.9's PROGRESS.md Notes.
+  // Interface mandates, added by following the R2.6 decision above (see docs/archive/2026-10-20-r-series/BLOCKED.md),
+  // and recorded as a Deviation in R2.9's PROGRESS.md Notes (docs/archive/2026-10-20-r-series/PROGRESS.md).
   "ProfileSlot",
   "Profile",
   "HarnessAdapter",

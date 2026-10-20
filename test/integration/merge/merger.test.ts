@@ -7,7 +7,7 @@ import { VerifyRunner } from "../../../src/verify/runner.js";
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
 import * as MergerModule from "../../../src/git/merger.js";
 
-// The R3.6 interface (docs/plan/wp/R3.6.md): src/git/merger.ts exports the integration
+// The R3.6 interface (docs/archive/2026-10-20-r-series/wp/R3.6.md): src/git/merger.ts exports the integration
 // worktree primitives plus TaskMerger.preflight. The primitives are read through the
 // module namespace. The batch merge and bisect functions were removed in R5.3 (W2b); the
 // live batch path is src/engine/actions/merge.ts, covered by the scenario and e2e tests.
