@@ -19,7 +19,7 @@ export interface RouteRequestOptions {
 // Built-in fallback, the last step of route resolution (after explicit settings and the
 // profile slot). It is not a settings default, so a user value is never mistaken for it.
 // The solo worker resolves through the same path, so it uses this route too.
-export const BUILTIN_FALLBACK_CLASS = "feature";
+const BUILTIN_FALLBACK_CLASS = "feature";
 export const BUILTIN_FALLBACK_ROUTE: Route = {
   backend: "claude",
   model: "claude-sonnet-5-5",

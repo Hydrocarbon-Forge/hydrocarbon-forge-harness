@@ -9,7 +9,6 @@ import {
   type Settings,
 } from "../contracts/index.js";
 import { isSafePath, matchGlob, redactSecrets } from "../util/index.js";
-import { BUILTIN_FALLBACK_CLASS, slotForClass } from "../roles/router.js";
 import type { ParsedPlan, ParsedTaskSpec } from "./parser.js";
 import type { LintOptions } from "./linter.js";
 import { typecheckContracts } from "./typecheck.js";
@@ -86,11 +85,25 @@ function isTestPath(filePath: string): boolean {
   );
 }
 
+/**
+ * Strips the shell punctuation glued to a word of a verify command: a leading
+ * parenthesis or quote, a trailing `;`, `&`, `|`, `)` or quote. `test/a.test.js;` names
+ * `test/a.test.js`.
+ */
+function cleanShellWord(tok: string): string {
+  return tok.replace(/^[('"`]+/, "").replace(/[)'"`;&|]+$/, "");
+}
+
+/** A word the shell expands with a glob (`*`, `?` or a bracket class). */
+function isGlobPattern(p: string): boolean {
+  return /[*?[]/.test(p);
+}
+
 function extractTestPaths(cmdRun: string): string[] {
   const tokens = cmdRun.trim().split(/\s+/);
   const paths: string[] = [];
   for (const tok of tokens) {
-    const clean = tok.replace(/^['"]|['"]$/g, "");
+    const clean = cleanShellWord(tok);
     if ((clean.startsWith("test/") || clean.startsWith("tests/")) && clean.length > 5) {
       paths.push(clean);
     } else if (/\.(test|spec)\.[a-zA-Z0-9]+$/.test(clean)) {
@@ -625,6 +638,10 @@ export const ruleL012: LintRule = (ctx) => {
     for (const cmd of spec.frontmatter?.verify ?? []) {
       const testPaths = extractTestPaths(cmd.run);
       for (const tPath of testPaths) {
+        // The shell expands a glob when the command runs, and a glob that matches nothing
+        // then fails inside the verify command itself. A pattern is not a missing literal
+        // path, so it is not reported here.
+        if (isGlobPattern(tPath)) continue;
         const full = path.resolve(ctx.repoRoot, tPath);
         if (!fs.existsSync(full)) {
           let isProvided = false;
@@ -705,39 +722,12 @@ export const ruleL014: LintRule = (ctx) => {
   return diags;
 };
 
-// L015: spec.class present in settings.routing, configured through the worker
-// provider's profile slot for that class (DECISIONS A3), or the built-in fallback class.
-export const ruleL015: LintRule = (ctx) => {
-  const diags: Diagnostic[] = [];
-  const workerProvider = ctx.settings.defaults?.worker_provider;
-  const profile =
-    workerProvider !== undefined ? ctx.settings.profiles?.[workerProvider] : undefined;
+// L015 (a class must be routable) is retired (R7.7). Every class resolves: routing.<class>,
+// the worker profile slot, the request's named worker or the built-in fallback route
+// (roles/router.ts resolveTaskRoute never throws), so no class can be unrouted.
 
-  for (const [id, spec] of ctx.plan.specs) {
-    const cls = spec.frontmatter?.class;
-    if (!cls) continue;
-
-    if (cls in ctx.settings.routing) continue;
-    if (cls === BUILTIN_FALLBACK_CLASS) continue;
-
-    if (profile) {
-      const slot = slotForClass(cls);
-      const entry = slot === "fast" ? (profile.fast ?? profile.work) : profile[slot];
-      if (entry) continue;
-    }
-
-    diags.push({
-      code: "L015",
-      severity: "error",
-      task: id,
-      message: `Task ${id} has class '${cls}' which is not configured in settings.routing`,
-    });
-  }
-
-  return diags;
-};
-
-// L016: Task budget missing or exceeds per-task cap
+// L016: Task budget above the per-task cap is an error. A missing budget is a warning:
+// the task runs with the per-task cap (safeLoadPlan applies it to the approval lint).
 export const ruleL016: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
   const taskCap = ctx.settings.budgets?.task?.max_usd;
@@ -746,9 +736,9 @@ export const ruleL016: LintRule = (ctx) => {
     if (!spec.frontmatter?.budget) {
       diags.push({
         code: "L016",
-        severity: "error",
+        severity: "warn",
         task: id,
-        message: `Task ${id} has no budget specified`,
+        message: `Task ${id} has no budget; it runs with the per-task cap${taskCap !== undefined ? ` ($${taskCap})` : ""}`,
       });
     } else if (
       taskCap !== undefined &&
@@ -1054,7 +1044,6 @@ export const ALL_RULES: LintRule[] = [
   ruleL012,
   ruleL013,
   ruleL014,
-  ruleL015,
   ruleL016,
   ruleL017,
   ruleL018,

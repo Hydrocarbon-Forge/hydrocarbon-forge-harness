@@ -27,7 +27,7 @@ export async function runLintAction(
 
   let parsedPlan: ParsedPlan & { cleanup?: () => void };
   try {
-    parsedPlan = await safeLoadPlan(manifestPath, ctx.repoRoot);
+    parsedPlan = await safeLoadPlan(manifestPath, ctx.repoRoot, ctx.settings.budgets?.task?.max_usd);
   } catch (err: any) {
     emit("plan.lint", { valid: false, diagnostics: [] });
     emit("plan.rejected", { reason: `Failed to parse plan files: ${err.message}` });

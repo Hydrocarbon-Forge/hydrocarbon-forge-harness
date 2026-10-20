@@ -28,7 +28,8 @@ export function safeParseManifest(raw: string, filePath?: string): Manifest {
 
 export async function safeLoadPlan(
   manifestPath: string,
-  repoRoot?: string
+  repoRoot?: string,
+  taskCapUsd?: number
 ): Promise<ParsedPlan & { cleanup: () => void }> {
   const resolvedManifestPath = path.resolve(manifestPath);
   const rawManifest = await fs.promises.readFile(resolvedManifestPath, "utf8");
@@ -55,8 +56,10 @@ export async function safeLoadPlan(
       rawSpec = await fs.promises.readFile(specPath, "utf8");
     }
     const parsedSpec = parseTaskSpec(rawSpec, task.spec);
+    // A task without a budget runs with the per-task cap (settings budgets.task), so the
+    // approval estimate counts the same amount the worker is given.
     if (!parsedSpec.frontmatter.budget) {
-      parsedSpec.frontmatter.budget = { max_usd: 0.5, timeout_min: 30 };
+      parsedSpec.frontmatter.budget = { max_usd: taskCapUsd ?? 0.5, timeout_min: 30 };
     }
 
     if (repoRoot) {

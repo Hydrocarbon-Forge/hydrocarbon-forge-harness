@@ -373,7 +373,7 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     expect(diag?.severity).toBe("error");
   });
 
-  it("L015: emits error when spec.class is not present in settings.routing", async () => {
+  it("L015 is retired (R7.7): a class with no routing entry is routed by the fallback and lints clean", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings(); // routing has "feature"
 
@@ -389,9 +389,25 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     });
 
     const result = await lintPlan(plan, repo, settings);
-    const diag = result.diagnostics.find((d) => d.code === "L015");
-    expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(result.diagnostics.some((d) => d.code === "L015")).toBe(false);
+  });
+
+  it("L016 warns, and does not reject, a task with no budget", async () => {
+    const repo = createTempRepo();
+    const settings = sampleSettings();
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({ id: "T1", budget: undefined }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, settings);
+    const diag = result.diagnostics.find((d) => d.code === "L016");
+    expect(diag?.severity).toBe("warn");
+    expect(diag?.message).toContain("per-task cap");
+    expect(result.diagnostics.filter((d) => d.code === "L016" && d.severity === "error")).toEqual([]);
   });
 
   it("L016: emits error when task budget is missing or exceeds per-task cap", async () => {
@@ -712,5 +728,65 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     const diag = result.diagnostics.find((d) => d.code === "L027");
     expect(diag).toBeDefined();
     expect(diag?.severity).toBe("error");
+  });
+});
+
+describe("R7.7: lint rules that rejected a valid planner plan", () => {
+  // The verify command the planner wrote in the first attempt of run r_XDZHITGE25FD.
+  const GLOB_VERIFY = "sh -c 'node --test test/*.test.js; echo done'";
+
+  it("L012 does not report a shell glob or the punctuation glued to a word", async () => {
+    const repo = createTempRepo();
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        create: ["test/game.test.js"],
+        verify: [{ run: GLOB_VERIFY, timeout_s: 60 }],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, sampleSettings());
+    expect(result.diagnostics.filter((d) => d.code === "L012")).toEqual([]);
+  });
+
+  it("L012 names a literal test path without the trailing semicolon, and still flags it when nothing provides it", async () => {
+    const repo = createTempRepo();
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        create: ["src/other.js"],
+        verify: [{ run: "node --test test/missing.test.js; echo done", timeout_s: 60 }],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, sampleSettings());
+    const diags = result.diagnostics.filter((d) => d.code === "L012");
+    expect(diags.map((d) => d.path)).toEqual(["test/missing.test.js"]);
+  });
+
+  it("L012 is satisfied by a literal path that the task creates, even with a trailing semicolon", async () => {
+    const repo = createTempRepo();
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({
+        id: "T1",
+        create: ["test/game.test.js"],
+        verify: [{ run: "node --check test/game.test.js; echo done", timeout_s: 60 }],
+      }),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+
+    const result = await lintPlan(plan, repo, sampleSettings());
+    expect(result.diagnostics.filter((d) => d.code === "L012")).toEqual([]);
   });
 });
