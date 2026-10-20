@@ -795,12 +795,16 @@ export const ruleL017: LintRule = (ctx) => {
   return diags;
 };
 
-// L018: Contract typecheck execution
+// L018: Contract typecheck execution. It runs in the run directory that holds the manifest:
+// the planner wrote and checked the stubs there. The repository root is not used because
+// safeLoadPlan writes placeholder files there (`export {};`), and a placeholder package.json
+// is not valid JSON, so Node fails with ERR_INVALID_PACKAGE_CONFIG (R7.7).
 export const ruleL018: LintRule = async (ctx) => {
   const diags: Diagnostic[] = [];
   if (!ctx.plan.manifest?.contracts) return diags;
 
-  const res = await typecheckContracts(ctx.repoRoot, ctx.plan.manifest.contracts);
+  const runDir = path.dirname(path.resolve(ctx.repoRoot, ctx.plan.manifestPath));
+  const res = await typecheckContracts(runDir, ctx.plan.manifest.contracts);
   return res.diagnostics.filter((d) => d.code === "L018");
 };
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { lintPlan } from "../../../src/spec/linter.js";
 import {
@@ -732,6 +733,29 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
 });
 
 describe("R7.7: lint rules that rejected a valid planner plan", () => {
+  it("L018 typechecks the run directory, not a placeholder package.json at the repository root", async () => {
+    // safeLoadPlan writes `export {};` for each contract file missing at the root; a
+    // placeholder package.json there is not valid JSON and made Node fail at LINTING.
+    const repo = createTempRepo();
+    writeFileSync(join(repo, "package.json"), "export {};\n", "utf8");
+    const runDir = mkdtempSync(join(tmpdir(), "substrate-r77-run-"));
+    writeFileSync(join(runDir, "package.json"), JSON.stringify({ type: "module" }), "utf8");
+    writeFileSync(join(runDir, "game.js"), "export const game = 1;\n", "utf8");
+
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({
+        contracts: {
+          files: ["game.js"],
+          typecheck: [{ run: `node --input-type=module -e "await import('./game.js')"`, timeout_s: 30 }],
+        },
+      }),
+      manifestPath: join(runDir, "manifest.yaml"),
+    });
+
+    const result = await lintPlan(plan, repo, sampleSettings());
+    expect(result.diagnostics.filter((d) => d.code === "L018")).toEqual([]);
+  });
+
   // The verify command the planner wrote in the first attempt of run r_XDZHITGE25FD.
   const GLOB_VERIFY = "sh -c 'node --test test/*.test.js; echo done'";
 
