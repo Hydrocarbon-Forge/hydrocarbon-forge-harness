@@ -16,7 +16,7 @@ export async function runRouteAction(
   if (ctx.mode === "auto") {
     const decision = await routeRequest({
       prompt: ctx.prompt ?? "",
-      flags: { mode: ctx.mode, planner: ctx.planner_explicit },
+      flags: { mode: ctx.mode },
       settings: ctx.settings,
       repoRoot: ctx.repoRoot,
     });

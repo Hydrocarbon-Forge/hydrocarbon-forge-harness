@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { runSubstrate, type RunSubstrateResult } from "./helpers/run-substrate.js";
+import { runSubstrate, withDefaultModels, type RunSubstrateResult } from "./helpers/run-substrate.js";
 import { createE2ERepo, type E2ERepo } from "./helpers/repo.js";
 
 // Matrix of the SUBSTRATE-PLAN section 14 scenarios (1 to 16, as narrowed by R5.3
@@ -246,7 +246,11 @@ function run(
   const res = runSubstrate({
     repo: options.repo,
     files: options.files,
-    args: options.args,
+    // R7.2: run and plan need named models. The rows name the dialect under test's models.
+    args: withDefaultModels(options.args, {
+      planner: `${ctx.dialect}:${MODELS[ctx.dialect].plan}`,
+      worker: `${ctx.dialect}:${MODELS[ctx.dialect].work}`,
+    }),
     settings,
     env,
     timeoutMs: options.timeoutMs,
@@ -950,7 +954,8 @@ exec '${join(FAKE_BIN_DIR, "opencode")}' "$@"
         defaults: { planner_provider: "local-profile", worker_provider: "local-profile" },
         roles: { worker: { backend: "opencode", model: localModel } },
       },
-      args: ["run", "--mode", "solo", "execute local worker"],
+      // R7.2: the local model is named on the command line (the request path validates it).
+      args: ["run", "--mode", "solo", "--work", `opencode:${localModel}`, "execute local worker"],
       repo,
     });
     try {
@@ -1003,7 +1008,9 @@ const rowSigkill: MatrixRow = {
       "utf8",
     );
     const env = { ...process.env, HOME: homeDir, FAKE_SCENARIO_FILE: scenarioPath };
-    const child = spawn(process.execPath, [SUBSTRATE_BIN, ...RUN_ARGS, "Run the kill chain"], { cwd: repo.dir, env });
+    // R7.2: run needs named models; this child is spawned directly, so it names them itself.
+    const namedModels = ["--plan", `${ctx.dialect}:${MODELS[ctx.dialect].plan}`, "--work", `${ctx.dialect}:${MODELS[ctx.dialect].work}`];
+    const child = spawn(process.execPath, [SUBSTRATE_BIN, ...RUN_ARGS, ...namedModels, "Run the kill chain"], { cwd: repo.dir, env });
     const exited = new Promise<number>((resolvePromise) => {
       child.on("exit", (code) => resolvePromise(code === null ? -1 : code));
     });

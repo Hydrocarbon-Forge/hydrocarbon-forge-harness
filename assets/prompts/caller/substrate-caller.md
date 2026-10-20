@@ -20,29 +20,30 @@ substrate models --output-format json
 
 The output is one JSON object. `providers` lists each provider with `installed` and its `models`. `all_models` lists every model with its `provider` and `id`.
 
-Use only an id from `models`. Never invent a model id. Put the id in `model` inside `planner` or `worker`. Leave `model` out to use the provider's profile slot in `.substrate/settings.json`.
+Use only an id from `models`. Never invent a model id. Put the id in `model` inside `planner` or `worker`. Always name a model: `run` and `plan` refuse a request, or a command line, that names none. The profile slot in `.substrate/settings.json` does not count as a named model.
 
 ## Build a request
 
 Write one JSON object and send it to `substrate run` on stdin (see Run). The object is strict: an unknown key is rejected, and `scope` is always rejected.
 
 - `goal` (string, required): what to build, in plain words. It must not be blank.
-- `mode` (optional): `auto` (default, the engine chooses), `solo` (one worker, no planner), or `plan` (a planner writes the plan, then workers run it). In `auto`, a goal that names one existing file and uses a mechanical verb (such as bump, rename, typo, format, move, delete or remove) runs as `solo`; every other goal runs as `plan`. A goal that also sets `planner` always runs as `plan`, even when it names a mechanical file.
-- `planner` (optional object): `provider` (required: `claude`, `opencode` or `agy`), `model` (optional, an id from `models`), `effort` (optional: `low`, `medium`, `high`, `xhigh` or `max`). Not allowed with `mode` `solo`.
-- `worker` (optional object): the same fields as `planner`. Every mode runs workers, so set it or the provider's default applies.
+- `mode` (optional): `auto` (default, the engine chooses), `solo` (one worker, no planner), or `plan` (a planner writes the plan, then workers run it). In `auto`, a goal that names one existing file and uses a mechanical verb (such as bump, rename, typo, format, move, delete or remove) runs as `solo`; every other goal runs as `plan`. Naming a planner does not force `plan`: a mechanical named-file goal still runs as `solo` in `auto`. To force planning, set `mode` to `plan`.
+- `planner` (object): `provider` (required: `claude`, `opencode` or `agy`), `model` (required in `auto` and `plan` modes, an id from `models`), `effort` (optional: `low`, `medium`, `high`, `xhigh` or `max`). Not allowed with `mode` `solo`.
+- `worker` (object): the same fields as `planner`. Required in every mode, and `model` must be named.
 - `verify` (optional array of strings): shell commands. Each must exit `0` for a task to pass. Each must not be blank.
 - `budget` (optional object): `max_usd`, `max_tokens`, `max_wall_min`, all numbers.
 - `permission_mode` (optional): `default`, `plan`, `acceptEdits`, `dontAsk` or `bypassPermissions`. This is Substrate's approval gate. It does not change how the harness is launched, which is always with permissions bypassed.
 - `context` (optional array of strings): repo-relative file paths. Each must exist.
 
-This is a complete valid request for `solo` mode. It leaves out `model`, so the worker uses its profile slot:
+This is a complete valid request for `solo` mode:
 
 ```json
 {
   "goal": "Create hello.txt containing the word hello",
   "mode": "solo",
   "worker": {
-    "provider": "claude"
+    "provider": "claude",
+    "model": "haiku"
   },
   "verify": ["grep -q hello hello.txt"]
 }
@@ -52,10 +53,10 @@ If the request is invalid, Substrate exits `2` and prints one JSON object on std
 
 ## Run
 
-Send the request on stdin:
+Send the request on stdin. Always pass the model flags on the command line as well: `--plan <provider>:<model>` and `--work <provider>:<model>` in `auto` and `plan` modes, and `--work <provider>:<model>` alone in `solo`. Substrate refuses a run that names no model on the command line or in the request:
 
 ```bash
-substrate run --request - --output-format json
+substrate run --mode solo --work claude:haiku --request - --output-format json
 ```
 
 The output is one JSON object with `run_id`, `status`, `exit_code` and `events`. Read `run_id` and the exit code (see Exit codes). Exit code `3` means the run needs a human. When the JSON has `subtype` `needs_input`, the planner paused for answers (see Handle needs_input).

@@ -56,6 +56,7 @@ export interface CliCommand {
 }
 
 const { createFormatter } = await import(`../output.js`);
+const { reportPreflightError, startPreflight, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
 
 function splitToolList(values: string | string[] | undefined): string[] {
@@ -166,13 +167,23 @@ export const runCommand: CliCommand = {
       return 2;
     }
 
+    // Refuse before any run state exists: the caller must name the models this mode
+    // needs, and the project must be a git repository (an empty one is initialised).
+    const pre = startPreflight("run", { cwd: ctx.cwd, flags: ctx.flags, stdin: ctx.stdin });
+    if (!pre.ok) {
+      reportPreflightError(ctx, pre);
+      return 2;
+    }
+    if (pre.notice) {
+      writeNotice(ctx, pre.notice);
+    }
+
     let mode = ctx.flags.mode ?? "auto";
     let permission_mode = ctx.flags.permissionMode ?? "dontAsk";
     let overrides = buildSettingsOverrides(ctx.flags, mode);
     let prompt = ctx.rawArgs[0];
     let runVerify: string[] | undefined;
     let runContext: string[] | undefined;
-    let plannerExplicit = false;
 
     if (ctx.flags.request !== undefined || ctx.flags.plan !== undefined || ctx.flags.work !== undefined) {
       const { loadRequest } = await import(`../request.js`);
@@ -185,7 +196,6 @@ export const runCommand: CliCommand = {
         return 2;
       }
       prompt = reqRes.request.goal;
-      plannerExplicit = reqRes.plannerExplicit;
       if (reqRes.request.mode) {
         mode = reqRes.request.mode;
       }
@@ -283,7 +293,6 @@ export const runCommand: CliCommand = {
       prompt,
       overrides,
       signal: ctx.signal,
-      planner_explicit: plannerExplicit,
       onEvent: (event) => {
         if (mode === "auto" && warnNoVerify && event.type === "run.routed" && (event.data as { mode?: unknown }).mode === "solo") {
           ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");

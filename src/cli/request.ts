@@ -36,7 +36,7 @@ export interface Problem {
 }
 
 export type RunRequestResult =
-  | { ok: true; request: RunRequest; overrides: Record<string, any>; plannerExplicit: boolean }
+  | { ok: true; request: RunRequest; overrides: Record<string, any> }
   | { ok: false; problems: Problem[] };
 
 export interface LoadRequestOptions {
@@ -45,6 +45,8 @@ export interface LoadRequestOptions {
   catalog?: ModelCatalog;
   adapters?: Record<string, HarnessAdapter>;
   rawPrompt?: string;
+  // Roles to validate. Defaults to planner and worker (solo: worker); plan-only passes ["planner"].
+  roles?: Array<"planner" | "worker">;
 }
 
 function parseRoleSpec(spec: string): { provider?: "claude" | "opencode" | "agy"; model?: string; effort?: Effort } {
@@ -164,11 +166,6 @@ export async function loadRequest(
     });
     delete rawObj.scope;
   }
-
-  // A planner named by the caller (--plan, or a planner object in the payload) is
-  // recorded before the flag overrides below fill in planner fields from --model and
-  // --effort. Auto mode reads it to keep the run on the plan route (R6.4).
-  const plannerExplicit = rawObj.planner !== undefined || flags.plan !== undefined;
 
   // Flag overrides
   if (flags.mode !== undefined) {
@@ -299,7 +296,7 @@ export async function loadRequest(
 
   // Provider and Model resolution (Behaviors 5, 6, 7)
   const rolesToCheck: Array<"planner" | "worker"> =
-    effectiveMode === "solo" ? ["worker"] : ["planner", "worker"];
+    options.roles ?? (effectiveMode === "solo" ? ["worker"] : ["planner", "worker"]);
 
   const resolvedRoles: Record<string, { provider: string; model: string; effort?: Effort }> = {};
 
@@ -430,6 +427,5 @@ export async function loadRequest(
     ok: true,
     request: validRequest,
     overrides,
-    plannerExplicit,
   };
 }

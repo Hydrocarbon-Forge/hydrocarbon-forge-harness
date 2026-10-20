@@ -32,7 +32,7 @@ describe("E2E Adapter Selection", () => {
     writeFileSync(wrapperPath, script, { mode: 0o755 });
 
     const res = runSubstrate({
-      args: ["run", "--mode", "solo", "touch a.txt"],
+      args: ["run", "--mode", "solo", "--work", "claude:claude-haiku-5-5", "touch a.txt"],
       settings: {
         backends: {
           claude: {

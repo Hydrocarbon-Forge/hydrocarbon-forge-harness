@@ -49,3 +49,11 @@ Substrate is a CLI that other agents (mainly "Hermes") and people call to get co
 
 ## Out of scope (do not build, do not "scaffold")
 A TUI (the existing scaffold is deleted by R0.7), hooks, slash commands, skills semantics, MCP server, benchmark execution, security work (A6), the governor (A2), an orchestrator LLM (A1), native subagents (A1), packaging for npm publication.
+
+## Note 2026-10-20 (R7.2): explicit models and a git repository before a run
+
+This changes A3 in one respect. Profile slots still hold each provider's default models in settings, but `run` and `plan` no longer take a model from them. A model counts only when the caller names it on the command line (`--plan`, `--work`, `--model`, `--worker-model`) or in the request payload. `run` in auto or plan mode needs a planner and a worker model, `run` in solo mode needs the worker model, and `plan` needs the planner model. Missing models exit 2 before any run state exists.
+
+`run` and `plan` also need a git repository before anything else starts. An empty directory is initialised with one empty commit. A non-empty directory that is not a repository exits 2 before any spend.
+
+Supersedes the R6.4 rule that a named planner forces `plan` in auto mode: with both models mandatory, a named planner carries no signal. The router decides plan vs solo in auto; `--mode plan` forces planning.

@@ -27,6 +27,10 @@ export interface CliCommand {
   execute(ctx: CommandContext): Promise<number>;
 }
 
+// R7.2: run and plan refuse to start unless a model is named. --model and --worker-model
+// name them without the request path, so these tests stay on the engine-facing flags.
+const NAMED_MODELS = { model: "claude-sonnet-5-5", workerModel: "haiku" };
+
 async function loadRunCommand(): Promise<{ runCommand: CliCommand }> {
   return (await import("../../../src/cli/commands/run.js" as any)) as any;
 }
@@ -173,7 +177,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
       const ctx: CommandContext = {
         cwd: tmpDir,
-        flags: {},
+        flags: { ...NAMED_MODELS },
         rawArgs: ["build the database migration"],
         stdout: createMockStream(),
         stderr: createMockStream(),
@@ -201,7 +205,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
       const ctx: CommandContext = {
         cwd: tmpDir,
-        flags: { permissionMode: "acceptEdits" },
+        flags: { ...NAMED_MODELS, permissionMode: "acceptEdits" },
         rawArgs: ["build the database migration"],
         stdout: createMockStream(),
         stderr: createMockStream(),
@@ -269,7 +273,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
       const ctx: CommandContext = {
         cwd: tmpDir,
-        flags: {},
+        flags: { ...NAMED_MODELS },
         rawArgs: ["test session link"],
         stdout: createMockStream(),
         stderr: createMockStream(),
@@ -293,7 +297,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
         const ctx: CommandContext = {
           cwd: tmpDir,
-          flags: {},
+          flags: { ...NAMED_MODELS },
           rawArgs: ["task success"],
           stdout: createMockStream(),
           stderr: createMockStream(),
@@ -318,7 +322,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
         const ctx: CommandContext = {
           cwd: tmpDir,
-          flags: {},
+          flags: { ...NAMED_MODELS },
           rawArgs: ["failing task"],
           stdout: createMockStream(),
           stderr: createMockStream(),
@@ -334,7 +338,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
         const ctx: CommandContext = {
           cwd: tmpDir,
-          flags: {},
+          flags: { ...NAMED_MODELS },
           rawArgs: [], // Missing prompt
           stdout: createMockStream(),
           stderr: createMockStream(),
@@ -356,7 +360,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
           const ctx: CommandContext = {
             cwd: tmpDir,
-            flags: {},
+            flags: { ...NAMED_MODELS },
             rawArgs: ["paused task"],
             stdout: createMockStream(),
             stderr: createMockStream(),
@@ -376,7 +380,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
         const ctx: CommandContext = {
           cwd: tmpDir,
-          flags: {},
+          flags: { ...NAMED_MODELS },
           rawArgs: ["expensive task"],
           stdout: createMockStream(),
           stderr: createMockStream(),
@@ -398,7 +402,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
 
         const ctx: CommandContext = {
           cwd: tmpDir,
-          flags: {},
+          flags: { ...NAMED_MODELS },
           rawArgs: ["cancelled task"],
           stdout: createMockStream(),
           stderr: createMockStream(),
@@ -425,7 +429,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
       // 1. Missing prompt -> exit 2
       const ctxMissing: CommandContext = {
         cwd: tmpDir,
-        flags: {},
+        flags: { ...NAMED_MODELS },
         rawArgs: [],
         stdout: createMockStream(),
         stderr: createMockStream(),
@@ -437,7 +441,7 @@ describe("cli: execution commands (run, plan, resume)", () => {
       // 2. Valid prompt -> forces permission_mode: "plan"
       const ctxValid: CommandContext = {
         cwd: tmpDir,
-        flags: {},
+        flags: { ...NAMED_MODELS },
         rawArgs: ["plan architecture rewrite"],
         stdout: createMockStream(),
         stderr: createMockStream(),

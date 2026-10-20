@@ -136,7 +136,8 @@ describe("cli: inspection and lifecycle commands", () => {
     const stderr = createMockStream();
     const ctx: CommandContext = {
       cwd: env.repoRoot,
-      flags: { permissionMode: "bypassPermissions" },
+      // R7.2: run needs named models; --model and --worker-model name them.
+      flags: { permissionMode: "bypassPermissions", model: "claude-sonnet-5-5", workerModel: "haiku" },
       rawArgs: ["Implement tasks T1 and T2"],
       stdout,
       stderr,

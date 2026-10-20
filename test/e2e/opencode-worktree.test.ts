@@ -74,7 +74,7 @@ exec '${FAKE_OPENCODE}' "$@"
         defaults: { planner_provider: "opencode", worker_provider: "opencode" },
         roles: { worker: { backend: "opencode", model: "opencode/deepseek-v4.1-flash-free" } },
       },
-      args: ["run", "--permission-mode", "bypassPermissions", "--mode", "solo", "execute the worker"],
+      args: ["run", "--permission-mode", "bypassPermissions", "--mode", "solo", "--work", "opencode:opencode/deepseek-v4.1-flash-free", "execute the worker"],
     });
 
     try {
@@ -83,12 +83,15 @@ exec '${FAKE_OPENCODE}' "$@"
 
       // The worker ran in a task worktree, not in the repository root.
       const log = readFileSync(logPath, "utf8");
-      const cwdLine = log.split("\n").find((l) => l.startsWith("CWD="));
+      // R7.2: a named --work sends the request path, which first probes the model catalog from
+      // the repo root. The worker's own invocation is the last CWD line.
+      const worker = log.slice(log.lastIndexOf("CWD="));
+      const cwdLine = worker.split("\n")[0];
       expect(cwdLine).toBeDefined();
       expect(cwdLine).toContain(join(".substrate", "worktrees"));
 
       // While opencode ran, git status showed nothing, even though the agent file was present.
-      const statusSection = log.split("--- git status --porcelain at start:")[1] ?? "";
+      const statusSection = worker.split("--- git status --porcelain at start:")[1] ?? "";
       expect(statusSection.split("--- end")[0].trim()).toBe("");
 
       // Current behaviour (known issue 7): the agent file is in the worktree during the run.

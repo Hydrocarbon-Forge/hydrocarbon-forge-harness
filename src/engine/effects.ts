@@ -72,8 +72,6 @@ export interface EffectContext {
   onEvent?: (event: EngineEvent) => void;
   prompt?: string;
   mode?: "auto" | "solo" | "plan";
-  /** The caller named a planner, so auto mode routes to plan (R6.4). */
-  planner_explicit?: boolean;
   permission_mode?: PermissionMode;
   preBatchCheckpoint?: string;
   baseChecked?: boolean;

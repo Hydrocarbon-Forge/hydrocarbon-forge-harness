@@ -82,7 +82,7 @@ describe("E2E Entry Point and Signal Tests", () => {
 
     const child = spawn(
       process.execPath,
-      [substrateMjs, "run", "--mode", "solo", "do it"],
+      [substrateMjs, "run", "--mode", "solo", "--work", "claude:haiku", "do it"],
       {
         cwd: savedRepo.dir,
         env,

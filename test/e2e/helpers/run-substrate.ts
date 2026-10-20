@@ -4,6 +4,44 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createE2ERepo } from "./repo.js";
 
+// R7.2: run and plan refuse to start unless the caller names their models. A test that
+// names none gets these fake-harness models; a test that names its own keeps them.
+export interface DefaultModelSpecs {
+  planner: string; // provider:model
+  worker: string; // provider:model
+}
+
+export const DEFAULT_MODEL_SPECS: DefaultModelSpecs = {
+  planner: "claude:claude-sonnet-5-5",
+  worker: "claude:haiku",
+};
+
+/**
+ * Adds `--plan` and `--work` to a run or plan argv for each role the test did not name.
+ * A test that passes its own --plan, --work, --model, --worker-model, --request,
+ * --resume or --continue is left as it is. Solo runs get the worker only.
+ *
+ * @param args argv after dist/substrate.mjs
+ * @param specs the provider:model specs to add
+ * @returns the argv with the missing role flags inserted after the command word
+ */
+export function withDefaultModels(args: string[], specs: DefaultModelSpecs = DEFAULT_MODEL_SPECS): string[] {
+  const command = args[0];
+  if (command !== "run" && command !== "plan") return args;
+  const has = (flag: string): boolean => args.includes(flag);
+  if (has("--request") || has("--resume") || has("--continue") || has("-c")) return args;
+  const modeIndex = args.indexOf("--mode");
+  const solo = modeIndex >= 0 && args[modeIndex + 1] === "solo";
+  const plannerNamed = has("--plan") || (!solo && has("--model"));
+  const workerNamed = has("--work") || has("--worker-model") || (solo && has("--model"));
+  const defaults: string[] = [];
+  if (command === "plan" || !solo) {
+    if (!plannerNamed) defaults.push("--plan", specs.planner);
+  }
+  if (command === "run" && !workerNamed) defaults.push("--work", specs.worker);
+  return defaults.length === 0 ? args : [command, ...defaults, ...args.slice(1)];
+}
+
 export interface RunSubstrateOptions {
   repo?: ReturnType<typeof createE2ERepo>; // if supplied, reused instead of creating a new repo
   beforeRun?: (repo: ReturnType<typeof createE2ERepo>) => void; // invoked right before running the substrate process
@@ -119,7 +157,7 @@ export function runSubstrate(options: RunSubstrateOptions): RunSubstrateResult {
   const dirsBefore = new Set(listRunDirs());
 
   const timeout = options.timeoutMs ?? 120000;
-  const proc = spawnSync(process.execPath, [substrateMjs, ...options.args], {
+  const proc = spawnSync(process.execPath, [substrateMjs, ...withDefaultModels(options.args)], {
     cwd: repo.dir,
     input: options.stdin ?? "",
     timeout,

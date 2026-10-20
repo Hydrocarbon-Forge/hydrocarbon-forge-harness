@@ -67,7 +67,7 @@ describe("E2E interrupt: SIGINT aborts a hung harness session", () => {
       const stderrChunks: string[] = [];
       child = spawn(
         process.execPath,
-        [substrateMjs, "run", "--permission-mode", "bypassPermissions", "do it"],
+        [substrateMjs, "run", "--plan", "claude:claude-sonnet-5-5", "--work", "claude:haiku", "--permission-mode", "bypassPermissions", "do it"],
         {
           cwd: repo.dir,
           env: { ...process.env, HOME: homeDir, FAKE_SCENARIO_FILE: scenarioPath },

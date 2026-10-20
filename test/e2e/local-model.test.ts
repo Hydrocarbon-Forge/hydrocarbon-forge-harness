@@ -61,7 +61,7 @@ exec '${binPath}' "$@"
     const localModelName = "my-local-llama";
 
     const res = runSubstrate({
-      args: ["run", "--mode", "solo", "execute local worker"],
+      args: ["run", "--mode", "solo", "--work", `opencode:${localModelName}`, "execute local worker"],
       settings: {
         backends: {
           opencode: {

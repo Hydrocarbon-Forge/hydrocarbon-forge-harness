@@ -57,9 +57,11 @@ substrate run [options] [prompt]
 Runs a goal end to end: plans it (unless the mode is `solo`, or `auto` routes it to `solo`, see Mode), starts workers in git worktrees, verifies each task, and merges what passes.
 
 - **Prompt**: the first argument. If it is missing and stdin is piped, the trimmed stdin text is the prompt. With neither, exit 2 with `prompt required on command line or stdin`.
+- **Required models**: the caller must name the models. `auto` and `plan` need a planner and a worker; `solo` needs the worker only. A model counts only when it is given on the command line (`--plan`, `--work`, `--model`, `--worker-model`) or in the request payload (`planner.model`, `worker.model`). Settings files, profiles and defaults do not count. A missing model exits 2 before any run directory, `.substrate/` directory, git action or harness process is created, naming what is missing with an example. In `json` and `stream-json` output it prints `{"error":"..."}` on stdout.
+- **Git repository**: `run` and `plan` need a git repository. Inside a work tree the run proceeds as before. A directory that is not a repository and is empty (a `.substrate` directory is ignored) is initialised with `git init` and one empty commit (`substrate: initial empty commit`), and the run prints `initialised a new git repository (empty directory)` (stdout in text mode, stderr in json modes). Any other content exits 2 with the message "not a git repository: run git init (and commit) first, or run substrate in an empty directory". A repository with no commits gets the same initial commit when its tree is empty; with content it exits 2. Substrate never initialises a repository in your home directory.
 - **Request file**: `--request <file|->` reads a JSON request from a file (relative to the project) or from stdin with `-`. A request cannot be combined with a prompt. An invalid request prints `{"error":"invalid_request","problems":[...]}` on stdout and exits 2. The fields are listed in [caller-guide.md](caller-guide.md).
 - **Roles**: `--plan <provider[:model[:effort]]>` sets the planner and `--work <provider[:model[:effort]]>` sets the worker. Either one switches the run to the request path. `--model` sets the planner (in `auto` and `plan` modes) or the worker (in `solo`). `--worker-model` sets the worker. `--effort` sets the planner's effort.
-- **Mode**: `--mode auto|solo|plan`. The default is `auto`. In `auto`, the deterministic router decides: a request that names one existing file and uses a mechanical verb (such as bump, rename, typo, format, move, delete or remove) runs as `solo`, and every other request runs as `plan`. `solo` runs one worker with no planner. `plan` always plans. An explicit `solo` or `plan` skips the router. A request that also names a planner (`--plan`, or a `planner` object in the request) always routes to `plan`, even when it names a mechanical file.
+- **Mode**: `--mode auto|solo|plan`. The default is `auto`. In `auto`, the deterministic router decides: a request that names one existing file and uses a mechanical verb (such as bump, rename, typo, format, move, delete or remove) runs as `solo`, and every other request runs as `plan`. `solo` runs one worker with no planner. `plan` always plans. An explicit `solo` or `plan` skips the router. Naming a planner does not change the route (R7.2 superseded the R6.4 rule that it forced `plan`): `auto` still needs both models named, and the router alone decides `plan` or `solo`. To force planning, pass `--mode plan`.
 - **Verify**: `--verify "<cmd>"` adds a verify command. It can be repeated. In `solo` mode, a run with no verify command warns that only scope and budget checks apply. The same warning prints when `auto` routes a run to `solo`.
 - **Limits**: `--max-budget-usd <amount>` caps the run's spend, `--timeout <seconds>` caps its wall-clock time.
 - **Tools**: `--allowed-tools` and `--disallowed-tools` take a list (comma-separated or repeated).
@@ -69,8 +71,8 @@ Runs a goal end to end: plans it (unless the mode is `solo`, or `auto` routes it
 - **Failures**: in text mode each failed task prints one stderr line, `[task <id>] failed: <failure_class>: <message>`. A planner failure has no task id, so its line reads `[task ] failed: ...`. The message is one line of at most 2000 characters. A crashed planner session names its exit code and the harness's own error, and a plan that never validates lists its diagnostics. The `failure_class` is unchanged. Json output carries the same message on the `task.failed` event in `events`.
 
 ```bash
-substrate run --request - --output-format json < request.json
-substrate run --mode solo --verify "npm test" "add a retry to the client"
+substrate run --plan claude:opus:high --work claude:sonnet:medium --request - --output-format json < request.json
+substrate run --mode solo --work claude:sonnet --verify "npm test" "add a retry to the client"
 substrate run --plan claude:opus:high --work claude:sonnet:medium "rename the config key"
 ```
 
@@ -80,7 +82,11 @@ substrate run --plan claude:opus:high --work claude:sonnet:medium "rename the co
 substrate plan [options] [prompt]
 ```
 
-Runs the planner only. It forces `--mode plan` and `plan` permissions, so it writes a plan and stops before any worker runs. It accepts the same prompt, `--request`, `--plan`, `--work`, `--model`, `--effort`, `--max-budget-usd` and `--timeout` options as `run`. Without a prompt or request it exits 2 with `prompt required`.
+Runs the planner only. It forces `--mode plan` and `plan` permissions, so it writes a plan and stops before any worker runs. It accepts the same prompt, `--request`, `--plan`, `--work`, `--model`, `--effort`, `--max-budget-usd` and `--timeout` options as `run`. Without a prompt or request it exits 2 with `prompt required`. It needs only a planner model (`--plan <provider>:<model>`, or `planner.model` in the request) and the same git repository rule as `run`.
+
+```bash
+substrate plan --plan claude:opus:high "rename the config key"
+```
 
 ## resume
 

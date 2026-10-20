@@ -133,8 +133,13 @@ describe("Solo mode E2E", () => {
           },
         ],
       },
+      // R7.2: both models are named; auto still routes this mechanical named-file request to solo.
       args: [
         "run",
+        "--plan",
+        "claude:claude-sonnet-5-5",
+        "--work",
+        "claude:haiku",
         "fix typo in notes.txt",
       ],
     });

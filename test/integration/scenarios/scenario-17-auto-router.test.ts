@@ -95,29 +95,16 @@ describe("Scenario 17: auto mode runs the deterministic router (routeRequest)", 
     expect(summary.tasks["SOLO"]?.state).toBe("PASSED");
   });
 
-  it("auto mode keeps a mechanical named-file request on plan when a planner is explicit", async () => {
-    const runId: RunId = "r_B5B5B5ABCDEF";
+  it("auto mode routes a mechanical named-file request to solo even when the caller also named a planner (R7.2 supersedes R6.4)", async () => {
+    // The planner is named on the command line in the CLI, but the engine only sees the mode
+    // and the prompt: the router decides plan vs solo alone.
     fakeClaude = fakeClaudeAdapter([
       {
-        reply: "wrote manifest.yaml and the task specs\nPLAN READY",
-      },
-      {
-        reply: "Worker passed",
+        edits: { "src/solo.ts": "export const solo = true;\n" },
+        reply: "Solo worker completed task",
       },
     ]);
     const spawnedRoles = trackSpawns(fakeClaude.adapter);
-
-    const manifest: Manifest = {
-      ...sampleValidManifest(runId),
-      tasks: [{ id: "T1", spec: "tasks/T1.md" }],
-    };
-    writePlanFiles(
-      env.repoRoot,
-      runId,
-      manifest,
-      { "tasks/T1.md": sampleValidTaskSpecMarkdown() },
-      { "contracts/types.ts": sampleValidContractStub() }
-    );
 
     const engine = engineMod.createEngine({
       settings: env.settings,
@@ -129,15 +116,13 @@ describe("Scenario 17: auto mode runs the deterministic router (routeRequest)", 
       cwd: env.repoRoot,
       mode: "auto",
       permission_mode: "bypassPermissions",
-      planner_explicit: true,
     });
 
     expect(summary.status).toBe("finished");
-    expect(spawnedRoles).toContain("planner");
-
-    const events = readEventLog(env.runDir, runId);
+    expect(spawnedRoles).not.toContain("planner");
+    const events = readEventLog(env.runDir, summary.run_id);
     const routed = events.find((e) => e.type === "run.routed");
-    expect(routed?.data).toMatchObject({ mode: "plan" });
+    expect(routed?.data).toMatchObject({ mode: "solo" });
   });
 
   it("auto mode routes a non-mechanical request to plan", async () => {

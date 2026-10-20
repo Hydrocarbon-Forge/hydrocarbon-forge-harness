@@ -56,6 +56,7 @@ export interface CliCommand {
 }
 
 const { createFormatter } = await import(`../output.js`);
+const { reportPreflightError, startPreflight, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
 const { buildSettingsOverrides } = await import(`./run.js`);
 
@@ -63,6 +64,15 @@ export const planCommand: CliCommand = {
   name: "plan",
   description: "Plan changes for a goal without executing modifications",
   async execute(ctx: CommandContext): Promise<number> {
+    const pre = startPreflight("plan", { cwd: ctx.cwd, flags: ctx.flags, stdin: ctx.stdin });
+    if (!pre.ok) {
+      reportPreflightError(ctx, pre);
+      return 2;
+    }
+    if (pre.notice) {
+      writeNotice(ctx, pre.notice);
+    }
+
     const mode = "plan";
     const permission_mode = "plan";
     let overrides = buildSettingsOverrides(ctx.flags, mode);
@@ -75,6 +85,7 @@ export const planCommand: CliCommand = {
       const reqRes = await loadRequest(ctx.flags.request, ctx.stdin, { ...ctx.flags, mode: "plan" }, {
         repoRoot: ctx.cwd,
         rawPrompt: ctx.rawArgs[0],
+        roles: ["planner"],
       });
       if (!reqRes.ok) {
         ctx.stdout.write(JSON.stringify({ error: "invalid_request", problems: reqRes.problems }) + "\n");

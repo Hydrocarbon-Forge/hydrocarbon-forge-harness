@@ -80,27 +80,12 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
         expect(decision.rationale).toMatch(/explicit.*plan/i);
       });
 
-      it("returns plan decision when a planner is explicit, even if the mechanical rule matches (R6.4)", async () => {
+      it("routes a mechanical named-file request to solo in auto mode; a named planner no longer forces plan (R7.2 supersedes R6.4)", async () => {
         writeFileSync(join(tempDir, "utils.ts"), "export const x = 1;");
 
         const decision = await routeRequest({
           prompt: "fix typo in utils.ts",
-          flags: { mode: "auto", planner: true },
-          settings: makeSettings(),
-          repoRoot: tempDir,
-        });
-
-        expect(decision.mode).toBe("plan");
-        expect(decision.task_class).toBeUndefined();
-        expect(decision.rationale).toMatch(/explicit planner.*plan/i);
-      });
-
-      it("keeps the mechanical solo route when no planner is explicit (planner: false)", async () => {
-        writeFileSync(join(tempDir, "utils.ts"), "export const x = 1;");
-
-        const decision = await routeRequest({
-          prompt: "fix typo in utils.ts",
-          flags: { mode: "auto", planner: false },
+          flags: { mode: "auto" },
           settings: makeSettings(),
           repoRoot: tempDir,
         });

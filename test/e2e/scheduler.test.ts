@@ -254,7 +254,7 @@ describe("E2E scheduler: dependency order, terminal states, resume (R3.2)", () =
     );
 
     try {
-      const res = h.run(["run", "--permission-mode", "bypassPermissions", "Run the marker chain"]);
+      const res = h.run(["run", "--plan", "claude:claude-sonnet-5-5", "--work", "claude:haiku", "--permission-mode", "bypassPermissions", "Run the marker chain"]);
       expect(res.exitCode).toBe(0);
 
       const events = h.events();
@@ -313,7 +313,7 @@ describe("E2E scheduler: dependency order, terminal states, resume (R3.2)", () =
     );
 
     try {
-      const paused = h.run(["run", "--permission-mode", "bypassPermissions", "Run the marker chain"]);
+      const paused = h.run(["run", "--plan", "claude:claude-sonnet-5-5", "--work", "claude:haiku", "--permission-mode", "bypassPermissions", "Run the marker chain"]);
       expect(paused.exitCode).toBe(4);
 
       const pauseEvents = h.events();
@@ -375,7 +375,7 @@ describe("E2E scheduler: dependency order, terminal states, resume (R3.2)", () =
 
     try {
       const env = { ...process.env, HOME: h.homeDir, FAKE_SCENARIO_FILE: h.scenarioPath };
-      const child = spawn(process.execPath, [SUBSTRATE_BIN, "run", "--permission-mode", "bypassPermissions", "Run the marker chain"], {
+      const child = spawn(process.execPath, [SUBSTRATE_BIN, "run", "--plan", "claude:claude-sonnet-5-5", "--work", "claude:haiku", "--permission-mode", "bypassPermissions", "Run the marker chain"], {
         cwd: h.repo.dir,
         env,
       });

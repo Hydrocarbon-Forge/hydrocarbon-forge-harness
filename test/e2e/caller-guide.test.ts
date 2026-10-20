@@ -17,7 +17,7 @@ const GUIDE_COPY = join(ROOT, "docs", "reference", "caller-guide.md");
 const ROWS: Array<{ command: string; expectedExit: number }> = [
   { command: "substrate doctor --output-format json", expectedExit: 0 },
   { command: "substrate models --output-format json", expectedExit: 0 },
-  { command: "substrate run --request - --output-format json", expectedExit: 0 },
+  { command: "substrate run --mode solo --work claude:haiku --request - --output-format json", expectedExit: 0 },
   { command: "substrate resume <run_id> --answers -", expectedExit: 0 },
   { command: "substrate usage --by model --output-format json", expectedExit: 0 },
 ];
@@ -41,8 +41,8 @@ function isolatedEnv(): Record<string, string> {
   };
 }
 
-// The guide's request example omits `model`, so the worker slot comes from the
-// provider profile. The profile is written the same way `substrate init` writes it.
+// The guide names the model of every request and command it shows. The profile below is
+// kept as the settings the pause setup has always used; the rows no longer depend on it.
 const PROFILE_SETTINGS = {
   profiles: {
     claude: {

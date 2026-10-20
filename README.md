@@ -31,7 +31,7 @@ substrate init                                              # creates .substrate
 substrate doctor                                            # checks Node, git, harness versions and pins
 substrate models                                            # lists the models of each installed provider
 substrate init --provider claude --plan opus:high --work sonnet:medium   # choose the planner and worker models
-substrate run "Add a request rate limiter to the server"    # runs a real plan and spends tokens
+substrate run --plan claude:opus --work claude:sonnet "Add a request rate limiter to the server"    # runs a real plan and spends tokens
 ```
 
 `init` with no slot flags writes nothing but the runtime directories, the `.gitignore` and the charter stub. `doctor` exits 1 when a check fails, and each failed check prints a `fix:` line.

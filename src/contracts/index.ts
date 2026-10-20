@@ -482,7 +482,6 @@ export const RunOptions = z.object({
   mode: z.enum(["auto", "solo", "plan"]),
   permission_mode: PermissionMode,
   overrides: z.record(z.string(), z.unknown()).optional(),
-  planner_explicit: z.boolean().optional(),
   resume: RunId.optional(),
   signal: z.custom<AbortSignal>((v) => v instanceof Object).optional(),
   onEvent: z.custom<(e: EngineEvent) => void>((v) => typeof v === "function").optional(),
@@ -493,8 +492,6 @@ export type RunOptions = {
   mode: "auto" | "solo" | "plan";
   permission_mode: PermissionMode;
   overrides?: Partial<Settings>;
-  /** True when the caller named a planner (--plan or a request planner); auto mode then plans. */
-  planner_explicit?: boolean;
   resume?: RunId;
   signal?: AbortSignal;
   onEvent?: (e: EngineEvent) => void;
