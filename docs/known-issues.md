@@ -2,7 +2,7 @@
 
 ## How to use this file
 
-This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Items 1 and 2 are fixed and kept as short notes until the next cleanup. Each open item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
+This file lists the findings that are still open after the R5.3 cleanup. It replaces the open items of `docs/plan/BLOCKED.md`, which is archived with the R-series plan. Items 1 to 15 are ordered by importance; items 16 and 17 were added after the R5.4 scoping and come last. Items 1, 2 and 16 are fixed and kept as short notes until the next cleanup. Each open item gives what is wrong, where it is, its impact, a suggested direction, and who must decide when an owner decision is needed. Items marked "reported" were seen in a run or in the code but not reproduced again during R5.3.
 
 ## 1. Planner failure diagnostics reach task.failed (FIXED)
 
@@ -101,7 +101,7 @@ These allowlist entries stay on purpose, with `until: "DEFERRED"` (owner approve
 - dead: `aggregateLedger` in `src/ledger/index.ts`, `buildReviewerPrompt` in `src/roles/prompts/reviewer.ts`.
 - settings: `roles.reviewer.enabled`, `roles.reviewer.backend`, `roles.reviewer.model`, `roles.reviewer.effort`, `execution.strategy`, `git.branch_prefix`, `sandbox.network`.
 
-The reviewer role needs a new engine phase (DECISIONS A2). Still open for the owner: whether auto mode applies the deterministic mechanical-file rule on the default path (item 16). The recommended default is yes.
+The reviewer role needs a new engine phase (DECISIONS A2). Item 16 (the mechanical-file rule on the auto path) is fixed.
 
 ## 14. Test gaps and test-helper masking
 
@@ -116,12 +116,10 @@ The reviewer role needs a new engine phase (DECISIONS A2). Still open for the ow
 - The live opencode smoke needs the local-route base URL, which the live helper reads from the environment variable `SUBSTRATE_LIVE_OPENCODE_BASE_URL`. Set it to the local server address in your own environment. Do not commit the address.
 - The R5.2 smoke passed on 2026-10-20 for all three harnesses, using the owner's local model for opencode. The gate command is the source of truth; run it to see the current state.
 
-## 16. Auto mode skips the deterministic router on the default path
+## 16. Auto mode skips the deterministic router on the default path (FIXED)
 
-- What: in auto mode, the route action calls `routeRequest` only after the governor has failed. With no governor configured, the auto branch never reaches `routeRequest`, so the route stays `plan` and the deterministic mechanical-file rule never runs.
-- Where: `src/engine/actions/route.ts` lines 35-38 (the governor gate) and 63-71 (the only `routeRequest` call, in the governor-failed branch). The mechanical rule is step 2 of `routeRequest` in `src/roles/router.ts` lines 60-91. The default mode `auto` is set in `src/cli/commands/run.ts` line 170.
-- Impact: on the default path, a single named-file request with a mechanical verb (such as "bump" or "typo", listed in `src/roles/router.ts`) takes the plan route even where the deterministic rule would send it solo. The rule runs only when a configured governor fails. Read from the code, not run live.
-- Direction: for auto mode, call `routeRequest` unconditionally and let it own the governor step, which removes the duplicate governor code in `route.ts`. Reconcile the two governor paths first, since their timeout defaults differ (5 seconds in `route.ts`, 10 in `router.ts`). Add a test that a named-file mechanical request with no governor routes solo. This changes default behaviour, so it needs owner sign-off (section 13, decision 3).
+- Fixed: auto mode now runs `routeRequest` (`src/roles/router.ts`) on every run, from the route action in `src/engine/actions/route.ts`. Explicit flags come first, then the mechanical-file rule: a request that names one existing file with a mechanical verb routes to `solo`, and every other request routes to `plan`. An explicit `--mode solo` or `--mode plan` bypasses the router as before. The default-path change is documented in `docs/reference/cli.md` and `docs/reference/caller-guide.md`, and `test/integration/scenarios/scenario-17-auto-router.test.ts` covers the three routes.
+- Still open: a request that also sets a planner (`--plan`, or a `planner` object) can be routed to `solo`, where the planner setting is ignored. The "no verify commands" warning in `src/cli/commands/run.ts` only prints for an explicit `solo` run, not for a run that auto mode routes to `solo`.
 
 ## 17. Check scripts still default to the archived progress file
 

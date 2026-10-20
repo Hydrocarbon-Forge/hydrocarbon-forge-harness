@@ -27,7 +27,7 @@ Use only an id from `models`. Never invent a model id. Put the id in `model` ins
 Write one JSON object and send it to `substrate run` on stdin (see Run). The object is strict: an unknown key is rejected, and `scope` is always rejected.
 
 - `goal` (string, required): what to build, in plain words. It must not be blank.
-- `mode` (optional): `auto` (default, the engine chooses), `solo` (one worker, no planner), or `plan` (a planner writes the plan, then workers run it).
+- `mode` (optional): `auto` (default, the engine chooses), `solo` (one worker, no planner), or `plan` (a planner writes the plan, then workers run it). In `auto`, a goal that names one existing file and uses a mechanical verb (such as bump, rename, typo, format, move, delete or remove) runs as `solo`; every other goal runs as `plan`.
 - `planner` (optional object): `provider` (required: `claude`, `opencode` or `agy`), `model` (optional, an id from `models`), `effort` (optional: `low`, `medium`, `high`, `xhigh` or `max`). Not allowed with `mode` `solo`.
 - `worker` (optional object): the same fields as `planner`. Every mode runs workers, so set it or the provider's default applies.
 - `verify` (optional array of strings): shell commands. Each must exit `0` for a task to pass. Each must not be blank.

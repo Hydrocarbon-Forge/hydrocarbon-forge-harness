@@ -54,12 +54,12 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
 substrate run [options] [prompt]
 ```
 
-Runs a goal end to end: plans it (unless `--mode solo`), starts workers in git worktrees, verifies each task, and merges what passes.
+Runs a goal end to end: plans it (unless the mode is `solo`, or `auto` routes it to `solo`, see Mode), starts workers in git worktrees, verifies each task, and merges what passes.
 
 - **Prompt**: the first argument. If it is missing and stdin is piped, the trimmed stdin text is the prompt. With neither, exit 2 with `prompt required on command line or stdin`.
 - **Request file**: `--request <file|->` reads a JSON request from a file (relative to the project) or from stdin with `-`. A request cannot be combined with a prompt. An invalid request prints `{"error":"invalid_request","problems":[...]}` on stdout and exits 2. The fields are listed in [caller-guide.md](caller-guide.md).
 - **Roles**: `--plan <provider[:model[:effort]]>` sets the planner and `--work <provider[:model[:effort]]>` sets the worker. Either one switches the run to the request path. `--model` sets the planner (in `auto` and `plan` modes) or the worker (in `solo`). `--worker-model` sets the worker. `--effort` sets the planner's effort.
-- **Mode**: `--mode auto|solo|plan`. The default is `auto`. `solo` runs one worker with no planner.
+- **Mode**: `--mode auto|solo|plan`. The default is `auto`. In `auto`, the deterministic router decides: a request that names one existing file and uses a mechanical verb (such as bump, rename, typo, format, move, delete or remove) runs as `solo`, and every other request runs as `plan`. `solo` runs one worker with no planner. `plan` always plans. An explicit `solo` or `plan` skips the router.
 - **Verify**: `--verify "<cmd>"` adds a verify command. It can be repeated. In `solo` mode, a run with no verify command warns that only scope and budget checks apply.
 - **Limits**: `--max-budget-usd <amount>` caps the run's spend, `--timeout <seconds>` caps its wall-clock time.
 - **Tools**: `--allowed-tools` and `--disallowed-tools` take a list (comma-separated or repeated).
