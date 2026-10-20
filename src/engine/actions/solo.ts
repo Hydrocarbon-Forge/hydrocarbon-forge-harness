@@ -88,17 +88,9 @@ export async function runSoloTask(
   const resumeExistingSession =
     taskState.session_id !== undefined && fs.existsSync(existingWorktree);
 
-  let route = resolveTaskRoute("feature", generation, ctx.settings);
-  if (ctx.settings.roles?.worker) {
-    route = {
-      ...route,
-      backend: ctx.settings.roles.worker.backend ?? route.backend,
-      model: ctx.settings.roles.worker.model ?? route.model,
-      ...(ctx.settings.roles.worker.effort !== undefined
-        ? { effort: ctx.settings.roles.worker.effort }
-        : {}),
-    };
-  }
+  // The named worker (request, or the worker role in solo mode) is applied inside
+  // resolveTaskRoute, the one resolution path (R7.4).
+  const route = resolveTaskRoute("feature", generation, ctx.settings, { solo: true });
   const adapter = adapterFor(ctx, route.backend);
   if (!adapter) {
     emit("run.paused", { reason: "backend_unavailable" });

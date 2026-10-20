@@ -146,15 +146,18 @@ export function escalationChain(settings: Settings): string[] {
 
 // DECISIONS A3: the planner route comes from the planner provider's plan slot.
 // Consumed by the planner spawn in R3.1.
+// Precedence (R7.4): the request's planner (roles.requested.planner) wins over the profile
+// and roles.planner. Its backend and effort fall back to the base route when unnamed.
 export function resolvePlannerRoute(settings: Settings): Route {
   const provider = settings.defaults?.planner_provider;
   const profile = provider !== undefined ? settings.profiles?.[provider] : undefined;
 
-  if (provider !== undefined && profile) {
-    return buildProfileRoute(provider, profile.plan.model, profile.plan.effort);
-  }
+  const base: Route =
+    provider !== undefined && profile
+      ? buildProfileRoute(provider, profile.plan.model, profile.plan.effort)
+      : { ...settings.roles.planner };
 
-  return { ...settings.roles.planner };
+  return applyNamed(base, settings.roles.requested?.planner);
 }
 
 // BackendName is a closed enum, so a dynamic provider name from settings.profiles is
@@ -208,17 +211,54 @@ function baseRouteForClass(taskClass: string, settings: Settings): Route {
   return normalizeRoute(BUILTIN_FALLBACK_ROUTE);
 }
 
+// The model the caller named for the worker role: the request's worker (R7.4), or in solo
+// mode the worker role from settings (which is how --work and --worker-model reached solo
+// before R7.4). A named model fixes the route for every generation.
+function namedWorker(settings: Settings, solo: boolean): Partial<Route> | undefined {
+  const requested = settings.roles.requested?.worker;
+  if (requested?.model !== undefined) return requested;
+  if (!solo || settings.roles.worker === undefined) return undefined;
+  const worker = settings.roles.worker;
+  return {
+    backend: worker.backend,
+    model: worker.model,
+    ...(worker.effort !== undefined ? { effort: worker.effort } : {}),
+  };
+}
+
+// Fills the fields a named route sets; unset fields keep the base route's values.
+function applyNamed(base: Route, named: Partial<Route> | undefined): Route {
+  if (!named) return base;
+  return {
+    backend: named.backend ?? base.backend,
+    model: named.model ?? base.model,
+    ...(named.effort !== undefined
+      ? { effort: named.effort }
+      : base.effort !== undefined
+        ? { effort: base.effort }
+        : {}),
+  };
+}
+
+// The one task-route path (plan tasks, the ladder's replans and the solo worker). Order:
+// the base route (routing.<class>, profile slot, routing.feature, built-in), then the
+// named worker (request first; in solo mode the worker role), then escalation for
+// generations after the first, which is skipped when the worker model is named.
 export function resolveTaskRoute(
   taskClass: TaskClass,
   generation: number,
   settings: Settings,
+  opts: { solo?: boolean } = {},
 ): Route {
   const base = baseRouteForClass(taskClass, settings);
+  const named = namedWorker(settings, opts.solo === true);
+  const pinned = named?.model !== undefined;
 
-  if (generation <= 1) {
-    return base;
-  }
+  const escalated = pinned || generation <= 1 ? base : escalateRoute(base, generation, settings);
+  return applyNamed(escalated, named);
+}
 
+function escalateRoute(base: Route, generation: number, settings: Settings): Route {
   const chain = escalationChain(settings);
   if (chain.length === 0) {
     return base;

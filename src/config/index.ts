@@ -303,9 +303,42 @@ export function assertNoProviderOutsideLocal(layers: SettingsLayers): void {
   }
 }
 
+// roles.requested is written only from the caller's request or command flags (R7.4). A
+// settings file that sets it would act as a request, so the loader refuses it there.
+export function assertNoRequestedRolesInFiles(layers: SettingsLayers): void {
+  const fileSlots: Array<Record<string, unknown> | undefined> = [
+    layers.user?.value,
+    layers.project?.value,
+    layers.local?.value,
+    layers.explicit?.value,
+  ];
+  for (const slot of fileSlots) {
+    const roles = slot?.roles;
+    if (roles && typeof roles === "object" && (roles as Record<string, unknown>).requested !== undefined) {
+      throw new Error(
+        "roles.requested is set by the request or the command flags, not in a settings file"
+      );
+    }
+  }
+}
+
+// Marks the models the caller named (R7.4): a planner or worker role with a model, from the
+// request payload or the --plan/--work/--model/--worker-model flags, becomes roles.requested.
+// A role without a model (for example --effort alone) is not a request for a model.
+export function withRequestedRoles<T extends { roles?: Record<string, unknown> }>(overrides: T): T {
+  const roles = overrides.roles as { planner?: { model?: string }; worker?: { model?: string } } | undefined;
+  if (!roles) return overrides;
+  const requested: Record<string, unknown> = {};
+  if (roles.planner?.model !== undefined) requested.planner = roles.planner;
+  if (roles.worker?.model !== undefined) requested.worker = roles.worker;
+  if (Object.keys(requested).length === 0) return overrides;
+  return { ...overrides, roles: { ...roles, requested } };
+}
+
 export async function loadSettings(options: LoadSettingsOptions = {}): Promise<Contracts.Settings> {
   const layers = await settingsLayers(options);
   assertNoProviderOutsideLocal(layers);
+  assertNoRequestedRolesInFiles(layers);
   const merged = foldLayers(layers);
   const settings = Contracts.Settings.parse(merged);
   validateProfiles(settings);

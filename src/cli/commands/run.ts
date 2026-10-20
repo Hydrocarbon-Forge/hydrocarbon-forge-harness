@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, RunId, RunOptions, Settings } from "../../contracts/index.js";
 import { createEngine } from "../../engine/engine.js";
-import { loadSettings, sandboxProblem } from "../../config/index.js";
+import { loadSettings, sandboxProblem, withRequestedRoles } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
 
@@ -224,6 +224,9 @@ export const runCommand: CliCommand = {
       }
       prompt = prompt.trim();
     }
+
+    // The models named by the request or the flags take precedence over every other route (R7.4).
+    overrides = withRequestedRoles(overrides);
 
     // Solo runs with no verify command get a warning. An explicit solo run warns now;
     // an auto run warns when the engine's route action routes it to solo (run.routed).

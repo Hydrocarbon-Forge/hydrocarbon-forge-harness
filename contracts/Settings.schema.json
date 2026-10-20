@@ -155,6 +155,68 @@
             "enabled"
           ],
           "additionalProperties": false
+        },
+        "requested": {
+          "type": "object",
+          "properties": {
+            "planner": {
+              "type": "object",
+              "properties": {
+                "backend": {
+                  "type": "string",
+                  "enum": [
+                    "claude",
+                    "opencode",
+                    "agy",
+                    "fake"
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "worker": {
+              "type": "object",
+              "properties": {
+                "backend": {
+                  "type": "string",
+                  "enum": [
+                    "claude",
+                    "opencode",
+                    "agy",
+                    "fake"
+                  ]
+                },
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

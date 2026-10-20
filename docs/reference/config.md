@@ -187,13 +187,16 @@ Per-provider model slots. Each provider name maps to `plan`, `work` and an optio
 
 ### Route precedence
 
-A worker task's route is chosen in this order. The first step that gives a route wins:
+A worker task's route is built from these steps. The route comes from the first of steps 2 to 4 that gives one. Then the request (step 1) is applied on top of it.
 
-1. **Explicit user settings.** `routing.<class>` for the task's class. For the solo worker, the class is `feature`, and `roles.worker` (its `backend`, `model` and `effort`, from any layer or request flag) replaces the route after that.
-2. **Selected profile.** The `fast`, `work` or `plan` slot of the `defaults.worker_provider` profile, for the task's class.
-3. **Built-in fallback.** `claude` / `claude-sonnet-5-5` / `medium`, the last step. It is not a settings default, so a user value is never confused with it. `config list` and `config get` do not print it: `roles.worker` and `routing.feature` appear only when set.
+1. **Request.** The worker the caller names for this run: `--work`, `--worker-model` or `--model` in `solo`, or the request's `worker` object. Its `backend`, `model` and `effort` replace the route's fields; a field it does not set keeps the route's value. A named model is used for every task and every generation, so a retry or replan does not escalate away from it. Effort is the class's effort unless the request sets one. (R7.4)
+2. **Explicit user settings.** `routing.<class>` for the task's class (the solo worker's class is `feature`). In solo mode, `roles.worker` (its `backend`, `model` and `effort`, from any settings layer) is applied on top of the route, as it was before R7.4.
+3. **Selected profile.** The `fast`, `work` or `plan` slot of the `defaults.worker_provider` profile, for the task's class.
+4. **Built-in fallback.** `claude` / `claude-sonnet-5-5` / `medium`, the last step. It is not a settings default, so a user value is never confused with it. `config list` and `config get` do not print it: `roles.worker` and `routing.feature` appear only when set.
 
-The planner is not part of this order. When `defaults.planner_provider` names a profile, its `plan` slot routes the planner, even if `roles.planner` is also set; otherwise `roles.planner` applies. That planner rule is unchanged in R6.5.
+In plan mode a `roles.worker` in a settings file is not read for tasks (step 2 covers `routing.<class>`); only a request names the worker there. A request is the only source of `roles.requested`, which run and plan set from the request payload and the command flags; a settings file that sets it is refused (exit 2).
+
+The planner route is: the request's `planner` (its `backend` and `model`, with the profile or `roles.planner` values for anything it does not set), otherwise the `plan` slot of the `defaults.planner_provider` profile when that names a profile, otherwise `roles.planner`. A user `roles.planner` is ignored when a planner profile applies, as it was before R7.4.
 
 ### `defaults`
 

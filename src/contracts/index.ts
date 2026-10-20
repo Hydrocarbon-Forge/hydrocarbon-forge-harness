@@ -410,6 +410,13 @@ export const Settings = z.object({
     // the backend). Solo mode fills the rest from the resolved task route.
     worker: Route.partial().optional(),
     reviewer: Route.extend({ enabled: z.boolean() }).strict().optional(),
+    // The models the caller named for this run (request payload or --plan/--work/--model/
+    // --worker-model flags). Set only by run and plan, never read from a settings file
+    // (the loader refuses it there). Precedence over every other route source (R7.4).
+    requested: z.object({
+      planner: Route.partial().optional(),
+      worker: Route.partial().optional(),
+    }).strict().optional(),
   }).strict(),
   routing: z.record(z.string(), z.union([
     Route.extend({ budget: Budget.optional() }).strict(),

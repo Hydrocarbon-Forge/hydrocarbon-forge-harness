@@ -3,7 +3,7 @@ import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, RunOptions, Settings } from "../../contracts/index.js";
 import { createEngine } from "../../engine/engine.js";
-import { loadSettings, sandboxProblem } from "../../config/index.js";
+import { loadSettings, sandboxProblem, withRequestedRoles } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionStore } from "../../store/sessions.js";
 
@@ -114,6 +114,9 @@ export const planCommand: CliCommand = {
       }
       prompt = prompt.trim();
     }
+
+    // The planner named by the request or the flags takes precedence (R7.4).
+    overrides = withRequestedRoles(overrides);
 
     const sessionStore =
       ctx.sessionStore ??

@@ -17,7 +17,8 @@ export type AdapterMap = Partial<Record<BackendName, HarnessAdapter>>;
  */
 function knownModelIds(settings: Settings): string[] {
   const ids: string[] = [];
-  for (const role of Object.values(settings.roles)) {
+  const { requested, ...roleEntries } = settings.roles;
+  for (const role of [...Object.values(roleEntries), ...Object.values(requested ?? {})]) {
     if (role && typeof role.model === "string") {
       ids.push(role.model);
     }
