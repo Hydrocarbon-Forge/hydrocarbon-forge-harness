@@ -3,27 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { findProjectRoot, listFiles, normalizeSlashes, importSpecifiers, resolveRelativeImport } from "./lib/scan.mjs";
-import { loadAllowlist, saveAllowlist, workPackageStatus, applyAllowlist } from "./lib/allowlist.mjs";
-
-const MAPPING_TABLE = {
-  runWorker: "R3.3",
-  runPlanner: "R3.1",
-  commitContractStubs: "R3.1",
-  generateRepoMap: "R3.1",
-  executeReplan: "R3.5",
-  scheduleNextTasks: "R3.2",
-  aggregateLedger: "R2.8",
-  rebuildFromEvents: "R2.8",
-  detectEcosystem: "R3.8",
-};
-
-export function getDeadUntil(symbol, filePath) {
-  if (MAPPING_TABLE[symbol]) {
-    return MAPPING_TABLE[symbol];
-  }
-  console.warn(`WARN: ${symbol} assigned R5.3`);
-  return "R5.3";
-}
+import { loadAllowlist, saveAllowlist, applyAllowlist } from "./lib/allowlist.mjs";
 
 /**
  * Analyzes dead top-level exported functions, classes, and consts in src/.
@@ -480,7 +460,6 @@ export function analyzeDead({
 function parseArgs(args) {
   let root = null;
   let allowlist = null;
-  let progress = null;
   let initAllowlist = false;
   let entries = ["src/cli/main.ts", "src/cli/dispatcher.ts", "src/index.ts"];
 
@@ -489,8 +468,6 @@ function parseArgs(args) {
       root = path.resolve(args[++i]);
     } else if (args[i] === "--allowlist" && i + 1 < args.length) {
       allowlist = path.resolve(args[++i]);
-    } else if (args[i] === "--progress" && i + 1 < args.length) {
-      progress = path.resolve(args[++i]);
     } else if (args[i] === "--entries" && i + 1 < args.length) {
       entries = args[++i].split(",").map((s) => s.trim());
     } else if (args[i] === "--init-allowlist") {
@@ -502,7 +479,6 @@ function parseArgs(args) {
   return {
     root: projRoot,
     allowlistFile: allowlist || path.join(projRoot, "scripts/debt-allowlist.json"),
-    progressFile: progress || path.join(projRoot, "docs/plan/PROGRESS.md"),
     entries,
     initAllowlist,
   };
@@ -510,7 +486,7 @@ function parseArgs(args) {
 
 export async function main() {
   try {
-    const { root, allowlistFile, progressFile, entries, initAllowlist } = parseArgs(process.argv.slice(2));
+    const { root, allowlistFile, entries, initAllowlist } = parseArgs(process.argv.slice(2));
     const deadViolations = analyzeDead({ root, entries, excludeDirs: [] });
 
     if (initAllowlist) {
@@ -524,8 +500,7 @@ export async function main() {
       for (const v of deadViolations) {
         const key = `${v.path}:${v.name}`;
         if (!entryMap.has(key)) {
-          const until = getDeadUntil(v.name, v.path);
-          entryMap.set(key, { symbol: v.name, path: v.path, until });
+          entryMap.set(key, { symbol: v.name, path: v.path, until: "DEFERRED" });
         }
       }
 
@@ -541,7 +516,6 @@ export async function main() {
     }
 
     const allowlist = loadAllowlist(allowlistFile);
-    const status = workPackageStatus(progressFile);
     const formatted = deadViolations.map((v) => ({
       rule: "dead-export",
       path: v.path,
@@ -549,7 +523,7 @@ export async function main() {
       name: v.name,
       symbol: v.name,
     }));
-    const { remaining, problems } = applyAllowlist("dead", formatted, allowlist, status);
+    const { remaining, problems } = applyAllowlist("dead", formatted, allowlist);
 
     for (const v of remaining) {
       console.log(`dead-export ${v.path}:${v.line} ${v.name}`);

@@ -36,7 +36,6 @@ npm run typecheck         TypeScript check
 npm test                  all tests (vitest), about four minutes
 npm run check             static checks: purity, wired, events, settings, boundaries, docs
 npm run docs:check        documentation links and required files
-npm run check:plan        validates docs/plan; with the plan archived it reports nothing to check
 npm run bundle            build dist/substrate.mjs
 npm run gate:g5           reads the recorded live-smoke result; reads records only
 node dist/substrate.mjs <command>     run the built CLI

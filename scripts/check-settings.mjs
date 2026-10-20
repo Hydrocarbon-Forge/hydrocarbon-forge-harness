@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 import { findProjectRoot, listFiles, normalizeSlashes } from "./lib/scan.mjs";
-import { loadAllowlist, saveAllowlist, workPackageStatus, applyAllowlist } from "./lib/allowlist.mjs";
+import { loadAllowlist, saveAllowlist, applyAllowlist } from "./lib/allowlist.mjs";
 
 /**
  * Unwraps Zod wrapper types: optional, nullable, default, effects.
@@ -181,39 +181,9 @@ export async function scanSettings(root) {
   return violations.sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/**
- * Assigns until to unread settings key during --init-allowlist.
- */
-function assignUntil(key) {
-  if (
-    key === "git.auto_merge" ||
-    key === "git.branch_prefix" ||
-    key === "execution.strategy" ||
-    key === "instructions.workers" ||
-    key === "sandbox.network" ||
-    key === "budgets.task.max_turns" ||
-    key === "budgets.run.max_tokens"
-  ) {
-    return "R1.6";
-  }
-
-  if (
-    key === "backends.*.max_concurrency" ||
-    key === "backends.*.version_pin" ||
-    key === "backends.*.bin" ||
-    key === "backends.*.extra"
-  ) {
-    return "R2.2";
-  }
-
-  console.warn(`Warning: unmapped unread settings key ${key}; defaulting until to R5.3`);
-  return "R5.3";
-}
-
 function parseArgs(args) {
   let root = null;
   let allowlist = null;
-  let progress = null;
   let initAllowlist = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -221,8 +191,6 @@ function parseArgs(args) {
       root = path.resolve(args[++i]);
     } else if (args[i] === "--allowlist" && i + 1 < args.length) {
       allowlist = path.resolve(args[++i]);
-    } else if (args[i] === "--progress" && i + 1 < args.length) {
-      progress = path.resolve(args[++i]);
     } else if (args[i] === "--init-allowlist") {
       initAllowlist = true;
     }
@@ -232,14 +200,13 @@ function parseArgs(args) {
   return {
     root: projRoot,
     allowlistFile: allowlist || path.join(projRoot, "scripts/debt-allowlist.json"),
-    progressFile: progress || path.join(projRoot, "docs/plan/PROGRESS.md"),
     initAllowlist,
   };
 }
 
 export async function main() {
   try {
-    const { root, allowlistFile, progressFile, initAllowlist } = parseArgs(process.argv.slice(2));
+    const { root, allowlistFile, initAllowlist } = parseArgs(process.argv.slice(2));
     const violations = await scanSettings(root);
 
     if (initAllowlist) {
@@ -252,8 +219,7 @@ export async function main() {
 
       for (const v of violations) {
         if (!entryMap.has(v.key)) {
-          const until = assignUntil(v.key);
-          entryMap.set(v.key, { key: v.key, until });
+          entryMap.set(v.key, { key: v.key, until: "DEFERRED" });
         }
       }
 
@@ -264,8 +230,7 @@ export async function main() {
     }
 
     const allowlist = loadAllowlist(allowlistFile);
-    const status = workPackageStatus(progressFile);
-    const { remaining, problems } = applyAllowlist("settings", violations, allowlist, status);
+    const { remaining, problems } = applyAllowlist("settings", violations, allowlist);
 
     for (const v of remaining) {
       console.log(`${v.rule} ${v.path}:${v.line} ${v.message}`);

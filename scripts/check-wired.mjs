@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findProjectRoot, listFiles, normalizeSlashes, importSpecifiers, resolveRelativeImport } from "./lib/scan.mjs";
-import { loadAllowlist, saveAllowlist, workPackageStatus, applyAllowlist } from "./lib/allowlist.mjs";
+import { loadAllowlist, saveAllowlist, applyAllowlist } from "./lib/allowlist.mjs";
 import { analyzeDead } from "./check-dead-exports.mjs";
 
 /**
@@ -73,26 +73,16 @@ export function scanWired(root, entryFiles = ["src/cli/main.ts", "src/cli/dispat
 }
 
 /**
- * Assigns `until` tag to unreachable file during --init-allowlist.
+ * Maps an unreachable file to its allowlist path (a whole folder for src/tui/).
  */
-function assignUntil(relPath) {
-  if (relPath.startsWith("src/tui/")) return { path: "src/tui/**", until: "R0.7" };
-  if (relPath === "src/cli/bench.ts" || relPath === "src/cli/agents-import.ts") return { path: relPath, until: "R1.8" };
-  if (relPath === "src/store/event-store.ts") return { path: relPath, until: "R3.2" };
-  if (relPath === "src/ledger/index.ts") return { path: relPath, until: "R1.4" };
-  if (relPath === "src/engine/scheduler.ts") return { path: relPath, until: "R3.2" };
-  if (relPath === "src/engine/replan.ts") return { path: relPath, until: "R3.5" };
-  if (relPath === "src/roles/worker.ts") return { path: relPath, until: "R3.3" };
-  if (relPath === "src/roles/planner.ts") return { path: relPath, until: "R3.1" };
-
-  console.warn(`Warning: unmapped unreachable file ${relPath}; defaulting until to R5.3`);
-  return { path: relPath, until: "R5.3" };
+function allowPathFor(relPath) {
+  if (relPath.startsWith("src/tui/")) return "src/tui/**";
+  return relPath;
 }
 
 function parseArgs(args) {
   let root = null;
   let allowlist = null;
-  let progress = null;
   let initAllowlist = false;
   let entries = ["src/cli/main.ts", "src/cli/dispatcher.ts", "src/index.ts"];
 
@@ -101,8 +91,6 @@ function parseArgs(args) {
       root = path.resolve(args[++i]);
     } else if (args[i] === "--allowlist" && i + 1 < args.length) {
       allowlist = path.resolve(args[++i]);
-    } else if (args[i] === "--progress" && i + 1 < args.length) {
-      progress = path.resolve(args[++i]);
     } else if (args[i] === "--entries" && i + 1 < args.length) {
       entries = args[++i].split(",").map((s) => s.trim());
     } else if (args[i] === "--init-allowlist") {
@@ -114,7 +102,6 @@ function parseArgs(args) {
   return {
     root: projRoot,
     allowlistFile: allowlist || path.join(projRoot, "scripts/debt-allowlist.json"),
-    progressFile: progress || path.join(projRoot, "docs/plan/PROGRESS.md"),
     entries,
     initAllowlist,
   };
@@ -122,7 +109,7 @@ function parseArgs(args) {
 
 export async function main() {
   try {
-    const { root, allowlistFile, progressFile, entries, initAllowlist } = parseArgs(process.argv.slice(2));
+    const { root, allowlistFile, entries, initAllowlist } = parseArgs(process.argv.slice(2));
     const wiredViolations = scanWired(root, entries);
 
     if (initAllowlist) {
@@ -134,9 +121,9 @@ export async function main() {
       }
 
       for (const v of wiredViolations) {
-        const { path: allowPath, until } = assignUntil(v.path);
+        const allowPath = allowPathFor(v.path);
         if (!entryMap.has(allowPath)) {
-          entryMap.set(allowPath, { path: allowPath, until });
+          entryMap.set(allowPath, { path: allowPath, until: "DEFERRED" });
         }
       }
 
@@ -147,8 +134,7 @@ export async function main() {
     }
 
     const allowlist = loadAllowlist(allowlistFile);
-    const status = workPackageStatus(progressFile);
-    const { remaining: remWired, problems: probWired } = applyAllowlist("wired", wiredViolations, allowlist, status);
+    const { remaining: remWired, problems: probWired } = applyAllowlist("wired", wiredViolations, allowlist);
 
     let remDead = [];
     let probDead = [];
@@ -161,7 +147,7 @@ export async function main() {
         name: d.name,
         symbol: d.name,
       }));
-      const res = applyAllowlist("dead", deadViolations, allowlist, status);
+      const res = applyAllowlist("dead", deadViolations, allowlist);
       remDead = res.remaining;
       probDead = res.problems;
     }

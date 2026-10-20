@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 // @ts-ignore
 import * as allowlistMod from "../../../scripts/lib/allowlist.mjs";
 const {
   loadAllowlist,
-  workPackageStatus,
   matchesEntry,
   applyAllowlist,
 } = allowlistMod as any;
@@ -22,16 +22,16 @@ describe("allowlist module", () => {
     });
   });
 
-  it("parses work package status from PROGRESS.md correctly", () => {
-    const fixtureProgress = path.resolve("test/fixtures/check/clean/docs/plan/PROGRESS.md");
-    const status = workPackageStatus(fixtureProgress);
-    expect(status.get("R0.1")).toBe("TODO");
-  });
-
-  it("treats missing PROGRESS.md as TODO for all work packages", () => {
-    const status = workPackageStatus("/nonexistent/PROGRESS.md");
-    expect(status.get("R0.1")).toBe("TODO");
-    expect(status.get("R9.9")).toBe("TODO");
+  it("does not read a progress file: a tree without docs/plan still checks cleanly", () => {
+    // The clean fixture has no docs/plan folder. Before R6.7 the settings check warned that
+    // PROGRESS.md was missing and treated every work package as TODO.
+    const root = path.resolve("test/fixtures/check/clean");
+    expect(fs.existsSync(path.join(root, "docs/plan"))).toBe(false);
+    const stdout = execFileSync("node", [path.resolve("scripts/check-settings.mjs"), "--root", root], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(stdout).toContain("OK");
   });
 
   describe("matchesEntry", () => {
@@ -73,63 +73,58 @@ describe("allowlist module", () => {
   });
 
   describe("applyAllowlist rules", () => {
-    const statusMap = new Map([
-      ["R0.1", "DONE"],
-      ["R0.2", "TODO"],
-    ]);
-
     it("suppresses matched violations", () => {
       const allowlist = {
-        purity: [{ rule: "P2", path: "src/engine/effects.ts", until: "R0.2" }],
+        purity: [{ rule: "P2", path: "src/engine/effects.ts", until: "DEFERRED" }],
       };
       const violations = [
         { rule: "P2", path: "src/engine/effects.ts", line: 10, message: "forbidden" },
       ];
-      const { remaining, problems } = applyAllowlist("purity", violations, allowlist, statusMap);
+      const { remaining, problems } = applyAllowlist("purity", violations, allowlist);
       expect(remaining).toHaveLength(0);
       expect(problems).toHaveLength(0);
     });
 
     it("fails on stale allowlist entries that match nothing", () => {
       const allowlist = {
-        purity: [{ rule: "P2", path: "src/engine/clean.ts", until: "R0.2" }],
+        purity: [{ rule: "P2", path: "src/engine/clean.ts", until: "DEFERRED" }],
       };
       const violations: any[] = [];
-      const { problems } = applyAllowlist("purity", violations, allowlist, statusMap);
+      const { problems } = applyAllowlist("purity", violations, allowlist);
       expect(problems).toHaveLength(1);
       expect(problems[0]).toContain("Stale allowlist entry");
     });
 
-    it("fails when an entry's until WP has status DONE", () => {
+    it("rejects a work-package until tag, since no progress file is read any more", () => {
       const allowlist = {
         purity: [{ rule: "P2", path: "src/engine/effects.ts", until: "R0.1" }],
       };
       const violations = [
         { rule: "P2", path: "src/engine/effects.ts", line: 10, message: "forbidden" },
       ];
-      const { problems } = applyAllowlist("purity", violations, allowlist, statusMap);
+      const { problems } = applyAllowlist("purity", violations, allowlist);
       expect(problems).toHaveLength(1);
-      expect(problems[0]).toContain("Debt of finished WP R0.1 still present");
+      expect(problems[0]).toContain("Invalid 'until' in allowlist entry");
     });
 
-    it("exempts DEFERRED entries from the finished WP check", () => {
+    it("exempts DEFERRED entries", () => {
       const allowlist = {
         settings: [{ key: "roles.reviewer.*", until: "DEFERRED" }],
       };
       const violations = [
         { key: "roles.reviewer.enabled", path: "src/contracts/index.ts", line: 1, message: "unread" },
       ];
-      const { remaining, problems } = applyAllowlist("settings", violations, allowlist, statusMap);
+      const { remaining, problems } = applyAllowlist("settings", violations, allowlist);
       expect(remaining).toHaveLength(0);
       expect(problems).toHaveLength(0);
     });
 
-    it("validates until format (^R\\d+\\.\\d+$ or DEFERRED)", () => {
+    it("validates until: only DEFERRED is accepted", () => {
       const allowlist = {
         wired: [{ path: "src/cli/bench.ts", until: "INVALID_TAG" }],
       };
       const violations = [{ rule: "UNREACHABLE", path: "src/cli/bench.ts", line: 1, message: "unreachable" }];
-      const { problems } = applyAllowlist("wired", violations, allowlist, statusMap);
+      const { problems } = applyAllowlist("wired", violations, allowlist);
       expect(problems).toHaveLength(1);
       expect(problems[0]).toContain("Invalid 'until' in allowlist entry");
     });

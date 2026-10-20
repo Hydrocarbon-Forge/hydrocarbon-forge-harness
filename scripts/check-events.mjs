@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findProjectRoot, listFiles, normalizeSlashes } from "./lib/scan.mjs";
-import { loadAllowlist, saveAllowlist, workPackageStatus, applyAllowlist } from "./lib/allowlist.mjs";
+import { loadAllowlist, saveAllowlist, applyAllowlist } from "./lib/allowlist.mjs";
 
 /**
  * Extracts the canonical event vocabulary from src/contracts/events.ts or SUBSTRATE-PLAN.md Appendix D.
@@ -166,7 +166,6 @@ export function scanEvents(root, observeOnly = []) {
 function parseArgs(args) {
   let root = null;
   let allowlist = null;
-  let progress = null;
   let initAllowlist = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -174,8 +173,6 @@ function parseArgs(args) {
       root = path.resolve(args[++i]);
     } else if (args[i] === "--allowlist" && i + 1 < args.length) {
       allowlist = path.resolve(args[++i]);
-    } else if (args[i] === "--progress" && i + 1 < args.length) {
-      progress = path.resolve(args[++i]);
     } else if (args[i] === "--init-allowlist") {
       initAllowlist = true;
     }
@@ -185,14 +182,13 @@ function parseArgs(args) {
   return {
     root: projRoot,
     allowlistFile: allowlist || path.join(projRoot, "scripts/debt-allowlist.json"),
-    progressFile: progress || path.join(projRoot, "docs/plan/PROGRESS.md"),
     initAllowlist,
   };
 }
 
 export async function main() {
   try {
-    const { root, allowlistFile, progressFile, initAllowlist } = parseArgs(process.argv.slice(2));
+    const { root, allowlistFile, initAllowlist } = parseArgs(process.argv.slice(2));
     const allowlist = loadAllowlist(allowlistFile);
     const observeOnly = allowlist.events_observe_only || [];
     const violations = scanEvents(root, observeOnly);
@@ -208,8 +204,7 @@ export async function main() {
       for (const v of violations) {
         const key = `${v.type}:${v.kind}`;
         if (!entryMap.has(key)) {
-          // Table: consumed-not-emitted -> R1.2, emitted-not-consumed -> R1.2
-          entryMap.set(key, { type: v.type, kind: v.kind, until: "R1.2" });
+          entryMap.set(key, { type: v.type, kind: v.kind, until: "DEFERRED" });
         }
       }
 
@@ -223,8 +218,7 @@ export async function main() {
       process.exit(0);
     }
 
-    const status = workPackageStatus(progressFile);
-    const { remaining, problems } = applyAllowlist("events", violations, allowlist, status);
+    const { remaining, problems } = applyAllowlist("events", violations, allowlist);
 
     for (const v of remaining) {
       console.log(`${v.rule} ${v.path}:${v.line} ${v.message}`);

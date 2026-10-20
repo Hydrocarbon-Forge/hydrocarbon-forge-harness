@@ -44,11 +44,11 @@ describe("check-wired script", () => {
     expect(res.stdout).toMatch(/^FAIL:\s+\d+\s+violation\(s\)$/m);
   });
 
-  it("fails when an entry's until WP has status DONE", () => {
+  it("rejects an until that names a work package (no progress file is read)", () => {
     const root = path.resolve("test/fixtures/check/done-wp");
     const res = run(["--root", root, "--entries", "src/index.ts"]);
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("Debt of finished WP R0.1 still present");
+    expect(res.stdout).toContain("Invalid 'until' in allowlist entry");
     expect(res.stdout).toMatch(/^FAIL:\s+\d+\s+violation\(s\)$/m);
   });
 });

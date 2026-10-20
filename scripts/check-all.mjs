@@ -6,15 +6,12 @@ import { findProjectRoot } from "./lib/scan.mjs";
 function parseArgs(args) {
   let root = null;
   let allowlist = null;
-  let progress = null;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--root" && i + 1 < args.length) {
       root = path.resolve(args[++i]);
     } else if (args[i] === "--allowlist" && i + 1 < args.length) {
       allowlist = path.resolve(args[++i]);
-    } else if (args[i] === "--progress" && i + 1 < args.length) {
-      progress = path.resolve(args[++i]);
     }
   }
 
@@ -22,7 +19,6 @@ function parseArgs(args) {
   return {
     root: projRoot,
     allowlistFile: allowlist || path.join(projRoot, "scripts/debt-allowlist.json"),
-    progressFile: progress || path.join(projRoot, "docs/plan/PROGRESS.md"),
   };
 }
 
@@ -44,7 +40,7 @@ export function runCheck(name, scriptPath, args, cwd) {
 }
 
 export async function main() {
-  const { root, allowlistFile, progressFile } = parseArgs(process.argv.slice(2));
+  const { root, allowlistFile } = parseArgs(process.argv.slice(2));
   const scriptsDir = path.join(root, "scripts");
 
   const commonArgs = [
@@ -52,8 +48,6 @@ export async function main() {
     root,
     "--allowlist",
     allowlistFile,
-    "--progress",
-    progressFile,
   ];
 
   const checks = [

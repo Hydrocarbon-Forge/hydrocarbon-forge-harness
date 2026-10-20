@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findProjectRoot, listFiles, normalizeSlashes, importSpecifiers, resolveRelativeImport } from "./lib/scan.mjs";
-import { loadAllowlist, saveAllowlist, workPackageStatus, applyAllowlist } from "./lib/allowlist.mjs";
+import { loadAllowlist, saveAllowlist, applyAllowlist } from "./lib/allowlist.mjs";
 
 const P2_FORBIDDEN_DIRS = [
   "src/engine",
@@ -269,39 +269,9 @@ export function scanPurity(root) {
   });
 }
 
-/**
- * Assigns an `until` tag to a purity violation during --init-allowlist.
- */
-function assignUntil(v) {
-  const { rule, path: p } = v;
-  if (rule === "P1" && (p === "src/engine/engine.ts" || p === "src/cli/commands/backends.ts")) return "R2.2";
-  if (rule === "P2") {
-    if (p.startsWith("src/engine/")) return "R0.5";
-    if (p === "src/backends/adapters/claude.ts") return "R2.3";
-    if (p === "src/backends/adapters/agy.ts") return "R2.5";
-    if (p === "src/backends/normalize/opencode.ts") return "R2.4";
-    if (p === "src/backends/adapters/opencode.ts") return "R2.4";
-  }
-  if (rule === "P9" && p === "src/backends/adapters/opencode.ts") return "R2.4";
-  if (rule === "P6") {
-    if (p.startsWith("src/roles/prompts/")) return "R1.7";
-  }
-  if (rule === "P3" && p === "src/spec/parser.ts") return "R0.5";
-  if (rule === "P5" && p === "src/engine/effects.ts") return "R0.5";
-  if (rule === "P7" && p === "src/engine/effects.ts") return "R0.5";
-  if (rule === "P8") {
-    if (p === "src/engine/engine.ts" || p === "src/cli/commands/backends.ts") return "R2.2";
-    if (p === "src/backends/adapters/agy.ts") return "R2.5";
-  }
-
-  console.warn(`Warning: unmapped purity violation ${rule} in ${p}; defaulting until to R5.3`);
-  return "R5.3";
-}
-
 function parseArgs(args) {
   let root = null;
   let allowlist = null;
-  let progress = null;
   let initAllowlist = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -309,8 +279,6 @@ function parseArgs(args) {
       root = path.resolve(args[++i]);
     } else if (args[i] === "--allowlist" && i + 1 < args.length) {
       allowlist = path.resolve(args[++i]);
-    } else if (args[i] === "--progress" && i + 1 < args.length) {
-      progress = path.resolve(args[++i]);
     } else if (args[i] === "--init-allowlist") {
       initAllowlist = true;
     }
@@ -320,14 +288,13 @@ function parseArgs(args) {
   return {
     root: projRoot,
     allowlistFile: allowlist || path.join(projRoot, "scripts/debt-allowlist.json"),
-    progressFile: progress || path.join(projRoot, "docs/plan/PROGRESS.md"),
     initAllowlist,
   };
 }
 
 export async function main() {
   try {
-    const { root, allowlistFile, progressFile, initAllowlist } = parseArgs(process.argv.slice(2));
+    const { root, allowlistFile, initAllowlist } = parseArgs(process.argv.slice(2));
     const violations = scanPurity(root);
 
     if (initAllowlist) {
@@ -341,8 +308,7 @@ export async function main() {
       for (const v of violations) {
         const key = `${v.rule}:${v.path}`;
         if (!entryMap.has(key)) {
-          const until = assignUntil(v);
-          entryMap.set(key, { rule: v.rule, path: v.path, until });
+          entryMap.set(key, { rule: v.rule, path: v.path, until: "DEFERRED" });
         }
       }
 
@@ -356,8 +322,7 @@ export async function main() {
     }
 
     const allowlist = loadAllowlist(allowlistFile);
-    const status = workPackageStatus(progressFile);
-    const { remaining, problems } = applyAllowlist("purity", violations, allowlist, status);
+    const { remaining, problems } = applyAllowlist("purity", violations, allowlist);
 
     for (const v of remaining) {
       console.log(`${v.rule} ${v.path}:${v.line} ${v.message}`);

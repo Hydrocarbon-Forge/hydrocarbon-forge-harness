@@ -3,27 +3,27 @@
     {
       "rule": "P1",
       "path": "src/nonexistent.ts",
-      "until": "R2.2"
+      "until": "DEFERRED"
     }
   ],
   "wired": [
     {
       "path": "src/nonexistent.ts",
-      "until": "R3.1"
+      "until": "DEFERRED"
     }
   ],
   "events": [
     {
       "type": "nonexistent.event",
       "kind": "consumed-not-emitted",
-      "until": "R1.2"
+      "until": "DEFERRED"
     }
   ],
   "events_observe_only": [],
   "settings": [
     {
       "key": "nonexistent.setting",
-      "until": "R1.6"
+      "until": "DEFERRED"
     }
   ]
 }

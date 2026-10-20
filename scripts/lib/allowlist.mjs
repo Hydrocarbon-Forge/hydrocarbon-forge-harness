@@ -44,35 +44,6 @@ export function saveAllowlist(file, data) {
 }
 
 /**
- * Parses docs/plan/PROGRESS.md rows to extract work package status.
- * Returns a Map<id, status>.
- * If progressFile does not exist, warns and returns a map defaulting to "TODO".
- */
-export function workPackageStatus(progressFile) {
-  const map = new Map();
-  if (!fs.existsSync(progressFile)) {
-    console.warn(`Warning: PROGRESS file not found at ${progressFile}; treating all work packages as TODO`);
-    return {
-      get: () => "TODO",
-      has: () => true,
-    };
-  }
-
-  const content = fs.readFileSync(progressFile, "utf8");
-  for (const line of content.split("\n")) {
-    if (!line.startsWith("|")) continue;
-    const cells = line.split("|").slice(1, -1).map((c) => c.trim());
-    if (cells.length >= 5 && /^R\d+\.\d+$/.test(cells[0])) {
-      const id = cells[0];
-      const status = cells[4];
-      map.set(id, status);
-    }
-  }
-
-  return map;
-}
-
-/**
  * Checks if an allowlist entry matches a violation.
  */
 export function matchesEntry(kind, entry, violation) {
@@ -108,31 +79,22 @@ export function matchesEntry(kind, entry, violation) {
  * Rules:
  * 1. A violation that matches an allowlist entry is suppressed.
  * 2. An allowlist entry that matches no violation is a stale entry ("remove it").
- * 3. If an entry's `until` work package has Status DONE in PROGRESS.md, the entry fails
- *    the check ("debt of finished WP still present"). DEFERRED entries are exempt.
- * 4. `until` must match ^R\d+\.\d+$ or equal DEFERRED; anything else is an error.
+ * 3. `until` must be exactly "DEFERRED". Work-package tags are not tracked any more (the
+ *    R-series progress file is archived), so any other value is an error.
  *
  * Returns: { remaining: Violation[], problems: string[] }
  */
-export function applyAllowlist(kind, violations, allowlist, status) {
+export function applyAllowlist(kind, violations, allowlist) {
   const entries = (allowlist && allowlist[kind]) || [];
   const problems = [];
 
   for (const entry of entries) {
     const until = entry.until;
 
-    // Rule 4: validate until
-    if (until !== "DEFERRED" && !/^R\d+\.\d+$/.test(until ?? "")) {
-      problems.push(`Invalid 'until' in allowlist entry: "${until}"`);
-      continue;
-    }
-
-    // Rule 3: check if until WP is DONE
+    // Rule 3: validate until
     if (until !== "DEFERRED") {
-      const wpStatus = status instanceof Map ? status.get(until) : status?.get ? status.get(until) : status?.[until];
-      if (wpStatus === "DONE") {
-        problems.push(`Debt of finished WP ${until} still present in ${kind} allowlist: ${JSON.stringify(entry)}`);
-      }
+      problems.push(`Invalid 'until' in allowlist entry: "${until}" (only "DEFERRED" is accepted): ${JSON.stringify(entry)}`);
+      continue;
     }
 
     // Rule 2: stale entry check
