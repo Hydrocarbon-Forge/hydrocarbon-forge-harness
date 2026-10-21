@@ -115,3 +115,13 @@ The owner's run `r_ZEEOKTFXRD33` failed its final check because `npx tsc` ran in
 - The bisect keeps its anchor: when the final verify fails, the base commit is verified once, inside the bisect, and a passing base lets it name the culprit (R9.1). A passing run never runs that base verify, and no note about the base is printed.
 
 Code and tests: `test/e2e/integration-setup.test.ts`, `test/e2e/integration-base.test.ts`; known issue 70.
+
+## Note 2026-10-21 (R12.2): a check that cannot run is a warning; a single-task plan is not verified again
+
+The owner's rule (2026-10-21): a check that cannot run is a warning, never a failed run; fewer gates beat more tests. The rule now:
+- The final `integration_verify` has four outcomes. `passed` and `failed` are verdicts: `failed` is a commands-ran-and-one-exited-non-zero-with-ordinary-output result, and it still fails the run with exit 1. `could_not_run` is no verdict: the setup failed, a command was not found or could not be executed (exit 127 or 126), a command could not start, the output carries a tool-missing marker (`src/engine/verify-markers.ts`), or the command timed out. A `could_not_run` run finishes with exit 0 and lands as usual; the progress warning and the summary (`Verification: not run (<reason>)`) say the work is not verified as a whole, and `result.json` carries `verification: "not_run"` and `verification_note`.
+- A `merge --partial` whose check could not run lands with a stderr warning; a failed check still refuses.
+- A plan with exactly one task and at least one `integration_verify` command records `integration.skipped` (`reason: single_task`) and is not verified again: the task's own verify ran in its worktree, and the run branch is base plus that task. A plan with no `integration_verify` command is unchanged.
+- Bisect runs only for a `failed` verdict.
+
+Code and tests: `src/engine/verify-outcome.ts`, `src/engine/verify-markers.ts`, `test/unit/engine/verify-outcome.test.ts`, `test/e2e/integration-setup.test.ts`; known issue 71.

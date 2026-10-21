@@ -41,6 +41,32 @@ export interface LandingFacts {
    * `merge --partial` can land it (R8.2, known issue 41).
    */
   partialLandable?: boolean;
+  /** The final check's outcome (R12.2), from verificationOf; absent when the run recorded none. */
+  verification?: Verification;
+}
+
+/** The final check's outcome (R12.2): a verdict, and for a check that could not run, why. */
+export interface Verification {
+  verification: "passed" | "failed" | "skipped" | "not_run";
+  note?: string;
+}
+
+/**
+ * The final check's outcome, read from the run's events (R12.2): the latest one the run recorded,
+ * or undefined when the run recorded none (a failed task, or a plan with no integration verify).
+ */
+export function verificationOf(events: readonly EventLike[]): Verification | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const { type, data } = events[i];
+    const record = (data !== null && typeof data === "object" ? data : {}) as Record<string, unknown>;
+    if (type === "integration.skipped") return { verification: "skipped" };
+    if (type === "integration.could_not_run") {
+      return { verification: "not_run", note: typeof record.reason === "string" ? record.reason : "" };
+    }
+    if (type === "integration.failed" || type === "bisect.culprit") return { verification: "failed" };
+    if (type === "integration.finished") return { verification: record.passed === true ? "passed" : "failed" };
+  }
+  return undefined;
 }
 
 /** The suggested run budget for a resume after a budget stop: twice the spend or the cap plus the spend, to the cent. */
@@ -143,6 +169,12 @@ export function withLanding(summary: RunSummary, facts: LandingFacts): RunSummar
     ...summary,
     merged: facts.merged,
     ...(facts.notMergedReason !== undefined ? { not_merged_reason: facts.notMergedReason } : {}),
+    ...(facts.verification !== undefined
+      ? {
+          verification: facts.verification.verification,
+          ...(facts.verification.note !== undefined ? { verification_note: facts.verification.note } : {}),
+        }
+      : {}),
     base_branch: facts.base_branch,
     files_changed: facts.files.slice(0, JSON_FILES_LIMIT),
     files_changed_total: facts.files.length,

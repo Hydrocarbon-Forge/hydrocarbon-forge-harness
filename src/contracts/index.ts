@@ -540,6 +540,10 @@ export const RunSummary = z.object({
   drafts_dir: z.string().optional(),
   // A finished run whose landing was refused (R8.2): the sentence that says why and what to run.
   not_merged_reason: z.string().optional(),
+  // The final integration check (R12.2): passed; failed (the commands ran and one failed); skipped
+  // (one task); not_run (the check could not run, and verification_note says why).
+  verification: z.enum(["passed", "failed", "skipped", "not_run"]).optional(),
+  verification_note: z.string().optional(),
 }).strict();
 export type RunSummary = z.infer<typeof RunSummary>;
 

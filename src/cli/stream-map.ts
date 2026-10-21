@@ -46,6 +46,8 @@ export const STREAM_TYPE: Record<EventType, string> = {
   "integration.started": "integration.started",
   "integration.setup.started": "integration.setup.started",
   "integration.setup.finished": "integration.setup.finished",
+  "integration.skipped": "integration.skipped",
+  "integration.could_not_run": "integration.could_not_run",
   "integration.finished": "integration.finished",
   "integration.failed": "integration.failed",
   "bisect.started": "bisect.started",

@@ -202,6 +202,17 @@ describe("progress line shapes (text mode, stdout)", () => {
     ]);
   });
 
+  it("R12.2: a single-task plan's skipped final verify prints one line; a check that could not run prints a warning", () => {
+    const out = sink();
+    const f = createFormatter("text", out, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
+    f.onEvent(ev("integration.skipped", { reason: "single_task" }));
+    f.onEvent(ev("integration.could_not_run", { command: "npx tsc -p tsconfig.json", reason: "tsc is not installed" }));
+    expect(out.lines()).toEqual([
+      "[00:00] integration verify skipped (single task: its own checks already ran)",
+      "[00:00] warning: integration verify could not run (npx tsc -p tsconfig.json: tsc is not installed); the work is merged but was not verified as a whole",
+    ]);
+  });
+
   it("names the failing integration command and its exit code (R7.11); older logs print the plain line", () => {
     const out = sink();
     const f = createFormatter("text", out, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });

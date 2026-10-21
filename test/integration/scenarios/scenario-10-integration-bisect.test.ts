@@ -137,7 +137,7 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     expect(summary.tasks.T2?.generation).toBeGreaterThanOrEqual(2);
   });
 
-  it("a base integration verify that fails does not stop the run (R7.11): the verify on the merged result decides", async () => {
+  it("a single-task plan whose integration verify would fail on its base is not verified again (R12.2): the run finishes, with no base check", async () => {
     const runId: RunId = "r_JJJJJJBASE22";
 
     fakeClaude = fakeClaudeAdapter([
@@ -191,9 +191,9 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     expect(eventTypes).not.toContain("bisect.started");
     expect(eventTypes).not.toContain("bisect.culprit");
     expect(eventTypes).not.toContain("integration.failed");
-    expect(eventTypes).toContain("integration.finished");
-    const started = events.find((e) => e.type === "integration.started");
-    // R12.2: no base check runs, so the start carries no base field.
-    expect(started?.data).toEqual({});
+    // R12.2: one task is not verified again, so no final verify starts and no base check runs.
+    expect(events.filter((e) => e.type === "integration.skipped").map((e) => e.data)).toEqual([{ reason: "single_task" }]);
+    expect(eventTypes).not.toContain("integration.started");
+    expect(eventTypes).not.toContain("integration.finished");
   });
 });

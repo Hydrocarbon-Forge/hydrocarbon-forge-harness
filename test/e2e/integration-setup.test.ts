@@ -10,7 +10,8 @@ import { setUpWorktree } from "../../src/git/setup.js";
 
 // R12.2: the plan's setup runs in the integration worktree before the final verify, once per
 // worktree, and `merge --partial` runs it in its verify worktree. The base check is gone: the
-// final verify is the only integration verify. Built CLI, fake harnesses, scratch git repos.
+// final verify is the only integration verify. A check that cannot run is a warning, and a
+// single-task plan is not verified again. Built CLI, fake harnesses, scratch git repos.
 
 const ROOT = resolve(fileURLToPath(import.meta.url), "../../..");
 const CLI = join(ROOT, "dist", "substrate.mjs");
@@ -21,6 +22,8 @@ interface Plan {
   setup: string;
   integration: string;
   tasks: string[];
+  /** Seconds the integration command may run; the default is 60. */
+  integrationTimeout?: number;
 }
 
 interface Scratch {
@@ -80,7 +83,7 @@ function manifestYaml(s: Scratch, plan: Plan): string {
     "    - run: echo typecheck contracts",
     "      timeout_s: 30",
     "integration_verify:",
-    ...step(`echo x >> ${s.verifyLog} && ${plan.integration}`),
+    ...step(`echo x >> ${s.verifyLog} && ${plan.integration}`, plan.integrationTimeout ?? 60),
     "tasks:",
     ...plan.tasks.flatMap((id) => [`  - id: ${id}`, `    spec: tasks/${id}.md`]),
     "",
@@ -140,6 +143,11 @@ function runEvents(s: Scratch, runId: string): { type: string; data: any }[] {
 function linesOf(file: string): string[] {
   if (!existsSync(file)) return [];
   return readFileSync(file, "utf8").split("\n").filter((l) => l.trim() !== "");
+}
+
+/** The run's outcome as it is written to result.json (the object --output-format json prints). */
+function resultOf(s: Scratch, runId: string): { verification?: string; verification_note?: string; exit_code: number } {
+  return JSON.parse(readFileSync(join(s.project, ".substrate", "runs", runId, "result.json"), "utf8"));
 }
 
 function runIdOf(res: { stdout: string }): string {
@@ -263,6 +271,119 @@ describe("R12.2: merge --partial runs the setup in its verify worktree", () => {
       expect(partial.status, diag(partial)).toBe(0);
       expect(linesOf(s.setupLog).filter((l) => l.endsWith("/partial-verify"))).toHaveLength(1);
       expect(readFileSync(join(s.project, "src", "a.txt"), "utf8")).toBe("a\n");
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("R12.2: a final check that cannot run is a warning; the work still merges", () => {
+  it("a setup that fails in the integration worktree lands the work with a warning, verification not_run, and exit 0", () => {
+    const s = scratch();
+    try {
+      // The setup fails only where the integration worktree is (its path ends in /integration).
+      const plan: Plan = {
+        setup: `touch .tooling-ready && echo $PWD >> ${s.setupLog} && case $PWD in */integration) exit 3 ;; esac`,
+        integration: "test -f .tooling-ready",
+        tasks: ["T1", "T2"],
+      };
+      prepare(s, plan);
+      const res = cli(s, RUN_ARGS);
+      expect(res.status, diag(res)).toBe(0);
+      expect(res.stdout, diag(res)).toContain("setup failed: ");
+      expect(res.stdout, diag(res)).toContain("warning: integration verify could not run (");
+      expect(res.stdout, diag(res)).toContain("the work is merged but was not verified as a whole");
+      expect(res.stdout, diag(res)).toContain("Verification: not run (its setup failed (exit 3))\n");
+      expect(res.stdout, diag(res)).toContain("Merged:     yes\n");
+      expect(res.stdout, diag(res)).not.toContain("integration verify started");
+      expect(readFileSync(join(s.project, "src", "a.txt"), "utf8")).toBe("a\n");
+      const events = runEvents(s, runIdOf(res));
+      expect(events.map((e) => e.type)).toContain("integration.could_not_run");
+      expect(events.map((e) => e.type)).not.toContain("integration.failed");
+      expect(events.filter((e) => e.type === "integration.setup.finished").map((e) => e.data)).toEqual([
+        { passed: false, command: plan.setup, exit_code: 3 },
+      ]);
+      expect(resultOf(s, runIdOf(res)).verification).toBe("not_run");
+      expect(resultOf(s, runIdOf(res)).verification_note).toBe("its setup failed (exit 3)");
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["the command is not found (exit 127)", "definitely-missing-r122-tool --check", "the command was not found (exit 127)"],
+    [
+      "the tsc stub package answers (the R12.2 evidence)",
+      `sh -c 'echo "This is not the tsc command you are looking for" >&2; echo "Use yarn to avoid accidentally running code from un-installed packages" >&2; exit 1'`,
+      "tsc is not installed",
+    ],
+  ])("a final check where %s is a warning, not a failed run", (_label, integration, reason) => {
+    const plan: Plan = { setup: "", integration, tasks: ["T1", "T2"] };
+    const s = scratch();
+    plan.setup = installingSetup(s);
+    try {
+      prepare(s, plan);
+      const res = cli(s, RUN_ARGS);
+      expect(res.status, diag(res)).toBe(0);
+      expect(res.stdout, diag(res)).toContain(`(${reason})`);
+      expect(res.stdout, diag(res)).toContain(`Verification: not run (${reason})\n`);
+      expect(res.stdout, diag(res)).toContain("Merged:     yes\n");
+      expect(existsSync(join(s.project, "src", "b.txt"))).toBe(true);
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+
+  it("a check that times out is a warning with no verdict; the work merges", () => {
+    const s = scratch();
+    try {
+      const plan: Plan = { setup: installingSetup(s), integration: "sleep 30", tasks: ["T1", "T2"], integrationTimeout: 1 };
+      prepare(s, plan);
+      const res = cli(s, RUN_ARGS);
+      expect(res.status, diag(res)).toBe(0);
+      expect(res.stdout, diag(res)).toContain("Verification: not run (timed out, so no verdict was produced)\n");
+      expect(res.stdout, diag(res)).toContain("Merged:     yes\n");
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("R12.2: a real failure of the final check still fails the run", () => {
+  it("an assertion that fails exits 1 with verification failed in the json result, and names the command", () => {
+    const failing = "test -f src/never.txt";
+    const plan: Plan = { setup: "", integration: failing, tasks: ["T1", "T2"] };
+    const s = scratch();
+    plan.setup = installingSetup(s);
+    try {
+      prepare(s, plan);
+      const res = cli(s, RUN_ARGS);
+      expect(res.status, diag(res)).toBe(1);
+      expect(res.stdout, diag(res)).toContain(`Reason:     integration_failed: echo x >> ${s.verifyLog} && ${failing} exited 1\n`);
+      expect(res.stdout, diag(res)).not.toContain("Verification: not run");
+      expect(resultOf(s, runIdOf(res)).verification).toBe("failed");
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("R12.2: a single-task plan skips the final verify", () => {
+  it("one task: integration.skipped once, no integration verify, the progress line, and verification skipped in json", () => {
+    const s = scratch();
+    try {
+      const plan: Plan = { setup: installingSetup(s), integration: "test -f .tooling-ready", tasks: ["T1"] };
+      prepare(s, plan);
+      const res = cli(s, RUN_ARGS);
+      expect(res.status, diag(res)).toBe(0);
+      expect(res.stdout, diag(res)).toContain("integration verify skipped (single task: its own checks already ran)\n");
+      const events = runEvents(s, runIdOf(res));
+      expect(events.filter((e) => e.type === "integration.skipped").map((e) => e.data)).toEqual([{ reason: "single_task" }]);
+      expect(events.map((e) => e.type)).not.toContain("integration.started");
+      expect(linesOf(s.verifyLog)).toHaveLength(0);
+      expect(linesOf(s.setupLog).filter((l) => l.endsWith("/integration"))).toHaveLength(0);
+      expect(readFileSync(join(s.project, "src", "a.txt"), "utf8")).toBe("a\n");
+      expect(resultOf(s, runIdOf(res)).verification).toBe("skipped");
     } finally {
       rmSync(s.root, { recursive: true, force: true });
     }

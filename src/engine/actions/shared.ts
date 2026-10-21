@@ -47,11 +47,16 @@ export interface IntegrationFailureDetail {
  * the worktree and repository paths are taken out (withoutRootPaths), so the text reads the same
  * in any checkout.
  */
+/** Redacts secrets and takes the worktree and repository paths out, so a check's text reads the same in any checkout. */
+export function cleanIntegrationText(text: string, roots: string[]): string {
+  return withoutRootPaths(redactSecrets(text), roots);
+}
+
 export function integrationFailureDetail(
   failure: VerifyFailure,
   roots: string[]
 ): IntegrationFailureDetail {
-  const clean = (text: string): string => withoutRootPaths(redactSecrets(text), roots);
+  const clean = (text: string): string => cleanIntegrationText(text, roots);
   const command = clean(failure.command).slice(0, INTEGRATION_COMMAND_MAX);
   const output_tail = takeTail(clean(failure.output), INTEGRATION_TAIL_MAX_BYTES).text;
   const lastLine =

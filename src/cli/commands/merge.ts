@@ -8,7 +8,8 @@ import { TaskMerger, verifyIn } from "../../git/merger.js";
 import { gitIdentityEnv } from "../../git/identity.js";
 import { setUpWorktree } from "../../git/setup.js";
 import { loadSettings } from "../../config/index.js";
-import { integrationFailureDetail, safeParseManifest } from "../../engine/actions/shared.js";
+import { cleanIntegrationText, integrationFailureDetail, safeParseManifest } from "../../engine/actions/shared.js";
+import { classifySetupFailure, classifyVerifyFailure } from "../../engine/verify-outcome.js";
 import { spawnSync } from "node:child_process";
 
 export interface CliGlobalFlags {
@@ -129,11 +130,16 @@ function partialRefusal(repoRoot: string, runId: string): string | undefined {
  * R12.2): the setup runs there first, as it does in the integration worktree. The worktree is
  * removed afterwards whatever the outcome.
  */
+export type RunBranchVerdict =
+  | { outcome: "passed" }
+  | { outcome: "failed"; message: string }
+  | { outcome: "not_run"; warning: string };
+
 async function verifyRunBranch(
   ctx: CommandContext,
   runId: string,
   runBranch: string,
-): Promise<{ passed: true } | { passed: false; message: string }> {
+): Promise<RunBranchVerdict> {
   let commands: import("../../contracts/index.js").Command[] = [];
   let setup: import("../../contracts/index.js").Command[] = [];
   try {
@@ -145,13 +151,21 @@ async function verifyRunBranch(
   const worktree = path.join(ctx.cwd, ".substrate", "worktrees", runId, "partial-verify");
   execFileSync("git", ["worktree", "add", "--detach", worktree, runBranch], { cwd: ctx.cwd, stdio: "pipe" });
   try {
+    const roots = [worktree, ctx.cwd];
     const prepared = await setUpWorktree(worktree, setup);
+    // A setup or a check that cannot run is a warning, not a refusal (R12.2); a failed check refuses.
     if (prepared !== undefined && !prepared.passed) {
-      return { passed: false, message: `setup command failed: ${prepared.failure.command}` };
+      const verdict = classifySetupFailure(prepared.failure);
+      return { outcome: "not_run", warning: `${cleanIntegrationText(prepared.failure.command, roots)}: ${verdict.reason}` };
     }
     const outcome = await verifyIn(worktree, commands, settings);
-    if (outcome.passed) return { passed: true };
-    return { passed: false, message: integrationFailureDetail(outcome.failure, [worktree, ctx.cwd]).message };
+    if (outcome.passed) return { outcome: "passed" };
+    const detail = integrationFailureDetail(outcome.failure, roots);
+    const verdict = classifyVerifyFailure(outcome.failure);
+    if (verdict.verdict === "could_not_run") {
+      return { outcome: "not_run", warning: `${detail.command}: ${verdict.reason}` };
+    }
+    return { outcome: "failed", message: detail.message };
   } finally {
     spawnSync("git", ["worktree", "remove", "--force", worktree], { cwd: ctx.cwd, stdio: "pipe" });
     fs.rmSync(worktree, { recursive: true, force: true });
@@ -269,9 +283,12 @@ export async function mergeRun(
   // R8.2: a partial landing lands only what passes integration verify on the run branch.
   if (partial) {
     const verified = await verifyRunBranch(ctx, runId, runBranch);
-    if (!verified.passed) {
+    if (verified.outcome === "failed") {
       ctx.stderr.write(`not merged: integration verify failed on the run branch: ${verified.message}\n`);
       return 1;
+    }
+    if (verified.outcome === "not_run") {
+      ctx.stderr.write(`warning: integration verify could not run (${verified.warning}); the work is merged but was not verified as a whole\n`);
     }
   }
 

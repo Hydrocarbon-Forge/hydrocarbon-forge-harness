@@ -314,6 +314,15 @@ export class RunProgress {
         return ["integration verify started"];
       case "integration.finished":
         return [`integration verify ${data.passed ? "passed" : "failed"}`];
+      case "integration.skipped":
+        // R12.2: a single-task plan's own checks ran in its worktree, so the final check is not run again.
+        return ["integration verify skipped (single task: its own checks already ran)"];
+      case "integration.could_not_run": {
+        // R12.2: the check could not run; the work is merged but not verified as a whole.
+        const command = typeof data.command === "string" ? data.command.slice(0, 160) : "?";
+        const reason = typeof data.reason === "string" ? data.reason : "no reason recorded";
+        return [`warning: integration verify could not run (${command}: ${reason}); the work is merged but was not verified as a whole`];
+      }
       case "bisect.started":
         return [];
       case "integration.failed": {

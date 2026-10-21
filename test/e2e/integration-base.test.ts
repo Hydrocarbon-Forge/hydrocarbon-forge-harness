@@ -7,23 +7,26 @@ import { fileURLToPath } from "node:url";
 
 import { contractFiles, manifestFor, planCall, taskSpec } from "./helpers/plan-scenario.js";
 
-// R7.11: an integration verify that fails on the base commit no longer fails the run. The
-// greenfield plan below checks a file that only the task creates, so the check fails at base,
-// the run goes on, and the verify on the merged result passes. Built CLI, fake harnesses.
+// R12.2: no base check runs. The verify on the merged result decides the run: a greenfield check
+// that fails on the base commit no longer shows a note, and a failing merged result still fails
+// the run with its command named. Built CLI, fake harnesses.
 
 const ROOT = resolve(fileURLToPath(import.meta.url), "../../..");
 const CLI = join(ROOT, "dist", "substrate.mjs");
 const FAKE_BIN = join(ROOT, "test", "fixtures", "fake-harness", "bin");
 const INTEGRATION = "sh -c 'test -f src/hello.txt'";
 
+// Two tasks: a single-task plan skips the final verify (R12.2), and these tests are about the verify.
 function helloCalls(integrationCmd: string): unknown[] {
   return [
     planCall(
-      contractFiles(manifestFor("Create the hello file", ["T1"], integrationCmd), {
+      contractFiles(manifestFor("Create the hello file", ["T1", "T2"], integrationCmd), {
         "tasks/T1.md": taskSpec({ id: "T1", write: [], create: ["src/hello.txt"], verify: "grep -q hello src/hello.txt" }),
+        "tasks/T2.md": taskSpec({ id: "T2", write: [], create: ["src/world.txt"], verify: "grep -q world src/world.txt" }),
       }),
     ),
-    { edits: { "src/hello.txt": "hello\n" }, reply: "T1 done\nDONE" },
+    { task: "T1", edits: { "src/hello.txt": "hello\n" }, reply: "T1 done\nDONE" },
+    { task: "T2", edits: { "src/world.txt": "world\n" }, reply: "T2 done\nDONE" },
   ];
 }
 
@@ -87,7 +90,7 @@ function runEvents(s: Scratch, runId: string): { type: string; data: any }[] {
 const BASE_NOTE =
   "note: integration verify did not pass before this run's changes (normal when the run adds code); this is not a failure";
 
-describe("R7.11: integration verify on the base commit and on the merged result", () => {
+describe("R12.2: integration verify on the merged result decides the run", () => {
   it("the run lands with --merge, the file is in the working tree, and no base note is printed when the final verify passes", () => {
     const s = scratch(helloCalls(INTEGRATION));
     try {

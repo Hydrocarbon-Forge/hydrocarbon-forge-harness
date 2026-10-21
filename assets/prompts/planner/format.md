@@ -26,7 +26,7 @@ contracts:
   typecheck:                  # commands that prove the stubs compile
     - run: npx tsc --noEmit
       timeout_s: 120
-integration_verify:           # run once, after every task has merged (not between merges), in the integration worktree after setup
+integration_verify:           # run once, after every task has merged (not between merges), in the integration worktree after setup; a plan with one task is not verified again, and a check whose tool is missing is a warning, not a failed run
   - run: npm test
     timeout_s: 600
 tasks:

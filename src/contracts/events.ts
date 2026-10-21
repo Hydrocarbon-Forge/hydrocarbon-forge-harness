@@ -528,6 +528,19 @@ export const IntegrationSetupFinishedEvent = member(
     .strict()
 );
 
+// R12.2: the final check did not run (a single-task plan, whose own checks ran in its worktree).
+export const IntegrationSkippedEvent = member(
+  "integration.skipped",
+  z.object({ reason: z.enum(["single_task"]) }).strict()
+);
+
+// R12.2: the final check could not run (a tool was missing, a command could not start, the setup
+// failed, or the command timed out). The run still finishes; the work is merged but not verified.
+export const IntegrationCouldNotRunEvent = member(
+  "integration.could_not_run",
+  z.object({ command: z.string().max(500), reason: z.string().max(500) }).strict()
+);
+
 export const IntegrationFinishedEvent = member(
   "integration.finished",
   z.object({ passed: z.boolean() }).strict()
@@ -627,6 +640,8 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   IntegrationStartedEvent,
   IntegrationSetupStartedEvent,
   IntegrationSetupFinishedEvent,
+  IntegrationSkippedEvent,
+  IntegrationCouldNotRunEvent,
   IntegrationFinishedEvent,
   IntegrationFailedEvent,
   BisectStartedEvent,
@@ -678,6 +693,8 @@ export const EVENT_TYPES = [
   "integration.started",
   "integration.setup.started",
   "integration.setup.finished",
+  "integration.skipped",
+  "integration.could_not_run",
   "integration.finished",
   "integration.failed",
   "bisect.started",

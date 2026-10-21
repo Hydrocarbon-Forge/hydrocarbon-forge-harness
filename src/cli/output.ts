@@ -274,6 +274,10 @@ class TextFormatter implements OutputFormatter {
     // it (a resumed run) falls back to the task merges seen in the events.
     const merged = summary.merged ?? this.progress.merged > 0;
     this.out.write(`Merged:     ${merged ? "yes" : "no"}\n`);
+    // R12.2: a final check that could not run says so, with its reason, in the summary.
+    if (summary.verification === "not_run") {
+      this.out.write(`Verification: not run (${summary.verification_note ?? "no reason recorded"})\n`);
+    }
     const landed = summary.merged !== undefined;
     if (landed && summary.drafts_dir === undefined && summary.branch !== undefined) {
       this.writeResult(summary);

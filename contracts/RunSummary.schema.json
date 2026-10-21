@@ -144,6 +144,18 @@
     },
     "not_merged_reason": {
       "type": "string"
+    },
+    "verification": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "skipped",
+        "not_run"
+      ]
+    },
+    "verification_note": {
+      "type": "string"
     }
   },
   "required": [

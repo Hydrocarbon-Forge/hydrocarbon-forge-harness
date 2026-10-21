@@ -274,24 +274,18 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     expect(readFileSync(untrackedPath, "utf8")).toBe(untrackedContent);
   });
 
-  it("a single-task batch that fails verify names that task as culprit and leaves nothing merged", async () => {
+  it("a single-task batch skips the final verify (R12.2): its own checks ran in its worktree, so nothing is verified again", async () => {
     const runId: RunId = "r_NNNNNNABCDEF";
 
     const run = await runBatch(runId, [{ id: "T1", file: "src/bad.ts" }], "src/bad.ts");
 
-    const culpritEvt = run.events.find((e) => e.type === "bisect.culprit");
-    expect((culpritEvt?.data as any).culprit_task_id).toBe("T1");
-
-    // R9.1: the task merges (no verify between merges); the one integration verify after it fails and
-    // names the task, which is the whole change, so no prefix needs a verify of its own.
-    const culpritIdx = run.events.indexOf(culpritEvt!);
-    expect(run.events.slice(0, culpritIdx).filter((e) => e.type === "task.merged").length).toBe(1);
-
-    // The one integration verify on the merged run ref, then the base that anchors the bisect (R12.2).
-    const runHead = env.testRepo.git(["rev-parse", run.runRef]);
-    expect(run.verifyRuns.map((r) => r.files)).toEqual([["bad.ts"], []]);
-    expect(run.verifyRuns[0]?.ref).toBe(runHead);
-    expect(env.testRepo.git(["rev-parse", run.runRef])).toBeTruthy();
+    // The one task merges, the run records the skip, and no integration verify or bisect runs.
+    const skipped = run.events.filter((e) => e.type === "integration.skipped");
+    expect(skipped.map((e) => e.data)).toEqual([{ reason: "single_task" }]);
+    expect(run.events.map((e) => e.type)).not.toContain("integration.started");
+    expect(run.events.map((e) => e.type)).not.toContain("bisect.culprit");
+    expect(run.verifyRuns).toEqual([]);
+    expect(run.events.filter((e) => e.type === "task.merged").map((e) => (e.data as any).task_id)).toEqual(["T1"]);
   });
   it("a merge conflict in a batch halts it without verifying or advancing the run ref, and the user's checkout is untouched", async () => {
     const runId: RunId = "r_OOOOOOABCDEF";

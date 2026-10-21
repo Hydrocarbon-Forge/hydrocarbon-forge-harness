@@ -67,6 +67,8 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "integration.started": {},
   "integration.setup.started": { commands: 1 },
   "integration.setup.finished": { passed: true },
+  "integration.skipped": { reason: "single_task" },
+  "integration.could_not_run": { command: "npx tsc -p tsconfig.json", reason: "tsc is not installed" },
   "integration.finished": { passed: true },
   "integration.failed": {},
   "bisect.started": {},

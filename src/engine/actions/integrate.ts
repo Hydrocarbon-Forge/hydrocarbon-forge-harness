@@ -6,7 +6,13 @@ import type { Command, Manifest, TaskId } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { INTEGRATION_COMMAND_MAX, integrationFailureDetail, safeParseManifest } from "./shared.js";
+import {
+  cleanIntegrationText,
+  INTEGRATION_COMMAND_MAX,
+  integrationFailureDetail,
+  safeParseManifest,
+} from "./shared.js";
+import { classifySetupFailure, classifyVerifyFailure } from "../verify-outcome.js";
 import { resolveBaseRef } from "../../git/base-ref.js";
 import { withRepoLock } from "../../git/repo-lock.js";
 import {
@@ -130,7 +136,7 @@ async function isolateCulprit(
 }
 
 /** The event data for a setup that finished: passed, or the command that failed and how. */
-function setupFinishedData(outcome: SetupOutcome): {
+function setupFinishedData(outcome: SetupOutcome, roots: string[]): {
   passed: boolean;
   command?: string;
   exit_code?: number;
@@ -140,7 +146,7 @@ function setupFinishedData(outcome: SetupOutcome): {
   const { command, exit_code, timed_out } = outcome.failure;
   return {
     passed: false,
-    command: command.slice(0, INTEGRATION_COMMAND_MAX),
+    command: cleanIntegrationText(command, roots).slice(0, INTEGRATION_COMMAND_MAX),
     ...(exit_code !== null ? { exit_code } : {}),
     ...(timed_out ? { timed_out: true } : {}),
   };
@@ -150,7 +156,9 @@ function setupFinishedData(outcome: SetupOutcome): {
  * The final gate (R9.1): integration_verify runs once, on the run branch, after every task of the
  * plan has merged. The plan's setup runs in the integration worktree first (once per worktree).
  * A pass finishes the run. A failure names a culprit when bisect can isolate one (its task is
- * replanned, as before); otherwise the run fails with the verify output.
+ * replanned, as before); otherwise the run fails with the verify output. A check that could not run
+ * (R12.2) finishes the run with exit 0 and a warning: the work is merged but not verified as a whole.
+ * A plan with one task is not verified again: its own checks ran in its worktree (R12.2).
  */
 export async function runIntegrateAction(
   action: EngineAction,
@@ -170,6 +178,13 @@ export async function runIntegrateAction(
     verify: manifest?.integration_verify ?? [],
   };
 
+  // R12.2: with one task the run branch is base plus that task, which its own verify covered.
+  if (checks.verify.length > 0 && Object.keys(state.tasks).length === 1) {
+    emit("integration.skipped", { reason: "single_task" });
+    emit("run.finished", { exit_code: 0 });
+    return;
+  }
+
   const runBranch = getRunBranch(ctx.runId);
   const runBranchSha = execFileSync("git", ["rev-parse", runBranch], {
     cwd: ctx.repoRoot,
@@ -180,21 +195,22 @@ export async function runIntegrateAction(
     createIntegrationWorktree(ctx.repoRoot, ctx.runId, runBranchSha)
   );
 
-  const setup = await setUpWorktree(integrationWorktree, checks.setup, {
-    onStart: (count) => emit("integration.setup.started", { commands: count }),
-    onFinish: (outcome) => emit("integration.setup.finished", setupFinishedData(outcome)),
-  });
+  // The setup belongs to the final check, and a plan without integration_verify has no check to set up for.
+  const roots = [integrationWorktree, ctx.repoRoot];
+  const setup = checks.verify.length > 0
+    ? await setUpWorktree(integrationWorktree, checks.setup, {
+        onStart: (count) => emit("integration.setup.started", { commands: count }),
+        onFinish: (outcome) => emit("integration.setup.finished", setupFinishedData(outcome, roots)),
+      })
+    : undefined;
   if (setup !== undefined && !setup.passed) {
-    // The setup is part of the final check: a setup that fails fails the check.
-    const { command, exit_code, timed_out } = setup.failure;
-    const status = timed_out ? "timed out" : `exited ${exit_code}`;
-    emit("integration.failed", {
-      failure_class: "integration_failed",
-      message: `setup command failed: ${command.slice(0, INTEGRATION_COMMAND_MAX)} ${status}`,
-      command: command.slice(0, INTEGRATION_COMMAND_MAX),
-      ...(exit_code !== null ? { exit_code } : {}),
+    // A setup that failed means the tooling was never installed: the check could not run (R12.2).
+    const verdict = classifySetupFailure(setup.failure);
+    emit("integration.could_not_run", {
+      command: cleanIntegrationText(setup.failure.command, roots).slice(0, INTEGRATION_COMMAND_MAX),
+      reason: verdict.reason,
     });
-    emit("run.finished", { exit_code: 1, status: "failed" });
+    emit("run.finished", { exit_code: 0 });
     return;
   }
 
@@ -203,6 +219,14 @@ export async function runIntegrateAction(
 
   if (verify.passed) {
     emit("integration.finished", { passed: true });
+    emit("run.finished", { exit_code: 0 });
+    return;
+  }
+
+  const verdict = classifyVerifyFailure(verify.failure);
+  if (verdict.verdict === "could_not_run") {
+    const detail = integrationFailureDetail(verify.failure, roots);
+    emit("integration.could_not_run", { command: detail.command, reason: verdict.reason });
     emit("run.finished", { exit_code: 0 });
     return;
   }

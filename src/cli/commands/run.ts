@@ -16,6 +16,7 @@ import {
   startBranchOf,
   timeoutResumeCommand,
   timeoutStopMessage,
+  verificationOf,
   withLanding,
 } from "../../engine/landing.js";
 import { planHasIntegrationVerify } from "../../engine/failed-run.js";
@@ -318,6 +319,8 @@ export async function landRun(
     failure = { failure_class: "timeout", message: timeoutStopMessage(limit, summary.tasks) };
     resumeCommand = timeoutResumeCommand(summary.run_id, limit);
   }
+  // The final check's outcome (R12.2): passed, failed, skipped, or not run with its reason.
+  const verification = verificationOf(opts.events);
   const landed = withLanding(
     { ...summary, exit_code: exitCode },
     {
@@ -329,6 +332,7 @@ export async function landRun(
       ...(failure !== undefined ? { failure } : {}),
       ...(resumeCommand !== undefined ? { resumeCommand } : {}),
       ...(notMergedReason !== undefined ? { notMergedReason } : {}),
+      ...(verification !== undefined ? { verification } : {}),
       // A task merged into the run branch is what `merge --partial` lands (R8.2).
       partialLandable: summary.status === "failed" && summary.branch !== undefined &&
         opts.events.some((e) => e.type === "task.merged") &&
