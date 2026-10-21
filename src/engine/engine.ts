@@ -189,14 +189,30 @@ export function setAsideDraft(runDir: string): string | undefined {
 }
 
 /**
+ * R11.3: a planning round that stopped before any plan existed (stopped, killed, timed out or failed). A plan the
+ * planner produced and the engine refused is not cut short: its refusal is in the log.
+ */
+export function planningCutShort(events: EngineEvent[]): boolean {
+  return !events.some((e) => e.type === "plan.produced" || e.type === "plan.rejected" || e.type === "plan.format_rejected");
+}
+
+/**
  * R10.4: what a reopen does, from the log and the replayed state. No accepted plan means planning again;
  * a plan with no setup.done means setup again; otherwise the failed and skipped tasks go back to the queue.
  */
 export function reopenData(
   events: EngineEvent[],
   state: EngineState,
-): { reason: "planning" | "setup" | "tasks"; failed_tasks?: string[]; skipped_tasks?: string[]; kept_tasks?: string[] } {
-  if (!events.some((e) => e.type === "plan.produced")) return { reason: "planning" };
+): {
+  reason: "planning" | "setup" | "tasks";
+  planning_cut_short?: boolean;
+  failed_tasks?: string[];
+  skipped_tasks?: string[];
+  kept_tasks?: string[];
+} {
+  if (!events.some((e) => e.type === "plan.produced")) {
+    return { reason: "planning", ...(planningCutShort(events) ? { planning_cut_short: true } : {}) };
+  }
   if (!events.some((e) => e.type === "setup.done")) return { reason: "setup" };
   const byState = (...states: string[]): string[] =>
     Object.values(state.tasks)
@@ -483,6 +499,7 @@ export class EngineImpl implements Engine {
               await emit("run.reopened", {
                 reason: "planning",
                 ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
+                ...(planningCutShort(existingEvents) ? { planning_cut_short: true } : {}),
                 ...budgetRecord(settings),
               });
             }

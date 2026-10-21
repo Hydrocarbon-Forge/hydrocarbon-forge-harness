@@ -134,6 +134,8 @@ export const RunReopenedEvent = member(
       kept_tasks: z.array(z.string()).optional(),
       // R10.5: the run-directory name (drafts-<n>) an abandoned planning draft was moved to.
       draft_dir: z.string().optional(),
+      // R11.3: a planning reopen whose planning round stopped before any plan existed (no plan was produced or refused).
+      planning_cut_short: z.boolean().optional(),
       // R11.1: the run budget the resume uses; a later resume without the flag keeps it.
       max_budget_usd: z.number().optional(),
       // R11.2: the wall-clock limit the resume uses (null: none); a later resume without --timeout keeps it.

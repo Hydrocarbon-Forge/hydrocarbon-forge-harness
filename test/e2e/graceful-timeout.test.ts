@@ -202,6 +202,8 @@ describe("R11.2: --timeout stops a run at its wall-clock limit", () => {
       expect(argv).toContain("Timeout plan request");
       const types = eventsOf(c.repo.dir, runId).map((e) => e.type);
       expect(types).toContain("run.reopened");
+      // R11.3: planning stopped before any plan existed, and the resume says so.
+      expect(resumed.stdout).toContain("planning was cut short before a plan was produced; planning again (planning costs again)");
       expect(readFileSync(join(c.repo.dir, "src/a.txt"), "utf8")).toContain("t1-done");
     } finally {
       c.cleanup();

@@ -184,7 +184,7 @@ describe("R10.5: a resume after a stop during planning", () => {
 
       const out = cliSync(repo.dir, ["resume", runId], [planCall(oneTaskPlan()), edit("T1", "src/a.txt", "t1-done")]);
       expect(out.status, out.stderr).toBe(0);
-      expect(out.stdout).toContain("no plan was accepted; planning again (planning costs again)");
+      expect(out.stdout).toContain("planning was cut short before a plan was produced; planning again (planning costs again)");
       expect(out.stdout).not.toContain("found a complete plan draft");
       const events = eventsIn(runDir);
       expect(events.filter((e) => e.type === "plan.started").length).toBe(2);
@@ -234,7 +234,7 @@ describe("R10.5: a resume after a stop during planning", () => {
 
       const out = cliSync(repo.dir, ["resume", runId], [planCall(oneTaskPlan()), edit("T1", "src/a.txt", "t1-done")]);
       expect(out.status, out.stderr).toBe(0);
-      expect(out.stdout).toContain("no plan was accepted; planning again (planning costs again)");
+      expect(out.stdout).toContain("planning was cut short before a plan was produced; planning again (planning costs again)");
       expect(out.stdout).toContain("abandoned draft kept in drafts-1/");
       // Moved, not deleted: the abandoned manifest is in drafts-1.
       expect(existsSync(join(runDir, "drafts-1", "manifest.yaml"))).toBe(true);
@@ -343,7 +343,7 @@ describe("R11.1: a stop during planning, then resume, plans again with the run's
 
       const out = cliSync(repo.dir, ["resume", runId], [planCall(oneTaskPlan()), edit("T1", "src/a.txt", "t1-done")]);
       expect(out.status, out.stderr).toBe(0);
-      expect(out.stdout).toContain("no plan was accepted; planning again (planning costs again)");
+      expect(out.stdout).toContain("planning was cut short before a plan was produced; planning again (planning costs again)");
       expect(readFileSync(join(runDir, "planner-request.md"), "utf8")).toContain(`## Request\n${request}\n`);
       expect(promptsLogged(out.scenario).some((p) => p.includes(`## Request\n${request}\n`))).toBe(true);
       expect(eventsIn(runDir).find((e) => e.type === "run.created")?.data.prompt).toBe(request);

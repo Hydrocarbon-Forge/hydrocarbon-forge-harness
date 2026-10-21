@@ -17,7 +17,7 @@ interface CliCommand {
 
 const { registry } = await import(`../registry.js`);
 const { formatCost } = await import(`../progress.js`);
-const { countsOf, listRuns, mergedOf, requestOf, taskRowsOf } = await import(`../run-observe.js`);
+const { countsOf, listRuns, mergedOf, requestOf, statusWordOf, taskRowsOf } = await import(`../run-observe.js`);
 
 /** A time as the runs list shows it: how long ago, in the largest sensible unit. */
 function agoText(at: number, now: number): string {
@@ -74,7 +74,7 @@ export const runsCommand: CliCommand = {
         : "-";
       const request = requestOf(record.events).replace(/\s+/g, " ").slice(0, 60);
       ctx.stdout.write(
-        `${record.runId.padEnd(16)} ${record.status.padEnd(9)} ${started}  ${formatCost(record.state.usage.total_usd)}  ` +
+        `${record.runId.padEnd(16)} ${statusWordOf(record).padEnd(9)} ${started}  ${formatCost(record.state.usage.total_usd)}  ` +
           `${passed}/${tasks.length} passed  merged ${merged ? "yes" : "no"}  ${request}\n`,
       );
     }

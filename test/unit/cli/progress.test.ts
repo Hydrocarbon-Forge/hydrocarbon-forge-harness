@@ -152,13 +152,31 @@ describe("progress line shapes (text mode, stdout)", () => {
     ]);
   });
 
-  it("notes, once, that integration verify does not pass at the base commit (R7.11), and prints nothing extra when it does", () => {
+  it("R11.3: a planning reopen says the planning was cut short when no plan existed, and keeps the old line when a plan was refused", () => {
+    const cut = sink();
+    createFormatter("text", cut, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS }).onEvent(
+      ev("run.reopened", { reason: "planning", planning_cut_short: true, max_budget_usd: 5, time_limit_s: null }),
+    );
+    expect(cut.lines()).toEqual([
+      "[00:00] planning was cut short before a plan was produced; planning again (planning costs again)",
+    ]);
+    const refused = sink();
+    createFormatter("text", refused, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS }).onEvent(
+      ev("run.reopened", { reason: "planning", time_limit_s: null }),
+    );
+    expect(refused.lines()).toEqual(["[00:00] no plan was accepted; planning again (planning costs again)"]);
+  });
+
+  it("R7.11, R11.3: the base-check note is printed only after a final verify that fails, and nothing extra when it passes", () => {
     const failed = sink();
     const f1 = createFormatter("text", failed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
     f1.onEvent(ev("integration.started", { base_verify_passed: false }));
+    expect(failed.lines()).toEqual(["[00:00] integration verify started"]);
+    f1.onEvent(ev("integration.failed", { failure_class: "integration_failed", message: "x", command: "npm test", exit_code: 1 }));
     expect(failed.lines()).toEqual([
       "[00:00] integration verify started",
-      "[00:00] note: integration verify did not pass before this run's changes (normal when the run adds code); this is not a failure",
+      "[00:00] integration verify failed: npm test (exit 1)",
+      "[00:00] note: integration verify also failed on the base commit, before this run's changes, so the check was failing before this run started",
     ]);
     const passed = sink();
     const f2 = createFormatter("text", passed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });

@@ -336,7 +336,7 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - (a) `still working: planning` repeats every 15 s for several minutes, with no detail on what the planner is doing.
 - (b) Plan lint warnings (for example L023) are recorded in the events but not printed in the transcript.
 - (c) `Session ID` and `Run ID` both appear in the summary and are easy to confuse.
-- (d) The base-check note appears on every run that adds code and may be read as a warning. It now says it is not a failure.
+- (d) FIXED (R11.3): the base-check note appeared on every run that adds code. It now prints only after a final verify that fails, and says the check was failing before the run (`src/cli/progress.ts`, `withBaseNote`).
 - (e) The worktree preparation lines go to stderr, not stdout.
 
 ## 49. `status` read a finished or failed run as `EXECUTING` (FIXED, R10.2)

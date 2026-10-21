@@ -79,6 +79,29 @@ export function statusOf(state: EngineState, alive: boolean): RunStatus {
 }
 
 /**
+ * The one status word a run shows in text (R11.1, R11.3): `running`, `planned`, `finished`, `failed`,
+ * `paused: budget`, `paused: needs your answers`, `paused: stopped by you` (a user stop), `paused: <reason>`,
+ * or `stopped (process gone)`. The text header of `status` and the text listing of `runs` both use it, so a
+ * run has one word in both. The JSON `status` field keeps the RunStatus values, `interrupted` included.
+ */
+export function statusWordOf(record: RunRecord): string {
+  switch (record.status) {
+    case "interrupted":
+      return "paused: stopped by you";
+    case "paused": {
+      const reason = record.state.pause_reason;
+      if (reason === "needs_human") return "paused: needs your answers";
+      if (reason === "budget_exhausted") return "paused: budget";
+      return `paused: ${reason ?? "paused"}`;
+    }
+    case "stopped":
+      return "stopped (process gone)";
+    default:
+      return record.status;
+  }
+}
+
+/**
  * Reads one run's journal and liveness. Undefined when the run has no events.jsonl. A corrupt
  * journal throws, as the engine's own reader does.
  */

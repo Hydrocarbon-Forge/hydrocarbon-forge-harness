@@ -135,7 +135,7 @@ describe("R10.4: a failed run is resumed; the failed tasks retry and the passed 
       expect(res.stdout).toContain(`Next:       substrate resume ${runIdOf(res)}  (plans again; planning costs again)`);
       expect(res.stdout).not.toContain("Run substrate run again");
       const out = resume(res, [runIdOf(res)]);
-      expect(out.stdout).toContain("no plan was accepted; planning again (planning costs again)");
+      expect(out.stdout).toContain("planning was cut short before a plan was produced; planning again (planning costs again)");
       expect(out.stdout).not.toContain("cannot be resumed");
     } finally {
       res.cleanup();

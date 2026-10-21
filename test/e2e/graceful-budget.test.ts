@@ -192,7 +192,9 @@ describe("R11.1: the run budget is recorded and reused by a resume", () => {
       const header = text.split("\n")[0];
       expect(header).toMatch(new RegExp(`^Run ${runId}  paused: budget   elapsed`));
       expect(text).toContain("Phase:  paused");
-      expect(text).toContain(`Process: none (paused; resume with: substrate resume ${runId})`);
+      // R11.3: the resume command is named once, in Next:.
+      expect(text).toContain("Process: none (paused)");
+      expect(text).toContain(`Next:  substrate resume ${runId}`);
       expect(text).toMatch(/Cost \$\d+\.\d{4} \(budget \$0\.40\)/);
       // Each fact once: the legacy block no longer repeats the state, the reason, the cost or the run id.
       expect(text).not.toContain("State:");

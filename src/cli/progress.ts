@@ -84,6 +84,8 @@ export class RunProgress {
   // repeats the failure a task already printed, and only the first line is shown.
   private readonly failedTasks = new Map<string, string>();
   private pendingPlan: PlanTaskView[] | undefined;
+  // R11.3: integration verify failed on the base commit (before this run's changes), reported at integration.started.
+  private baseVerifyFailed = false;
 
   constructor(
     private readonly models: ProgressModels,
@@ -144,10 +146,14 @@ export class RunProgress {
         this.setPhase("resuming", at);
         if (data.reason === "plan_review") return [`resuming planned run ${event.run_id}: the reviewed plan is accepted`];
         if (data.reason === "planning") {
+          // R11.3: a planning round stopped before any plan existed says so; a plan that was produced and refused does not.
+          const lead = data.planning_cut_short === true
+            ? "planning was cut short before a plan was produced; planning again (planning costs again)"
+            : "no plan was accepted; planning again (planning costs again)";
           // R10.5: an abandoned draft is kept, not deleted; the line names where it went.
           return typeof data.draft_dir === "string"
-            ? ["no plan was accepted; planning again (planning costs again)", `abandoned draft kept in ${data.draft_dir}/`]
-            : ["no plan was accepted; planning again (planning costs again)"];
+            ? [lead, `abandoned draft kept in ${data.draft_dir}/`]
+            : [lead];
         }
         if (data.reason === "setup") return ["setup did not finish; running setup again"];
         const failed: string[] = Array.isArray(data.failed_tasks) ? data.failed_tasks : [];
@@ -297,19 +303,18 @@ export class RunProgress {
         return [];
       case "integration.started":
         this.setPhase("integration verify", at);
-        return data.base_verify_passed === false
-          ? [
-              "integration verify started",
-              "note: integration verify did not pass before this run's changes (normal when the run adds code); this is not a failure",
-            ]
-          : ["integration verify started"];
+        // R11.3: the base check's result is kept until the final verify reports; the note is printed only if it fails.
+        this.baseVerifyFailed = data.base_verify_passed === false;
+        return ["integration verify started"];
       case "integration.finished":
-        return [`integration verify ${data.passed ? "passed" : "failed"}`];
+        return this.withBaseNote([`integration verify ${data.passed ? "passed" : "failed"}`], data.passed !== true);
+      case "bisect.started":
+        return this.withBaseNote([], true);
       case "integration.failed": {
         // R7.11: the failing command and its exit code; older logs carry neither.
-        if (typeof data.command !== "string" || data.command === "") return ["integration verify failed"];
+        if (typeof data.command !== "string" || data.command === "") return this.withBaseNote(["integration verify failed"], true);
         const status = typeof data.exit_code === "number" ? `exit ${data.exit_code}` : "timed out";
-        return [`integration verify failed: ${data.command.slice(0, 160)} (${status})`];
+        return this.withBaseNote([`integration verify failed: ${data.command.slice(0, 160)} (${status})`], true);
       }
       case "merge.conflict": {
         const n = Array.isArray(data.conflict_files) ? data.conflict_files.length : 0;
@@ -323,6 +328,15 @@ export class RunProgress {
       default:
         return [];
     }
+  }
+
+  /** The base-check note (R11.3), added after a failing final verify only: the check was failing before this run. */
+  private withBaseNote(lines: string[], finalFailed: boolean): string[] {
+    if (!finalFailed || !this.baseVerifyFailed) return lines;
+    return [
+      ...lines,
+      "note: integration verify also failed on the base commit, before this run's changes, so the check was failing before this run started",
+    ];
   }
 
   private observeFormatRejected(data: Record<string, any>): string[] {

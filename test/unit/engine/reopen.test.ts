@@ -83,7 +83,7 @@ describe("R10.4: a reopened run's state is the replay of its log", () => {
     seq = 0;
     const log = [ev("run.created", { run_id: RUN }), ev("run.routed", { mode: "plan" }), ev("run.finished", { exit_code: 1, status: "failed" })];
     expect(endedFailed(log)).toBe(true);
-    expect(reopenData(log, replay(log))).toEqual({ reason: "planning" });
+    expect(reopenData(log, replay(log))).toEqual({ reason: "planning", planning_cut_short: true });
     const reopened = replay([...log, ev("run.reopened", { reason: "planning" })]);
     expect(reopened.state).toBe("CREATED");
     expect(reopened.tasks).toEqual({});

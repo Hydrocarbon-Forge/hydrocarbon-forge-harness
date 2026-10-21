@@ -55,7 +55,7 @@ export interface CliCommand {
 
 const { registry } = await import(`../registry.js`);
 const { formatCost, formatElapsed, progressModelsFor } = await import(`../progress.js`);
-const { RunReplay, countsOf, mergedOf, outcomeOf, recordOf, requestOf, runPathOf, settingsOf, taskRowsOf } = await import(`../run-observe.js`);
+const { RunReplay, countsOf, mergedOf, outcomeOf, recordOf, requestOf, runPathOf, settingsOf, statusWordOf, taskRowsOf } = await import(`../run-observe.js`);
 
 // The view types of run-observe.ts, named from the values above (cli modules are not imported by type).
 type RunRecord = ReturnType<typeof recordOf>;
@@ -151,28 +151,6 @@ function ageText(seconds: number): string {
   return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-/**
- * The one status word a run's header shows, with its reason (R11.1): `paused: budget`, `paused: needs
- * your answers`, `paused: stopped by you (user_cancel)`, `stopped (process gone)`. The JSON `status` field
- * keeps its own values; this is the text form only.
- */
-export function headerWordOf(record: RunRecord): string {
-  switch (record.status) {
-    case "interrupted":
-      return "paused: stopped by you (user_cancel)";
-    case "paused": {
-      const reason = record.state.pause_reason;
-      if (reason === "needs_human") return "paused: needs your answers";
-      if (reason === "budget_exhausted") return "paused: budget";
-      return `paused: ${reason ?? "paused"}`;
-    }
-    case "stopped":
-      return "stopped (process gone)";
-    default:
-      return record.status;
-  }
-}
-
 /** The lines a live header names for a run: its phase, process, tasks, log and next commands (R10.2). */
 function liveHeader(
   record: RunRecord,
@@ -201,15 +179,16 @@ function liveHeader(
   const paused = record.state.state === "PAUSED";
   const planned = record.state.state === "PLANNED";
   const over = record.terminal && !paused && !planned;
+  // The resume command is named once, in Next: (R11.3).
   const processLine = record.process?.alive === true
     ? `Process: pid ${record.process.pid} alive`
     : over
       ? "Process: none (the run has ended)"
       : paused
-        ? `Process: none (paused; resume with: substrate resume ${id})`
+        ? "Process: none (paused)"
         : planned
-          ? `Process: none (planned; resume with: substrate resume ${id})`
-          : `Process: not running (stopped; resume with: substrate resume ${id})`;
+          ? "Process: none (planned)"
+          : "Process: not running (stopped)";
   const cost = formatCost(record.state.usage.total_usd);
   const budgetText = budget !== undefined && budget !== null ? ` (budget $${Number(budget).toFixed(2)})` : "";
   const limitText = timeLimit !== undefined ? `     Time limit: ${timeLimit.limitS}s (elapsed ${timeLimit.elapsedS}s)` : "";
@@ -221,7 +200,7 @@ function liveHeader(
     ...(counts.skipped > 0 ? [`${counts.skipped} skipped`] : []),
   ].join(", ");
   const lines = [
-    `Run ${id}  ${headerWordOf(record)}   elapsed ${formatElapsed(elapsedS * 1000)}   request: ${requestPreview(request)}`,
+    `Run ${id}  ${statusWordOf(record)}   elapsed ${formatElapsed(elapsedS * 1000)}   request: ${requestPreview(request)}`,
     `Planner ${planner ?? "-"}   Worker ${worker ?? "-"}   merge: ${merge}`,
     `Phase:  ${paused ? "paused" : planned ? "planned" : record.terminal ? "ended" : (progress?.phase ?? "-")}     last activity ${lastActivity !== undefined ? `${lastActivity}s ago` : "never"}     Cost ${cost}${budgetText}${limitText}`,
     processLine,

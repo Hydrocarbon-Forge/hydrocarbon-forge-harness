@@ -88,7 +88,7 @@ const BASE_NOTE =
   "note: integration verify did not pass before this run's changes (normal when the run adds code); this is not a failure";
 
 describe("R7.11: integration verify on the base commit and on the merged result", () => {
-  it("the run lands with --merge, the file is in the working tree, and the base note is printed", () => {
+  it("the run lands with --merge, the file is in the working tree, and no base note is printed when the final verify passes", () => {
     const s = scratch(helloCalls(INTEGRATION));
     try {
       const res = cli(s, [
@@ -100,7 +100,8 @@ describe("R7.11: integration verify on the base commit and on the merged result"
         "Create the hello file",
       ]);
       expect(res.status, diag(res)).toBe(0);
-      expect(res.stdout, diag(res)).toContain(`${BASE_NOTE}\n`);
+      // R11.3: the base check failed, but the final verify passed, so the note (which says the check failed before the run) is not printed.
+      expect(res.stdout, diag(res)).not.toContain(BASE_NOTE);
       expect(res.stdout, diag(res)).toContain("integration verify passed\n");
       expect(readFileSync(join(s.project, "src", "hello.txt"), "utf8")).toBe("hello\n");
       expect(git(s, ["branch", "--show-current"])).toBe("main");

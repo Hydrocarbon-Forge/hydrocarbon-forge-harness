@@ -302,7 +302,8 @@ describe("R10.2: a run's progress is visible from another process", () => {
       );
 
       const status = cli(repo, ["status", id]);
-      expect(status.stdout).toContain(`Process: not running (stopped; resume with: substrate resume ${id})`);
+      expect(status.stdout).toContain("Process: not running (stopped)");
+      expect(status.stdout).toContain(`Next:  substrate resume ${id}`);
       expect(status.stdout).toMatch(new RegExp(`Run ${id}  stopped`));
 
       const statusJson = JSON.parse(cli(repo, ["status", id, "--output-format", "json"]).stdout);
@@ -423,7 +424,8 @@ describe("R10.2: a run's progress is visible from another process", () => {
       expect(rows).toHaveLength(3);
       // Newest first: the interrupted run started last.
       expect(rows[0].startsWith(interruptedId)).toBe(true);
-      expect(rows[0]).toMatch(/ interrupted /);
+      // R11.3: the text word is the status header's, a user stop reads `paused: stopped by you` (json keeps `interrupted`).
+      expect(rows[0]).toMatch(/ paused: stopped by you /);
       expect(rows[1].startsWith(failedId)).toBe(true);
       expect(rows[1]).toMatch(/ failed /);
       expect(rows[2].startsWith(finishedId)).toBe(true);
