@@ -134,6 +134,28 @@ describe("R7.4 text summary", () => {
     );
   });
 
+  // R9.1: a finished run whose branch holds the work and which is not merged says so in the Result line.
+  it("finished, not merged, work on the branch: the Result line says where the work is", () => {
+    const text = render(
+      withLanding(summaryOf(), { merged: false, base_branch: "main", files: ["a.txt"], runFailed: false, needsInput: false }) as RunSummary,
+    );
+    expect(text).toContain("Merged:     no\n");
+    expect(text).toContain(`Result:     finished: work is on branch substrate/runs/${RUN_ID}, not merged yet\n`);
+    expect(text).not.toContain("1 files changed on branch");
+    expect(text).toContain(`NOT merged into main yet — run: substrate merge ${RUN_ID}  (or pass the merge flag next time)\n`);
+  });
+
+  // R9.1: the summary's cost has the same four decimals as the progress line.
+  it("Total Cost has four decimals, like the progress line", () => {
+    const text = render(
+      withLanding(summaryOf({ usage: { total_usd: 0.0869, by_role: {} } }), {
+        merged: true, base_branch: "main", files: ["a.txt"], runFailed: false, needsInput: false,
+      }) as RunSummary,
+    );
+    expect(text).toContain("Total Cost: $0.0869\n");
+    expect(text).not.toContain("Total Cost: $0.09\n");
+  });
+
   it("lists at most TEXT_FILES_LIMIT names and says how many more", () => {
     const all = files(TEXT_FILES_LIMIT + 3);
     const text = render(

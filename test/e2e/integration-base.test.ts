@@ -85,7 +85,7 @@ function runEvents(s: Scratch, runId: string): { type: string; data: any }[] {
 }
 
 const BASE_NOTE =
-  "note: integration verify does not pass at the base commit (expected when the run adds new code)";
+  "note: integration verify did not pass before this run's changes (normal when the run adds code); this is not a failure";
 
 describe("R7.11: integration verify on the base commit and on the merged result", () => {
   it("the run lands with --merge, the file is in the working tree, and the base note is printed", () => {

@@ -151,7 +151,7 @@ describe("progress line shapes (text mode, stdout)", () => {
     f1.onEvent(ev("integration.started", { base_verify_passed: false }));
     expect(failed.lines()).toEqual([
       "[00:00] integration verify started",
-      "[00:00] note: integration verify does not pass at the base commit (expected when the run adds new code)",
+      "[00:00] note: integration verify did not pass before this run's changes (normal when the run adds code); this is not a failure",
     ]);
     const passed = sink();
     const f2 = createFormatter("text", passed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });

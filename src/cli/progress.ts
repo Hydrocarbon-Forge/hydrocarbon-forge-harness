@@ -262,7 +262,7 @@ export class RunProgress {
         return data.base_verify_passed === false
           ? [
               "integration verify started",
-              "note: integration verify does not pass at the base commit (expected when the run adds new code)",
+              "note: integration verify did not pass before this run's changes (normal when the run adds code); this is not a failure",
             ]
           : ["integration verify started"];
       case "integration.finished":

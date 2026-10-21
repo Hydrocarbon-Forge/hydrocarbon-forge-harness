@@ -122,9 +122,8 @@ class TextFormatter implements OutputFormatter {
       this.out.write(`\nsubstrate resume ${summary.run_id} --answers <file>\n`);
     }
 
-    const totalCost = summary.usage?.total_usd !== undefined
-      ? summary.usage.total_usd.toFixed(2)
-      : "0.00";
+    // Four decimals, as the progress line prints a cost (R9.1).
+    const totalCost = formatCost(summary.usage?.total_usd ?? 0);
 
     this.out.write(`\n--- Run Summary ---\n`);
     this.out.write(`Run ID:     ${summary.run_id}\n`);
@@ -142,7 +141,7 @@ class TextFormatter implements OutputFormatter {
       ...(skippedCount > 0 ? [`${skippedCount} skipped`] : []),
     ].join(", ");
     this.out.write(`Tasks:      ${breakdown} / ${taskKeys.length} total\n`);
-    this.out.write(`Total Cost: $${totalCost}\n`);
+    this.out.write(`Total Cost: ${totalCost}\n`);
     this.out.write(`Exit Code:  ${summary.exit_code}\n`);
     // The run command lands the run before the summary, so `merged` is known. A summary without
     // it (a resumed run) falls back to the task merges seen in the events.
@@ -196,7 +195,12 @@ class TextFormatter implements OutputFormatter {
   private writeResult(summary: RunSummary): void {
     const count = summary.files_changed_total ?? 0;
     const base = summary.base_branch ?? "HEAD";
-    this.out.write(`Result:     ${count} files changed on branch ${summary.branch}\n`);
+    // R9.1: a finished run whose branch holds the work, and which is not merged, says so in one line.
+    if (!summary.merged && summary.status === "finished" && count > 0) {
+      this.out.write(`Result:     finished: work is on branch ${summary.branch}, not merged yet\n`);
+    } else {
+      this.out.write(`Result:     ${count} files changed on branch ${summary.branch}\n`);
+    }
     if (summary.merged) {
       this.out.write(`Merged into ${base} (working tree updated)\n`);
     } else if (summary.not_merged_reason !== undefined) {
