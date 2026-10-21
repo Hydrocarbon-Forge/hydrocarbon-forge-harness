@@ -12,6 +12,7 @@ import { isSafePath, matchGlob, redactSecrets } from "../util/index.js";
 import type { ParsedPlan, ParsedTaskSpec } from "./parser.js";
 import type { LintOptions } from "./linter.js";
 import { typecheckContracts } from "./typecheck.js";
+import { SHELL_BUILTINS, verifyBinaryOf } from "./verify-command.js";
 
 export interface RuleContext {
   plan: ParsedPlan;
@@ -129,8 +130,7 @@ function isBinaryResolvable(bin: string, repoRoot: string): boolean {
     } catch {}
   }
 
-  const builtins = new Set(["echo", "true", "false", "exit", "test", "cd", "set", "export"]);
-  return builtins.has(bin);
+  return SHELL_BUILTINS.has(bin);
 }
 
 async function runCommandQuick(
@@ -576,19 +576,35 @@ export const ruleL010: LintRule = (ctx) => {
   return diags;
 };
 
+/** True when the plan's setup commands or its created or written paths name the binary as a whole word. */
+function planCreates(bin: string, plan: ParsedPlan): boolean {
+  const word = new RegExp(`(^|[^A-Za-z0-9_.-])${bin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^A-Za-z0-9_.-])`);
+  const setup = (plan.manifest.setup ?? []).map((c) => c.run);
+  if (setup.some((run) => word.test(run))) return true;
+  for (const spec of plan.specs.values()) {
+    for (const p of [...(spec.frontmatter?.create ?? []), ...(spec.frontmatter?.write ?? [])]) {
+      if (word.test(p)) return true;
+    }
+  }
+  return false;
+}
+
 // L011: Verify binary cannot be resolved or cwd does not exist
 export const ruleL011: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
 
   for (const [id, spec] of ctx.plan.specs) {
     for (const cmd of spec.frontmatter?.verify ?? []) {
-      const firstWord = cmd.run.trim().split(/\s+/)[0];
-      if (!isBinaryResolvable(firstWord, ctx.repoRoot)) {
+      // R11.1 (known issue 24b): the binary is the first command word, after assignments; a line with no
+      // plain command word (a subshell, a substitution first) is not checked, and neither is a binary the
+      // plan itself creates (setup or a written file).
+      const bin = verifyBinaryOf(cmd.run);
+      if (bin !== undefined && !isBinaryResolvable(bin, ctx.repoRoot) && !planCreates(bin, ctx.plan)) {
         diags.push({
           code: "L011",
           severity: "error",
           task: id,
-          message: `Verify binary '${firstWord}' cannot be resolved on PATH: ${cmd.run}`,
+          message: `Verify binary '${bin}' cannot be resolved on PATH: ${cmd.run}`,
         });
       }
 

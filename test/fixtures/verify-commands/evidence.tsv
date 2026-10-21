@@ -1,0 +1,18 @@
+node	node --check src/game.js
+node	node --check src/main.js
+node	node --test test/game.test.js
+node	node --check test/game.test.js
+node	node --check src/render.js
+node	node --test test/game.test.js test/ui.test.js test/app.test.js
+node	node --test --test-name-pattern=__none__ test/game.test.js test/ui.test.js test/app.test.js test/static.test.js
+node	node --input-type=module -e "import { existsSync } from 'node:fs'; if (existsSync('src/game.js')) { const g = await import('./src/game.js'); for (const n of ['createGame','placeFood','setDirection','step','tickInterval']) if (typeof g[n] !== 'function') throw new Error(n); }"
+node	node -e "const g=require('./src/game.js'); for (const k of ['DEFAULT_WIDTH','DEFAULT_HEIGHT']) if (typeof g[k] !== 'number') process.exit(1);"
+sh	sh -c 'if [ -f src/main.js ]; then npm test; fi'
+sh	sh -c 'for f in test/game.test.js test/ui.test.js; do if node --test $f >/dev/null 2>&1; then echo passes-against-stubs:$f; exit 1; fi; done'
+sh	sh -c '! grep -l CONTRACT_STUB src/game.js src/ui.js src/app.js'
+bash	bash -c 'd=$(mktemp -d) && javac -d "$d" src/HelloWorld.java && java -cp "$d" HelloWorld | grep -qx "Hello from the reviewed plan!"'
+sh	sh -c 'd=$(mktemp -d) && javac -d "$d" src/HelloWorld.java && java -cp "$d" HelloWorld | grep -qx "Hello, World!"'
+mkdir	mkdir -p /tmp/hw_out && javac -d /tmp/hw_out src/main/java/HelloWorld.java && java -cp /tmp/hw_out HelloWorld | grep -qx 'Hello, World!'
+mkdir	mkdir -p /tmp/hello_out && javac -d /tmp/hello_out src/Main.java && java -cp /tmp/hello_out Main | grep -Fx "Hello, World!"
+-	d=$(mktemp -d) && javac -d "$d" src/HelloWorld.java && java -cp "$d" HelloWorld | grep -qx "Hello, World!"
+npm	npm test

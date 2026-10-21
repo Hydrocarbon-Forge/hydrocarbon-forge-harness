@@ -20,7 +20,6 @@ These items are still open. Each one has its detail in the numbered section belo
 - Item 14: test gaps and test-helper masking (the open parts).
 - Item 15: the live opencode smoke needs the local base URL in the environment.
 - Item 24a: L003 scans every `.md` under `tasks/` recursively (plan-lint audit).
-- Item 24b: L011 resolves the verify binary only on the lint host's PATH and `node_modules/.bin`.
 - Item 24c: L013 can trip on `...` in ordinary prose.
 - Item 24d: L017 can trip when a glob in `read` matches more than 50 files.
 - Item 24e: the L018 example in `assets/prompts/planner/format.md` needs TypeScript, which a fresh repository may not have at plan time.
@@ -185,7 +184,7 @@ The reviewer role needs a new engine phase (DECISIONS A2). Item 16 (the mechanic
 The R7.7 audit of the plan lint and the planner found the open items below. Each one is OPEN and has no fix in R7.8. Items a to h are facts from the audit; item i repeats item 18.
 
 - OPEN (24a): L003 (`src/spec/rules.ts`) scans every `.md` under the repository's `tasks/` recursively, so a repository that keeps its own docs in `tasks/` rejects every plan. Direction: scope the scan to the spec files the manifest names.
-- OPEN (24b): L011 resolves the verify binary on the lint host's PATH and `node_modules/.bin` only. A binary installed by `setup`, or created by the task, and a relative script path are rejected, although they exist at run time. Direction: resolve against the task worktree or the run's setup result, or accept a relative path under the repository.
+- FIXED (24b, R11.1): L011 took the first whitespace token of the verify line, so `d=$(mktemp -d) && ...` was rejected as binary `d=$(mktemp` ($0.0882 wasted; `substrate-hello-4` plan attempt 1). It now takes the first command word after leading `NAME=value` assignments (`src/spec/verify-command.ts` `verifyBinaryOf`); wrappers (`sh -c`, `bash -c`, `env`, `timeout`) are checked as themselves and their script is never parsed; a line with no plain command word first (subshell, substitution, quoted word, chain after an assignment) is not checked; a binary the plan's setup or created paths name is not reported. Tests: `test/unit/spec/verify-command.test.ts` (the evidence table in `test/fixtures/verify-commands/evidence.tsv`, the synthetic cases, the genuine missing binary).
 - OPEN (24c): L013 can trip on `...` in ordinary prose outside code fences in Interface or Behavior. Direction: match only the placeholder tokens the format defines.
 - OPEN (24d): L017 can trip when a glob in `read` matches more than 50 files. Direction: count the files a task reads once the glob is expanded against the planner's intent, or raise the limit for globs.
 - OPEN (24e): the L018 example in `assets/prompts/planner/format.md` runs the TypeScript compiler, but `setup` runs only in task worktrees. A fresh repository without TypeScript fails at plan time. Direction: use a command the repository's own ecosystem provides, or state in the format that the example needs a prior install.
