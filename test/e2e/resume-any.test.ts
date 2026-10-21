@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { describe, it, expect, afterEach } from "vitest";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -218,4 +218,252 @@ describe("R10.4: resume of a finished run that is not merged says how to land it
       res.cleanup();
     }
   });
+});
+
+// R10.5: the R10.4 cases that were not tested before. A process is held open with a marker or a scenario
+// hang, and it is ended by its numeric pid. Every spawned process is killed in afterEach.
+
+const liveChildren: ChildProcess[] = [];
+const livePids: number[] = [];
+
+afterEach(() => {
+  for (const child of liveChildren.splice(0)) {
+    if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+      try {
+        process.kill(child.pid, "SIGKILL");
+      } catch {}
+    }
+  }
+  for (const pid of livePids.splice(0)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }
+});
+
+function waitFor(check: () => boolean, label: string, timeoutMs = 60000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((done, fail) => {
+    const tick = () => {
+      if (check()) return done();
+      if (Date.now() > deadline) return fail(new Error(`timed out waiting for ${label}`));
+      setTimeout(tick, 20);
+    };
+    tick();
+  });
+}
+
+/** Starts the built CLI without waiting for it; the scenario file (if any) is its fake harness script. */
+function startCli(repoDir: string, args: string[], scenarioPath?: string): ChildProcess {
+  const home = mkdtempSync(join(tmpdir(), "substrate-resume-any-async-home-"));
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
+  delete env.FAKE_SCENARIO_FILE;
+  if (scenarioPath !== undefined) env.FAKE_SCENARIO_FILE = scenarioPath;
+  const child = spawn(process.execPath, [substrateMjs, ...args], { cwd: repoDir, env, stdio: "ignore" });
+  liveChildren.push(child);
+  return child;
+}
+
+function scenarioAt(dir: string, calls: unknown[]): string {
+  const file = join(dir, "scenario.json");
+  writeFileSync(file, JSON.stringify({ calls }), "utf8");
+  return file;
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe("R10.5: a task dropped for a merge conflict builds on top of the sibling after resume", () => {
+  it("(b) two tasks write the same line; the one that conflicts is dropped; resume retries it on the run branch and the run finishes", () => {
+    const trace = mkdtempSync(join(tmpdir(), "resume-any-trace-"));
+    const A = taskSpec({ id: "A", write: ["src/a.txt"], verify: "grep -q A-line src/a.txt" });
+    const B = taskSpec({ id: "B", write: ["src/a.txt"], verify: "grep -q B-line src/a.txt" });
+    const union = "seed a\nA-line\nB-line\n";
+    const res = runSubstrate({
+      files: SEED,
+      scenario: {
+        calls: [
+          planCall(contractFiles(manifestFor("Conflict", ["A", "B"]), { "tasks/A.md": A, "tasks/B.md": B })),
+          // Both workers finish before either merges, so the second merge collides with the first.
+          { task: "A", edits: { "src/a.txt": "seed a\nA-line\n" }, reply: "A done\nDONE", trace: { dir: trace, name: "A", wait_for: ["B"], timeout_ms: 20000 } },
+          { task: "B", edits: { "src/a.txt": "seed b\nB-line\n" }, reply: "B done\nDONE", trace: { dir: trace, name: "B", wait_for: ["A"], timeout_ms: 20000 } },
+        ],
+      },
+      args: [...RUN_ARGS, "--concurrency", "2", "Conflict"],
+    });
+    try {
+      expect(res.exitCode).toBe(1);
+      const runId = runIdOf(res);
+      const runDir = res.runDir as string;
+      const dropped = eventsIn(runDir).find((e) => e.type === "task.failed" && e.data.failure_class === "merge_conflict");
+      expect(dropped).toBeDefined();
+      const droppedId = dropped?.data.task_id as string;
+      const sibling = droppedId === "A" ? "B" : "A";
+
+      // The retry starts from the run branch, which now holds the sibling's line; it writes both lines.
+      const out = cli(res.repoDir, ["resume", runId], [
+        { task: droppedId, edits: { "src/a.txt": union }, reply: "retry done\nDONE" },
+        { task: sibling, edits: { "src/a.txt": union }, reply: "unused\nDONE" },
+      ]);
+      expect(out.status, out.stderr).toBe(0);
+      expect(out.stdout).toContain("finished:");
+      const events = eventsIn(runDir);
+      const started = (task: string) => events.filter((e) => e.type === "task.session.started" && e.data.task_id === task).length;
+      expect(started(droppedId)).toBe(2);
+      expect(started(sibling)).toBe(1);
+      expect(events.filter((e) => e.type === "run.finished").at(-1)?.data.exit_code).toBe(0);
+      expect(readFileSync(join(res.repoDir, "src/a.txt"), "utf8")).toBe(union);
+    } finally {
+      res.cleanup();
+      rmSync(trace, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("R10.5: a SIGKILL during the final-verify resume", () => {
+  it("(c) the resumed verify is held and the CLI is killed; the next resume re-runs the verify and the run finishes", async () => {
+    const work = mkdtempSync(join(tmpdir(), "resume-any-verify-"));
+    const hold = join(work, "hold");
+    const mark = join(work, "mark");
+    const pidFile = join(work, "verify.pid");
+    const ready = join(work, "ready");
+    const script = join(work, "verify.sh");
+    writeFileSync(
+      script,
+      [
+        "#!/bin/sh",
+        `if [ -f "${hold}" ]; then echo $$ > "${pidFile}"; touch "${mark}"; exec sleep 60; fi`,
+        `if [ -f "${ready}" ]; then exit 0; fi`,
+        "exit 1",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    // Two tasks: a failed verify with two tasks names no culprit, so the resume re-runs only the verify.
+    const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });
+    const t2 = taskSpec({ id: "T2", write: ["src/b.txt"], verify: "grep -q t2-done src/b.txt" });
+    const res = runSubstrate({
+      files: SEED,
+      scenario: {
+        calls: [
+          planCall(contractFiles(manifestFor("Verify kill", ["T1", "T2"], `sh ${script}`), { "tasks/T1.md": t1, "tasks/T2.md": t2 })),
+          edit("T1", "src/a.txt", "t1-done"),
+          edit("T2", "src/b.txt", "t2-done"),
+        ],
+      },
+      args: [...RUN_ARGS, "Verify kill"],
+    });
+    try {
+      expect(res.exitCode).toBe(1);
+      const runId = runIdOf(res);
+      const runDir = res.runDir as string;
+
+      // Hold the verify open, start the resume, and kill the CLI and the verify by pid while it runs.
+      writeFileSync(hold, "", "utf8");
+      const child = startCli(res.repoDir, ["resume", runId]);
+      await waitFor(() => existsSync(pidFile), "the held verify");
+      const verifyPid = Number(readFileSync(pidFile, "utf8"));
+      livePids.push(verifyPid);
+      child.kill("SIGKILL");
+      await new Promise((r) => child.once("exit", r));
+      process.kill(verifyPid, "SIGKILL");
+      await waitFor(() => !alive(verifyPid), "the held verify to end");
+      rmSync(hold, { force: true });
+
+      // The next resume re-runs only the verify: no worker is spawned, and the verify passes now.
+      writeFileSync(ready, "", "utf8");
+      const before = eventsIn(runDir).filter((e) => e.type === "task.session.started").length;
+      const out = cli(res.repoDir, ["resume", runId], []);
+      expect(out.status, out.stderr).toBe(0);
+      const after = eventsIn(runDir).filter((e) => e.type === "task.session.started").length;
+      expect(after).toBe(before);
+      expect(eventsIn(runDir).filter((e) => e.type === "run.finished").at(-1)?.data.exit_code).toBe(0);
+      expect(existsSync(mark)).toBe(true);
+    } finally {
+      res.cleanup();
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 180000);
+});
+
+describe("R10.5: a SIGKILL during a resumed failed-run round, and the status words of a reopened run", () => {
+  it("(g) the CLI is killed during the resumed retry; a second resume converges with no duplicate run of the passed task", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-any-chaos-"));
+    const res = threeTaskFailure();
+    try {
+      expect(res.exitCode).toBe(1);
+      const runId = runIdOf(res);
+      const runDir = res.runDir as string;
+      const scenario = scenarioAt(dir, [{ task: "T2", failure: "hang" }]);
+      const child = startCli(res.repoDir, ["resume", runId], scenario);
+      await waitFor(() => existsSync(`${scenario}.pid`), "the held retry");
+      const workerPid = Number(readFileSync(`${scenario}.pid`, "utf8"));
+      livePids.push(workerPid);
+      child.kill("SIGKILL");
+      await new Promise((r) => child.once("exit", r));
+      // The held worker ends by its pid; a stale worker is also ended by the next resume (R8.2).
+      process.kill(workerPid, "SIGKILL");
+
+      const out = cli(res.repoDir, ["resume", runId], [
+        edit("T2", "src/b.txt", "t2-done"),
+        edit("T3", "src/c.txt", "t3-done"),
+      ]);
+      expect(out.status, out.stderr).toBe(0);
+      const events = eventsIn(runDir);
+      const started = (task: string) => events.filter((e) => e.type === "task.session.started" && e.data.task_id === task).length;
+      expect(started("T1")).toBe(1);
+      expect(events.filter((e) => e.type === "run.finished").at(-1)?.data.exit_code).toBe(0);
+      expect(readFileSync(join(res.repoDir, "src/c.txt"), "utf8")).toContain("t3-done");
+    } finally {
+      res.cleanup();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180000);
+
+  it("status and runs show a reopened run as running while it goes, and as finished after; the earlier failure is not current", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "resume-any-status-"));
+    const res = threeTaskFailure();
+    try {
+      expect(res.exitCode).toBe(1);
+      const runId = runIdOf(res);
+      const scenario = scenarioAt(dir, [{ task: "T2", failure: "hang" }]);
+      const child = startCli(res.repoDir, ["resume", runId], scenario);
+      await waitFor(() => existsSync(`${scenario}.pid`), "the held retry");
+      const workerPid = Number(readFileSync(`${scenario}.pid`, "utf8"));
+      livePids.push(workerPid);
+
+      const runsWhile = cli(res.repoDir, ["runs"]);
+      expect(runsWhile.stdout).toMatch(new RegExp(`${runId}\\s+running`));
+      const statusWhile = cli(res.repoDir, ["status", runId]);
+      // The header names the run's state now; the failed count of the earlier run is not in this header.
+      const headerWhile = statusWhile.stdout.split("\n")[0];
+      expect(headerWhile).toMatch(new RegExp(`Run ${runId}\\s+running`));
+      expect(headerWhile).not.toMatch(/failed/);
+
+      child.kill("SIGKILL");
+      await new Promise((r) => child.once("exit", r));
+      process.kill(workerPid, "SIGKILL");
+
+      const out = cli(res.repoDir, ["resume", runId], [
+        edit("T2", "src/b.txt", "t2-done"),
+        edit("T3", "src/c.txt", "t3-done"),
+      ]);
+      expect(out.status, out.stderr).toBe(0);
+      const statusAfter = cli(res.repoDir, ["status", runId]);
+      const headerAfter = statusAfter.stdout.split("\n")[0];
+      expect(headerAfter).toMatch(new RegExp(`Run ${runId}\\s+finished`));
+      expect(headerAfter).not.toMatch(/failed/);
+      const runsAfter = cli(res.repoDir, ["runs"]);
+      expect(runsAfter.stdout).toMatch(new RegExp(`${runId}\\s+finished`));
+    } finally {
+      res.cleanup();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180000);
 });
