@@ -71,7 +71,7 @@ export interface CliCommand {
 const { createFormatter, summaryPayload } = await import(`../output.js`);
 const { ProgressLog, writeOutcome } = await import(`../run-files.js`);
 const { registry } = await import(`../registry.js`);
-const { buildSettingsOverrides, concurrencyFlagProblem, landRun, mergeChoiceOf, mergeFlagsConflict } = await import(`./run.js`);
+const { buildSettingsOverrides, concurrencyFlagProblem, landRun, mergeChoiceOf, mergeFlagsConflict, timeoutFlagProblem } = await import(`./run.js`);
 const { withRequestedRoles } = await import(`../../config/index.js`);
 
 /**
@@ -133,6 +133,11 @@ export const resumeCommand: CliCommand = {
     const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
     if (concurrencyProblem !== undefined) {
       ctx.stderr.write(concurrencyProblem);
+      return 2;
+    }
+    const timeoutProblem = timeoutFlagProblem(ctx.flags);
+    if (timeoutProblem !== undefined) {
+      ctx.stderr.write(timeoutProblem);
       return 2;
     }
     // R10.3: the resume runs in a detached child; its own arguments minus --detach start it.

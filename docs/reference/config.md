@@ -81,6 +81,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 |---|---|---|
 | `budgets.run.max_usd` | number | Spend cap for a whole run in USD. Default 5. It also bounds the planner: each planner session is capped at the run budget not yet spent, at least 0.5 and never above this cap. |
 | `budgets.run.max_tokens` | number | Token cap for a whole run. Unset by default. |
+| `budgets.run.max_wall_min` | number | Wall-clock limit for one `run` or `resume` process, in minutes, planning included. Unset by default; zero or less means no limit. `--timeout` (seconds) replaces it. When reached the run pauses with reason `timeout` and exits `4` (see the time limit stop in `cli.md`). |
 | `budgets.task.max_usd` | number | Spend cap for one task in USD. Default 0.5. It binds tasks only: the planner is bounded by the run budget (see `budgets.run.max_usd`), each planner session getting the run budget not yet spent, at least 0.5 and never above the run cap. |
 | `budgets.task.max_tokens` | number | Token cap for one task. Unset by default. |
 | `budgets.task.timeout_min` | number | Timeout for one task, in minutes. Falls back to 30 when unset. |
@@ -223,7 +224,7 @@ Spend, token and time limits, and retry counts.
 
 Default: `run.max_usd` 5, `task.max_usd` 0.5, `l1_replans_per_task` 2, `l2_per_run` 2, `planner_format_retries` 2, `approval_threshold_usd` 2.
 
-- `run`: `max_usd` and `max_tokens` are read. `max_wall_min` is accepted and is not enforced by the engine. `--max-budget-usd` and `SUBSTRATE_MAX_BUDGET_USD` set `run.max_usd`.
+- `run`: `max_usd`, `max_tokens` and `max_wall_min` are read. `max_wall_min` is the wall-clock limit of one run process (R11.2); `--timeout` (seconds) sets it. `--max-budget-usd` and `SUBSTRATE_MAX_BUDGET_USD` set `run.max_usd`.
 - `task`: `max_usd`, `max_tokens`, `timeout_min` (30 when unset) and `max_turns` are read.
 - `l1_replans_per_task`, `l2_per_run`, `planner_format_retries` and `approval_threshold_usd` are read as described in the index.
 

@@ -9,7 +9,7 @@ import {
 import { parseManifest, parseTaskSpec, type ParsedTaskSpec } from "../../spec/index.js";
 import { EventStoreImpl } from "../../store/event-store.js";
 import type { EffectContext, EngineAction } from "../effects.js";
-import { checkRunBudget } from "../effects.js";
+import { checkRunBudget, interruptOf } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor, safeParseManifest } from "./shared.js";
@@ -88,7 +88,7 @@ export async function runReplanAction(
     baseRef: getRunBranch(ctx.runId),
     decisionsLog: readRunFile(ctx.runDir, "decisions.md"),
     taskClass: spec?.frontmatter.class,
-    signal: ctx.signal,
+    signal: interruptOf(ctx),
     // The effects-loop emitter: every replan event is recorded through it, so the
     // reducer advances the task and run state as the ladder escalates.
     emit,

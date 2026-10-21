@@ -1,4 +1,5 @@
 import type { EngineEvent, Settings } from "../contracts/index.js";
+import { timeLimitSecondsOf } from "./time-limit.js";
 
 /**
  * The inputs a run was started with, as its run.created event recorded them (R11.1). A resume reads
@@ -14,6 +15,8 @@ export interface RecordedRun {
   concurrency?: number;
   requested_roles?: Record<string, unknown>;
   max_budget_usd?: number;
+  /** The wall-clock limit in seconds the run records (R11.2); null when none was set. */
+  time_limit_s?: number | null;
   verify?: string[];
   context?: string[];
   permissions?: { allow?: string[]; deny?: string[] };
@@ -35,6 +38,8 @@ export function recordedRunOptions(events: readonly EngineEvent[]): RecordedRun 
     if (e.type !== "run.resumed" && e.type !== "run.reopened") continue;
     const cap = (e.data as { max_budget_usd?: unknown } | undefined)?.max_budget_usd;
     if (typeof cap === "number") recorded.max_budget_usd = cap;
+    const limit = (e.data as { time_limit_s?: unknown } | undefined)?.time_limit_s;
+    if (typeof limit === "number" || limit === null) recorded.time_limit_s = limit;
   }
   return recorded;
 }
@@ -46,7 +51,11 @@ export function recordedRunOptions(events: readonly EngineEvent[]): RecordedRun 
  */
 export function recordedSettingsOverrides(recorded: RecordedRun): Partial<Settings> {
   const out: Record<string, unknown> = {};
-  if (typeof recorded.max_budget_usd === "number") out.budgets = { run: { max_usd: recorded.max_budget_usd } };
+  const run: Record<string, number> = {};
+  if (typeof recorded.max_budget_usd === "number") run.max_usd = recorded.max_budget_usd;
+  // R11.2: a recorded limit is in seconds; the setting is in minutes. A run recorded with no limit takes the setting.
+  if (typeof recorded.time_limit_s === "number") run.max_wall_min = recorded.time_limit_s / 60;
+  if (Object.keys(run).length > 0) out.budgets = { run };
   if (recorded.verify !== undefined) out.verify = recorded.verify;
   if (recorded.context !== undefined) out.context = recorded.context;
   if (recorded.permissions !== undefined) out.permissions = recorded.permissions;
@@ -73,8 +82,15 @@ export function runInputsRecord(settings: Settings, overrides: Partial<Settings>
   return out;
 }
 
-/** The run budget in effect, as a field a resume records on its own event (run.resumed or run.reopened). */
-export function budgetRecord(settings: Settings): { max_budget_usd?: number } {
+/**
+ * The run budget and the wall-clock limit in effect, as fields a run records on run.created and a resume
+ * records on its own event (run.resumed or run.reopened). The limit is null when none is set (R11.2).
+ */
+export function budgetRecord(settings: Settings): { max_budget_usd?: number; time_limit_s: number | null } {
   const cap = settings.budgets?.run?.max_usd;
-  return typeof cap === "number" ? { max_budget_usd: cap } : {};
+  const limit = timeLimitSecondsOf(settings);
+  return {
+    ...(typeof cap === "number" ? { max_budget_usd: cap } : {}),
+    time_limit_s: limit ?? null,
+  };
 }

@@ -62,6 +62,14 @@ export function budgetResumeCommand(runId: string, spent: number, cap: number): 
  * was doing when the stop came. `tasks` are the summary's task states.
  */
 export function budgetStopMessage(spent: number, cap: number, tasks: Record<string, { state: string }>): string {
+  return `spent $${spent.toFixed(4)} of the $${cap.toFixed(2)} run budget${taskStopTail(tasks)}`;
+}
+
+/**
+ * The task list at the end of a stop's reason line (R8.2, R11.2): `; <task> passed, <task> interrupted, ...`,
+ * or nothing when the run has no task yet.
+ */
+function taskStopTail(tasks: Record<string, { state: string }>): string {
   const label = (state: string): string => {
     if (state === "PASSED" || state === "MERGING" || state === "MERGED") return "passed";
     if (state === "FAILED") return "failed";
@@ -70,8 +78,20 @@ export function budgetStopMessage(spent: number, cap: number, tasks: Record<stri
     return "interrupted";
   };
   const parts = Object.entries(tasks).map(([id, t]) => `${id} ${label(t.state)}`);
-  const tail = parts.length > 0 ? `; ${parts.join(", ")}` : "";
-  return `spent $${spent.toFixed(4)} of the $${cap.toFixed(2)} run budget${tail}`;
+  return parts.length > 0 ? `; ${parts.join(", ")}` : "";
+}
+
+/** The reason line of a run stopped by its wall-clock limit (R11.2): the limit, and what each task was doing. */
+export function timeoutStopMessage(limitS: number, tasks: Record<string, { state: string }>): string {
+  return `the run reached its ${limitS}s time limit${taskStopTail(tasks)}`;
+}
+
+/**
+ * The command that continues a run stopped by its time limit (R11.2): the resume names a longer limit, because
+ * a resume starts a fresh clock. Twice the limit, in whole seconds, as `--timeout` requires.
+ */
+export function timeoutResumeCommand(runId: string, limitS: number): string {
+  return `substrate resume ${runId} --timeout ${Math.ceil(2 * limitS)}`;
 }
 
 interface EventLike {

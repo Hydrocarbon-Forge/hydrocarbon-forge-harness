@@ -395,9 +395,11 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - Fixed: `run.created` records `max_budget_usd`, `verify`, `context`, `permissions`, `sandbox` and `history_all` (`src/engine/recorded-run.ts` `runInputsRecord`, `src/contracts/events.ts`). One helper, `recordedRunOptions`, reads them back, and the latest `run.resumed` or `run.reopened` that replaced the budget wins. `engine.resume` and `src/cli/commands/resume.ts` use it for the prompt, mode, permission mode, settings overrides, landing and worker count. `src/cli/commands/status.ts` shows the recorded budget. `run.budget.exceeded` from a finish or a solo stop carries its spend and cap, and the landing's budget stop reads the recorded cap before the flag.
 - Tests: `test/e2e/resume-planning.test.ts` (A strengthened, D: a real `substrate stop` during planning), `test/e2e/resume-any.test.ts` (planning failure strengthened, (e) repeated planning failure, the resumed replan), `test/e2e/graceful-budget.test.ts` (the R11.1 budget cases).
 
-## 60. OPEN: `--timeout` has no effect on a run
+## 60. FIXED (R11.2): `--timeout` has no effect on a run
 
-- Found (R11.1): `--timeout <seconds>` sets `budgets.run.max_wall_min` (`src/cli/commands/run.ts`, `src/cli/request.ts`), and no code reads that setting. The flag is neither enforced nor recorded, so a resume has nothing to keep. Direction: an owner decision whether the run loop enforces it (item 10 lists the setting as an owner decision).
+- Found (R11.1): `--timeout <seconds>` set `budgets.run.max_wall_min`, and no code read that setting. The flag was neither enforced nor recorded, so a resume had nothing to keep.
+- Fixed: the run process's clock (`src/engine/time-limit.ts`, started in `engine.run` and `engine.resume`) aborts `EffectContext.timeout`. The effects loop (`src/engine/effects.ts` `runEffectsLoop`, `onTimeLimit`) pauses the run with reason `timeout` and stops the workers through `runStop`; the planner, the solo worker and the replan ladder stop on `interruptOf(ctx)`. The stop is a budget stop: exit `4`, `Reason: timeout: the run reached its <n>s time limit; ...`, `Next: substrate resume <id> --timeout <2n>`. `run.created`, `run.resumed` and `run.reopened` record `time_limit_s`; a resume reuses it and `--timeout` replaces it. `--timeout` takes whole seconds, 1 or more (exit `2` otherwise). The request's `budget.max_wall_min` (minutes) is the same limit and is enforced too; no new request field was added.
+- Tests: `test/e2e/graceful-timeout.test.ts` (held worker, resume reuses and replaces the limit, planning-phase timeout, a limit that is not reached, invalid values).
 
 ## 61. OPEN: a resumed planning round after an answer relies on the planner session
 

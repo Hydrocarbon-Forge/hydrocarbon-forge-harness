@@ -29,6 +29,7 @@ import { ensureGitExclude, getRunBranch, restoreTaskBranch } from "../git/index.
 import { runBranchExists } from "../git/workspace.js";
 import { deepMerge } from "../util/merge.js";
 import { type RecordedRun, budgetRecord, recordedRunOptions, recordedSettingsOverrides, runInputsRecord } from "./recorded-run.js";
+import { type TimeLimit, startTimeLimit, timeLimitSecondsOf } from "./time-limit.js";
 import { currentBranchName } from "../git/landing.js";
 import { createRunId } from "../util/index.js";
 import { log } from "../util/log.js";
@@ -106,7 +107,8 @@ export function exitCodeForState(runState: RunState, pauseReason?: PauseReason):
     case "CANCELLED":
       return 1;
     case "PAUSED":
-      if (pauseReason === "budget_exhausted") return 4;
+      // R11.2: a run stopped by its time limit is a limit reached, like a budget stop.
+      if (pauseReason === "budget_exhausted" || pauseReason === "timeout") return 4;
       if (pauseReason === "user_cancel") return 130;
       return 3;
     default:
@@ -261,6 +263,8 @@ export class EngineImpl implements Engine {
 
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
+    // R11.2: the run's wall-clock limit starts with this process; the timer is cleared when the run returns.
+    const timeLimit = startTimeLimit(timeLimitSecondsOf(settings));
     const ctx: EffectContext = {
       runId,
       repoRoot,
@@ -269,6 +273,7 @@ export class EngineImpl implements Engine {
       adapters,
       concurrency: settings.concurrency.workers,
       signal: opts.signal,
+      timeout: timeLimit?.signal,
       onEvent: opts.onEvent,
       prompt: opts.prompt,
       mode: opts.mode,
@@ -325,6 +330,7 @@ export class EngineImpl implements Engine {
 
       return buildSummary(runId, state, repoRoot);
     } finally {
+      timeLimit?.clear();
       clearInterval(heartbeatTimer);
       await lock.release();
     }
@@ -352,6 +358,7 @@ export class EngineImpl implements Engine {
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
     let state: EngineState | undefined;
+    let timeLimit: TimeLimit | undefined;
     try {
       // R11.1: the inputs the run was created with come from its own run.created event, so a resume does
       // not rebuild the request, the budget or the lists from its options. An unreadable log is reported
@@ -381,6 +388,8 @@ export class EngineImpl implements Engine {
         ...this.options.adapters,
       };
 
+      // R11.2: a resume starts a fresh clock with the limit it has (the recorded one, or --timeout given again).
+      timeLimit = startTimeLimit(timeLimitSecondsOf(settings));
       const ctx: EffectContext = {
         runId,
         repoRoot,
@@ -389,6 +398,7 @@ export class EngineImpl implements Engine {
         adapters,
         concurrency: settings.concurrency.workers,
         signal: opts?.signal,
+        timeout: timeLimit?.signal,
         onEvent: opts?.onEvent,
         prompt: opts?.prompt ?? recorded.prompt,
         mode: (opts?.mode ?? recorded.mode) as RunOptions["mode"],
@@ -567,6 +577,7 @@ export class EngineImpl implements Engine {
 
       return buildSummary(runId, state, repoRoot);
     } finally {
+      timeLimit?.clear();
       clearInterval(heartbeatTimer);
       await lock.release();
     }

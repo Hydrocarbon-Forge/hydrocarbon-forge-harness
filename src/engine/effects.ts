@@ -34,6 +34,7 @@ import { runFinishAction, finishAction } from "./actions/finish.js";
 import { getTaskBranch, sweepRunWorkspaces } from "../git/index.js";
 import { withRepoLock } from "../git/repo-lock.js";
 import { applyJournalEvent, usageTokensOf, type RunJournal } from "./journal.js";
+import { timeLimitSecondsOf } from "./time-limit.js";
 
 export { safeParseManifest, safeLoadPlan } from "./actions/shared.js";
 
@@ -49,6 +50,16 @@ export type EngineActionType =
   | "integration"
   | "gate"
   | "abort";
+
+/**
+ * The signal the run's planner and single-worker sessions stop on (R11.2): the user's interrupt, the run's
+ * time limit, or a stop of the run's workers. Undefined when the context has none of them.
+ */
+export function interruptOf(ctx: EffectContext): AbortSignal | undefined {
+  const signals = [ctx.signal, ctx.timeout, ctx.runStop?.signal].filter((s): s is AbortSignal => s !== undefined);
+  if (signals.length === 0) return undefined;
+  return signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+}
 
 export interface EngineAction {
   type: EngineActionType;
@@ -72,6 +83,8 @@ export interface EffectContext {
   /** Which run budget warnings have fired, so the 80 percent warning is emitted once. */
   budgetWarned?: { cost: boolean; tokens: boolean };
   signal?: AbortSignal;
+  /** Aborts when the run's wall-clock limit is reached (R11.2); the run then pauses with reason timeout. */
+  timeout?: AbortSignal;
   /**
    * Stops every in-flight worker of the run at once (R8.3): a run budget stop, a run pause or
    * a finished run aborts it. Workers listen to it together with `signal`.
@@ -468,6 +481,17 @@ export async function runEffectsLoop(
   const runStop = new AbortController();
   ctx.runStop = runStop;
 
+  // R11.2 (known issue 60): the run's wall-clock limit ends the run as a budget stop does. The run pauses with
+  // reason timeout (unless it already ended), and every in-flight worker, planner and single-worker session
+  // is stopped; nothing new starts, so nothing merges after the stop.
+  const onTimeLimit = (): void => {
+    if (!isTerminal(journal.state)) {
+      emitLoopEvent("run.paused", { reason: "timeout", time_limit_s: timeLimitSecondsOf(ctx.settings) });
+    }
+    if (!runStop.signal.aborted) runStop.abort();
+  };
+  ctx.timeout?.addEventListener("abort", onTimeLimit, { once: true });
+
   // The loop emits the events it derives itself (promotions, blocks, the stall
   // result). Each one is committed to the journal as it is emitted.
   const emitLoopEvent = <T extends EventType>(type: T, data: EventData<T>): EngineEvent =>
@@ -611,6 +635,7 @@ export async function runEffectsLoop(
     await Promise.allSettled([...flights.values()].map((f) => f.promise));
   }
 
+  ctx.timeout?.removeEventListener("abort", onTimeLimit);
   if (fatal) {
     throw fatal.error;
   }

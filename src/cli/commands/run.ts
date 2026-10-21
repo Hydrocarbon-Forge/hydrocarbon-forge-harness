@@ -8,7 +8,16 @@ import { loadSettings, sandboxProblem, withRequestedRoles } from "../../config/i
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
 import { changedFilesOnRun, currentBranchName, runLandedInHead } from "../../git/landing.js";
-import { MERGE_TURNED_OFF_REASON, budgetResumeCommand, budgetStopMessage, failureOf, startBranchOf, withLanding } from "../../engine/landing.js";
+import {
+  MERGE_TURNED_OFF_REASON,
+  budgetResumeCommand,
+  budgetStopMessage,
+  failureOf,
+  startBranchOf,
+  timeoutResumeCommand,
+  timeoutStopMessage,
+  withLanding,
+} from "../../engine/landing.js";
 import { planHasIntegrationVerify } from "../../engine/failed-run.js";
 import { recordedRunOptions } from "../../engine/recorded-run.js";
 
@@ -189,6 +198,14 @@ export function mergeChoiceOf(flags: { merge?: boolean; noMerge?: boolean }, req
   return requestMerge;
 }
 
+/** The --timeout value must be a whole number of seconds, 1 or more (R11.2); undefined when it is not given or is valid. */
+export function timeoutFlagProblem(flags: { timeout?: number }): string | undefined {
+  if (flags.timeout === undefined) return undefined;
+  return Number.isInteger(flags.timeout) && flags.timeout >= 1
+    ? undefined
+    : "Error: --timeout must be a whole number of seconds, 1 or more\n";
+}
+
 /** The --concurrency value must be a whole number from 1 to 16 (R10.3); undefined when it is not given or is valid. */
 export function concurrencyFlagProblem(flags: { concurrency?: number }): string | undefined {
   if (flags.concurrency === undefined) return undefined;
@@ -289,6 +306,18 @@ export async function landRun(
     };
     resumeCommand = budgetResumeCommand(summary.run_id, spent, cap);
   }
+  // R11.2: a run stopped by its wall-clock limit says the limit, what each task was doing, and the resume with
+  // a longer --timeout. The limit is the one the run paused with, else the one it recorded.
+  if (summary.pause_reason === "timeout") {
+    const paused = [...opts.events].reverse().find((e) => e.type === "run.paused" && (e.data as { reason?: unknown } | undefined)?.reason === "timeout");
+    const limit = Number(
+      (paused?.data as { time_limit_s?: unknown } | undefined)?.time_limit_s ??
+        recordedRunOptions(opts.events).time_limit_s ??
+        0,
+    );
+    failure = { failure_class: "timeout", message: timeoutStopMessage(limit, summary.tasks) };
+    resumeCommand = timeoutResumeCommand(summary.run_id, limit);
+  }
   const landed = withLanding(
     { ...summary, exit_code: exitCode },
     {
@@ -316,6 +345,11 @@ export const runCommand: CliCommand = {
     const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
     if (concurrencyProblem !== undefined) {
       ctx.stderr.write(concurrencyProblem);
+      return 2;
+    }
+    const timeoutProblem = timeoutFlagProblem(ctx.flags);
+    if (timeoutProblem !== undefined) {
+      ctx.stderr.write(timeoutProblem);
       return 2;
     }
     // R10.5: --review is plan only. It is the plan command's path, and it records the worker, so a bare resume works.

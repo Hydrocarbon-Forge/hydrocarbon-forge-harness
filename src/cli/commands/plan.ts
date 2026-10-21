@@ -62,7 +62,7 @@ export interface CliCommand {
 const { createFormatter } = await import(`../output.js`);
 const { modelPreflight, repoPreflight, reportPreflightError, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
-const { buildSettingsOverrides, concurrencyFlagProblem } = await import(`./run.js`);
+const { buildSettingsOverrides, concurrencyFlagProblem, timeoutFlagProblem } = await import(`./run.js`);
 
 export const planCommand: CliCommand = {
   name: "plan",
@@ -71,6 +71,11 @@ export const planCommand: CliCommand = {
     const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
     if (concurrencyProblem !== undefined) {
       ctx.stderr.write(concurrencyProblem);
+      return 2;
+    }
+    const timeoutProblem = timeoutFlagProblem(ctx.flags);
+    if (timeoutProblem !== undefined) {
+      ctx.stderr.write(timeoutProblem);
       return 2;
     }
     // R10.3: a plan is not started in the background; the detached start is for run and resume.

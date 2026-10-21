@@ -29,6 +29,7 @@ export const PauseReason = z.enum([
   "needs_approval",
   "permission_denied",
   "budget_exhausted",
+  "timeout",
   "rate_limited",
   "user_cancel",
   "needs_human",

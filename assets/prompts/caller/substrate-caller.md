@@ -31,7 +31,7 @@ Write one JSON object and send it to `substrate run` on stdin (see Run). The obj
 - `planner` (object): `provider` (required: `claude`, `opencode` or `agy`), `model` (required in `auto` and `plan` modes, an id from `models`), `effort` (optional: `low`, `medium`, `high`, `xhigh` or `max`). Not allowed with `mode` `solo`.
 - `worker` (object): the same fields as `planner`. Required in every mode, and `model` must be named.
 - `verify` (optional array of strings): shell commands. Each must exit `0` for a task to pass. Each must not be blank.
-- `budget` (optional object): `max_usd`, `max_tokens`, `max_wall_min`, all numbers.
+- `budget` (optional object): `max_usd`, `max_tokens`, `max_wall_min`, all numbers. `max_wall_min` is in minutes: the run stops with exit `4` when its process has run that long (R11.2).
 - `permission_mode` (optional): `default`, `plan`, `acceptEdits`, `dontAsk` or `bypassPermissions`. This is Substrate's approval gate. It does not change how the harness is launched, which is always with permissions bypassed.
 - `context` (optional array of strings): repo-relative file paths. Each must exist.
 
@@ -135,13 +135,13 @@ To read the plan before any worker runs, start the run with `--review` (the plan
 - `1` with `status` `finished`: the run passed, but the landing was refused. `merged` is `false` and `not_merged_reason` says why. Read `not_merged_reason`: uncommitted tracked changes (commit or stash them), a switched branch (check out the branch the run started on), a conflict (resolve it), or a `--no-merge` run (nothing is wrong). Then run the command in `next` (`substrate merge <run_id>`). The work stays on the run branch until then.
 - `2`: usage or config error.
 - `3`: needs human: the planner left questions (`needs_input`), or a run paused for approval at Substrate's permission gate, a permission denial or a rate limit. Exit `3` for approval depends on the gate, not on a harness denial. A task the engine cannot finish without an answer that does not exist is failed, not paused: that is exit `1`.
-- `4`: budget exhausted. The run stopped between or during tasks. `message` says what was spent against the run budget and what each task was doing (passed, interrupted, not started). Passed work stays on the run branch. `next` names `substrate resume <run_id> --max-budget-usd <n>`, a budget above what was spent; run it to continue.
+- `4`: a limit was reached: the run budget, or the wall-clock time limit (`reason` `timeout`, `next` names `substrate resume <run_id> --timeout <n>`). The run stopped between or during tasks. `message` says what was spent against the run budget and what each task was doing (passed, interrupted, not started). Passed work stays on the run branch. `next` names `substrate resume <run_id> --max-budget-usd <n>`, a budget above what was spent; run it to continue.
 - `130`: interrupted (SIGINT).
 - `143`: terminated (SIGTERM).
 
 ## If a run stops or fails
 
-- **Stopped** (paused, interrupted, stopped with `substrate stop`, or budget-stopped): run `substrate resume <run_id>`. Tasks that passed are not run again. A budget stop needs a higher `--max-budget-usd` on the resume, or the same budget will stop it again.
+- **Stopped** (paused, interrupted, stopped with `substrate stop`, or budget-stopped): run `substrate resume <run_id>`. Tasks that passed are not run again. A budget stop needs a higher `--max-budget-usd` on the resume, or the same budget will stop it again. A time-limit stop (`timeout`) needs a longer `--timeout` on the resume, or the same limit stops it again; a resume starts a fresh clock.
 - **Failed** (exit `1`): run `substrate resume <run_id>`. The failed tasks retry as a new generation, the passed tasks stay, and the skipped dependents run. The progress says what is retried and what is kept.
 - **Failed at the final integration verify with every task merged:** the resume runs only the verify again. If it fails again, fix the run branch (`git switch substrate/runs/<run_id>` in a worktree, commit, then resume), and resume again.
 - **Failed in planning:** `substrate resume <run_id>` plans again, which costs again.

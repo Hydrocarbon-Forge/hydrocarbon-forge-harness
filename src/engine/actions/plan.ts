@@ -27,7 +27,7 @@ import { loadTemplate } from "../../prompts/index.js";
 import { render } from "../../prompts/render.js";
 import { buildCorrectionPrompt } from "../../roles/prompts/planner.js";
 import type { EffectContext, EngineAction } from "../effects.js";
-import { checkRunBudget } from "../effects.js";
+import { checkRunBudget, interruptOf } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
@@ -183,7 +183,7 @@ export async function runPlanAction(
       // R10.5: recorded like a worker's pid until the session ends (see endStaleWorkers).
       const pidRecord = { task_id: PLANNER_PID_TASK, generation: 0, attempt, pid: handle.pid, backend: route.backend };
       recordWorkerPid(ctx.runDir, pidRecord);
-      const unbind = bindAbort(ctx.signal, handle);
+      const unbind = bindAbort(interruptOf(ctx), handle);
       let sawUsageEvent = false;
       let harnessError: string | undefined;
 
@@ -225,7 +225,7 @@ export async function runPlanAction(
       if (stoppedForBudget) return;
       // An abort ends the run as user_cancel (the engine loop emits it); the
       // killed planner session is not a task or run failure.
-      if (ctx.signal?.aborted) return;
+      if (interruptOf(ctx)?.aborted) return;
 
       if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
         if (res.killed_for === "budget") {
@@ -358,13 +358,13 @@ export async function runPlanAction(
       onEvent: plannerEmit,
       charter,
       history,
-      signal: ctx.signal,
+      signal: interruptOf(ctx),
       runBudgetExceeded: () => stoppedForBudget,
       runSpentUsd: () => totalUsd,
     });
   } catch (err) {
     if (stoppedForBudget) return;
-    if (ctx.signal?.aborted) return;
+    if (interruptOf(ctx)?.aborted) return;
 
     if (err instanceof PlannerFailure) {
       const failureClass =
@@ -377,6 +377,8 @@ export async function runPlanAction(
   }
 
   if (stoppedForBudget) return;
+  // R11.2: a planner stopped by the run's time limit has no plan to record; the run is already paused.
+  if (interruptOf(ctx)?.aborted) return;
 
   if (outcome.kind === "needs_input") {
     let questions: Question[] = [];

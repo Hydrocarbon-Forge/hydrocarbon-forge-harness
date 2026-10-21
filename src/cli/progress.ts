@@ -222,6 +222,10 @@ export class RunProgress {
       }
       case "run.paused":
         this.setPhase("paused", at);
+        // R11.2: a run stopped by its time limit names the limit it reached.
+        if (data.reason === "timeout") {
+          return [`run paused: timeout (${Number(data.time_limit_s ?? 0)}s limit reached)`];
+        }
         return [`run paused: ${data.reason ?? "unknown"}`];
       case "run.budget.warning":
         return [`budget warning: spent ${formatCost(Number(data.cost_usd ?? 0))}` +

@@ -50,6 +50,9 @@ export const RunCreatedEvent = member(
       // R11.1: the run budget in effect at creation (the flag, the request or the setting). A resume uses it
       // unless --max-budget-usd is given again; status and watch show it.
       max_budget_usd: z.number().optional(),
+      // R11.2: the wall-clock limit in seconds in effect at creation, null when none is set. A resume uses it
+      // unless --timeout is given again; the run stops with reason timeout when it is reached.
+      time_limit_s: z.number().nullable().optional(),
       // R11.1: the run-level lists the run was started with (flags or request), reused by a resume.
       verify: z.array(z.string()).optional(),
       context: z.array(z.string()).optional(),
@@ -87,6 +90,8 @@ export const RunPausedEvent = member(
       questions_path: z.string().optional(),
       session_id: z.string().optional(),
       questions: z.array(QuestionSchema).optional(),
+      // R11.2: the wall-clock limit that was reached, for reason timeout.
+      time_limit_s: z.number().optional(),
     })
     .strict()
 );
@@ -107,6 +112,8 @@ export const RunResumedEvent = member(
         .optional(),
       // R11.1: the run budget the resume uses; a later resume without the flag keeps it.
       max_budget_usd: z.number().optional(),
+      // R11.2: the wall-clock limit the resume uses (null: none); a later resume without --timeout keeps it.
+      time_limit_s: z.number().nullable().optional(),
     })
     .strict()
 );
@@ -128,6 +135,8 @@ export const RunReopenedEvent = member(
       draft_dir: z.string().optional(),
       // R11.1: the run budget the resume uses; a later resume without the flag keeps it.
       max_budget_usd: z.number().optional(),
+      // R11.2: the wall-clock limit the resume uses (null: none); a later resume without --timeout keeps it.
+      time_limit_s: z.number().nullable().optional(),
     })
     .strict()
 );

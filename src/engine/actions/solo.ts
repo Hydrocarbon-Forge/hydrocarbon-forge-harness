@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 
 import type { BackendEvent, Command, WorkerReport } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
-import { checkRunBudget } from "../effects.js";
+import { checkRunBudget, interruptOf } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
@@ -180,7 +180,7 @@ export async function runSoloTask(
 
     const res = obs.result;
     if (res) {
-      if (ctx.signal?.aborted || res.killed_for === "cancel") {
+      if (interruptOf(ctx)?.aborted || res.killed_for === "cancel") {
         return { stop: true };
       }
       if (res.killed_for === "budget") {
@@ -225,7 +225,7 @@ export async function runSoloTask(
       isHeal || resumeExistingSession
         ? { resume: taskState.session_id ?? sessionId }
         : { id: sessionId },
-    signal: ctx.signal,
+    signal: interruptOf(ctx),
     runPolicy,
     onEvent: emit,
     onReport: (report) => writeAttemptReport(ctx, report),
