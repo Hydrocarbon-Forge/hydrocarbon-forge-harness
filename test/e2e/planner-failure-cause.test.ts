@@ -27,6 +27,8 @@ describe("R7.9: planner failures name their cause", () => {
       const res = runSubstrate({
         files: { "src/a.txt": "seed\n", "contracts/types.ts": CONTRACT_STUB },
         scenario: { calls: [BUDGET_STOPPED_PLANNER] },
+        // The run cap is off by default; this test sets it explicitly.
+        settings: { budgets: { run: { max_usd: 5 } } },
         args: [...PLAN_ARGS, "Run the budget-stopped planner case"],
       });
       try {
@@ -75,6 +77,8 @@ describe("R7.9: planner failures name their cause", () => {
       const res = runSubstrate({
         files: { "src/a.txt": "seed\n", "contracts/types.ts": CONTRACT_STUB },
         scenario: { calls: [BUDGET_STOPPED_PLANNER] },
+        // The run cap is off by default; this test sets it explicitly.
+        settings: { budgets: { run: { max_usd: 5 } } },
         args: [...PLAN_ARGS, "--output-format", "json", "Run the planning failure json case"],
       });
       try {

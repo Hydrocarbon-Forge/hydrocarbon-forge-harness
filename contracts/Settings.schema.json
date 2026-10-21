@@ -472,8 +472,7 @@
         "task",
         "l1_replans_per_task",
         "l2_per_run",
-        "planner_format_retries",
-        "approval_threshold_usd"
+        "planner_format_retries"
       ],
       "additionalProperties": false
     },

@@ -31,7 +31,7 @@ Write one JSON object and send it to `substrate run` on stdin (see Run). The obj
 - `planner` (object): `provider` (required: `claude`, `opencode` or `agy`), `model` (required in `auto` and `plan` modes, an id from `models`), `effort` (optional: `low`, `medium`, `high`, `xhigh` or `max`). Not allowed with `mode` `solo`.
 - `worker` (object): the same fields as `planner`. Required in every mode, and `model` must be named.
 - `verify` (optional array of strings): shell commands. Each must exit `0` for a task to pass. Each must not be blank.
-- `budget` (optional object): `max_usd`, `max_tokens`, `max_wall_min`, all numbers. `max_wall_min` is in minutes: the run stops with exit `4` when its process has run that long (R11.2).
+- `budget` (optional object): `max_usd`, `max_tokens`, `max_wall_min`, all numbers. Limits are optional and off by default: with no `budget`, a run is never stopped for its cost or its time. A value you give is a cap. `max_usd` caps the run's spend (exit `4` when reached). `max_wall_min` is in minutes: the run stops with exit `4` when its process has run that long (R11.2). The planner's own `budget` fields (in the plan's manifest and in each task spec) are estimates for the plan summary; they are never a cap.
 - `permission_mode` (optional): `default`, `plan`, `acceptEdits`, `dontAsk` or `bypassPermissions`. This is Substrate's approval gate. It does not change how the harness is launched, which is always with permissions bypassed.
 - `context` (optional array of strings): repo-relative file paths. Each must exist.
 
@@ -141,7 +141,7 @@ To read the plan before any worker runs, start the run with `--review` (the plan
 
 ## If a run stops or fails
 
-- **Stopped** (paused, interrupted, stopped with `substrate stop`, or budget-stopped): run `substrate resume <run_id>`. Tasks that passed are not run again. A budget stop needs a higher `--max-budget-usd` on the resume, or the same budget will stop it again. A time-limit stop (`timeout`) needs a longer `--timeout` on the resume, or the same limit stops it again; a resume starts a fresh clock.
+- **Stopped** (paused, interrupted, stopped with `substrate stop`, or budget-stopped): run `substrate resume <run_id>`. Tasks that passed are not run again. A budget stop needs a higher `--max-budget-usd` on the resume, or the same budget will stop it again. A run with no budget set is never budget-stopped; `substrate stop <run_id>` is the way to end one. A time-limit stop (`timeout`) needs a longer `--timeout` on the resume, or the same limit stops it again; a resume starts a fresh clock.
 - **Failed** (exit `1`): run `substrate resume <run_id>`. The failed tasks retry as a new generation, the passed tasks stay, and the skipped dependents run. The progress says what is retried and what is kept.
 - **Failed at the final integration verify with every task merged:** the resume runs only the verify again. If it fails again, fix the run branch (`git switch substrate/runs/<run_id>` in a worktree, commit, then resume), and resume again.
 - **Failed in planning:** `substrate resume <run_id>` plans again, which costs again.

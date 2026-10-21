@@ -14,7 +14,8 @@ export interface RecordedRun {
   merge?: boolean;
   concurrency?: number;
   requested_roles?: Record<string, unknown>;
-  max_budget_usd?: number;
+  /** The run cap the run records; null when none was set (the default). */
+  max_budget_usd?: number | null;
   /** The wall-clock limit in seconds the run records (R11.2); null when none was set. */
   time_limit_s?: number | null;
   verify?: string[];
@@ -86,11 +87,11 @@ export function runInputsRecord(settings: Settings, overrides: Partial<Settings>
  * The run budget and the wall-clock limit in effect, as fields a run records on run.created and a resume
  * records on its own event (run.resumed or run.reopened). The limit is null when none is set (R11.2).
  */
-export function budgetRecord(settings: Settings): { max_budget_usd?: number; time_limit_s: number | null } {
+export function budgetRecord(settings: Settings): { max_budget_usd: number | null; time_limit_s: number | null } {
   const cap = settings.budgets?.run?.max_usd;
   const limit = timeLimitSecondsOf(settings);
   return {
-    ...(typeof cap === "number" ? { max_budget_usd: cap } : {}),
+    max_budget_usd: typeof cap === "number" ? cap : null,
     time_limit_s: limit ?? null,
   };
 }

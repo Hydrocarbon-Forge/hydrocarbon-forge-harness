@@ -266,7 +266,8 @@ export const SpawnRequest = z.object({
     max_tokens: z.number().optional(),
     timeout_min: z.number().optional(),
     max_turns: z.number().optional(),
-    timeout_ms: z.number(),
+    // Unset: no per-session timeout (the run's --timeout and substrate stop still end it).
+    timeout_ms: z.number().optional(),
   }).strict(),
   env: z.record(z.string(), z.string()).optional(),
   raw_dir: z.string().optional(),
@@ -448,7 +449,8 @@ export const Settings = z.object({
     l1_replans_per_task: z.number(),
     l2_per_run: z.number(),
     planner_format_retries: z.number(),
-    approval_threshold_usd: z.number(),
+    // Unset: no approval pause on the estimated cost.
+    approval_threshold_usd: z.number().optional(),
   }).strict(),
   concurrency: z.object({
     workers: z.number(),

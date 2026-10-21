@@ -742,30 +742,22 @@ export const ruleL014: LintRule = (ctx) => {
 // the worker profile slot, the request's named worker or the built-in fallback route
 // (roles/router.ts resolveTaskRoute never throws), so no class can be unrouted.
 
-// L016: Task budget above the per-task cap is an error. A missing budget is a warning:
-// the task runs with the per-task cap (safeLoadPlan applies it to the approval lint).
+// L016: Task budget above the per-task cap is a warning. It fires only when the caller set a per-task
+// cap (budgets.task.max_usd). The spec's budget is advisory: an estimate, never a limit, so this is a
+// warning and no task is ended by it. No cap set (the default): silent.
 export const ruleL016: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
   const taskCap = ctx.settings.budgets?.task?.max_usd;
+  if (taskCap === undefined) return diags;
 
   for (const [id, spec] of ctx.plan.specs) {
-    if (!spec.frontmatter?.budget) {
+    const specUsd = spec.frontmatter?.budget?.max_usd;
+    if (specUsd !== undefined && specUsd > taskCap) {
       diags.push({
         code: "L016",
         severity: "warn",
         task: id,
-        message: `Task ${id} has no budget; it runs with the per-task cap${taskCap !== undefined ? ` ($${taskCap})` : ""}`,
-      });
-    } else if (
-      taskCap !== undefined &&
-      spec.frontmatter.budget.max_usd !== undefined &&
-      spec.frontmatter.budget.max_usd > taskCap
-    ) {
-      diags.push({
-        code: "L016",
-        severity: "error",
-        task: id,
-        message: `Task ${id} budget ($${spec.frontmatter.budget.max_usd}) exceeds per-task cap ($${taskCap})`,
+        message: `Task ${id} budget estimate ($${specUsd}) exceeds the per-task cap ($${taskCap}); the cap is what ends it`,
       });
     }
   }

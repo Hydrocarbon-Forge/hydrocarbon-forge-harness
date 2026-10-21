@@ -184,7 +184,8 @@ describe("E2E heal, budgets, timeouts, rate limits (R3.4)", () => {
     const manifest = manifestFor("r_BBBBBBBBBBBB", "Fail a task on its own cost budget");
     const spec = taskSpec({
       verify: "grep -q marker src/feature.txt",
-      // The task budget is far below the usage the harness reports for the call.
+      // The task budget is far below the usage the harness reports for the call. The spec's budget is
+      // advisory; the per-task cap that ends the task is the project setting, set explicitly here.
       budgetLines: ["  max_usd: 0.002"],
     });
 
@@ -210,6 +211,7 @@ describe("E2E heal, budgets, timeouts, rate limits (R3.4)", () => {
           },
         ],
       },
+      settings: { budgets: { task: { max_usd: 0.002 } } },
       args: RUN_ARGS,
     });
 
@@ -259,6 +261,8 @@ describe("E2E heal, budgets, timeouts, rate limits (R3.4)", () => {
       },
       args: RUN_ARGS,
       env: { FAKE_SCENARIO_FILE: scenarioPath },
+      // No task timeout is the default; the timer that kills this hanging session is the project setting.
+      settings: { budgets: { task: { timeout_min: 0.05 } } },
       timeoutMs: 60000,
     });
 

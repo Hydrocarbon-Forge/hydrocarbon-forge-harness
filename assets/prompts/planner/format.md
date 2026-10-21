@@ -34,7 +34,7 @@ tasks:
     spec: tasks/T1.md
   - id: T2
     spec: tasks/T2.md
-budget:                       # optional; you may only request less than the configured cap
+budget:                       # optional; an estimate of the run's cost for the plan summary, not a limit
   max_usd: 2
 ```
 A command is `{ run, timeout_s, cwd?, env? }`. `cwd` is repo-relative.
@@ -57,7 +57,7 @@ verify:
   - run: npx tsc --noEmit
     timeout_s: 120
 effort: medium                         # optional: low | medium | high | xhigh | max
-budget: { max_usd: 0.5 }               # optional; at or below the configured cap
+budget: { max_usd: 0.5 }               # optional; an estimate of this task's cost for the plan summary, not a limit
 ---
 ## Objective
 One paragraph: what exists after this task and why.
@@ -115,7 +115,7 @@ Three targets are enough for this helper. A longer list is a sign that the spec 
 5. A file that a task lists under `protected` may be created or written only by the `tests` task that owns it, or by a task the protecting task depends on (directly or transitively) and so runs before it. Any other task that writes or creates it, and the protecting task or its descendants, is an error. The fix is to add `depends_on` to the protecting task or remove the path from its `protected` list.
 6. Every task has at least one `verify` command whose binary exists and whose test paths exist at base or are created by the same task (in its `create` or `write`) or by a task it depends on, directly or transitively. A test path that nothing provides is an error: create it in this task or a dependency, or fix the path.
 7. All seven sections are present and non-empty; no placeholder text in Interface or Behavior.
-8. Every `class` is one of the classes listed in the request; budgets do not exceed the caps in the request.
+8. Every `class` is one of the classes listed in the request.
 9. `read` stays small (a handful of files); if it does not, the task is too large.
 10. Contract stubs compile with the `contracts.typecheck` commands.
 11. At most 40 tasks.

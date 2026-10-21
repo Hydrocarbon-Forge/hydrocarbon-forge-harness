@@ -38,37 +38,52 @@ function calculateMedian(values: number[]): number {
   return (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+/**
+ * The base cost of a task the estimate has no evidence for: no spec budget and no ledger entry. It is
+ * only an estimate for the approval threshold and the plan summary; it never caps a task (owner, 2026-10-21).
+ */
+export const ESTIMATE_TASK_USD = 0.5;
+
+/**
+ * The estimated cost of a plan. A task's spec budget (an advisory figure the planner wrote) is its base
+ * cost when the spec has one; otherwise the median of the ledger's costs for the class, then for all
+ * tasks, then ESTIMATE_TASK_USD. Each task gets a retry allowance. `requires_approval` is true only when
+ * budgets.approval_threshold_usd is set and the estimate is above it.
+ */
 export function estimateRunCost(
   manifest: Manifest,
   ledger: LedgerEntry[],
-  settings: Settings
+  settings: Settings,
+  specs?: ReadonlyMap<TaskId, { frontmatter?: { budget?: { max_usd?: number } } }>
 ): { estimated_usd: number; requires_approval: boolean } {
   const retryFactor = 0.2;
   const retryMultiplier = 1.0 + retryFactor;
-  const defaultTaskBudget = settings.budgets.task.max_usd ?? 0.5;
 
   let totalCost = 0;
-  for (const _task of manifest.tasks) {
+  for (const task of manifest.tasks) {
+    const specBudget = specs?.get(task.id)?.frontmatter?.budget?.max_usd;
     const targetClass = "feature";
     const classCosts = ledger
       .filter((e) => (e.task_class === targetClass || !e.task_class) && e.usage?.cost_usd != null)
       .map((e) => e.usage.cost_usd);
 
     let baseCost: number;
-    if (classCosts.length > 0) {
+    if (specBudget !== undefined) {
+      baseCost = specBudget;
+    } else if (classCosts.length > 0) {
       baseCost = calculateMedian(classCosts);
     } else {
       const allCosts = ledger
         .filter((e) => e.usage?.cost_usd != null)
         .map((e) => e.usage.cost_usd);
-      baseCost = allCosts.length > 0 ? calculateMedian(allCosts) : defaultTaskBudget;
+      baseCost = allCosts.length > 0 ? calculateMedian(allCosts) : ESTIMATE_TASK_USD;
     }
 
     totalCost += baseCost * retryMultiplier;
   }
 
-  const approvalThreshold = settings.budgets.approval_threshold_usd ?? 2.0;
-  const requires_approval = totalCost > approvalThreshold;
+  const approvalThreshold = settings.budgets.approval_threshold_usd;
+  const requires_approval = approvalThreshold !== undefined && totalCost > approvalThreshold;
 
   return {
     estimated_usd: totalCost,

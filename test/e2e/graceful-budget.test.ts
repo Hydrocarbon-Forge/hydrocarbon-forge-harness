@@ -232,6 +232,16 @@ describe("R11.1: the run budget is recorded and reused by a resume", () => {
         return JSON.stringify(ev);
       });
       writeFileSync(eventsPath, stripped.join("\n") + "\n", "utf8");
+      // The project setting is the run cap here: this test sets it explicitly (no cap is the default).
+      writeFileSync(
+        join(repo.dir, ".substrate", "settings.json"),
+        JSON.stringify({
+          backends: { claude: { bin: join(binDir, "claude") }, opencode: { bin: join(binDir, "opencode") }, agy: { bin: join(binDir, "agy") } },
+          concurrency: { workers: 1 },
+          budgets: { run: { max_usd: 5 } },
+        }),
+        "utf8",
+      );
       expect(statusOf(repo.dir, env, runId)).toMatch(/budget \$5\.00\)/);
 
       scenarioReset(scenarioPath, [t2Edit]);

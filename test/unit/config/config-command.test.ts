@@ -80,6 +80,9 @@ describe("config command", () => {
 
   it("get prints an object as indented JSON", async () => {
     const cwd = tmp();
+    // The run cap is off by default; this test sets one explicitly so there is an object to print.
+    mkdirSync(join(cwd, ".substrate"), { recursive: true });
+    writeFileSync(join(cwd, ".substrate", "settings.json"), JSON.stringify({ budgets: { run: { max_usd: 5 } } }));
     const stdout = createMockWritable();
     const stderr = createMockWritable();
     const exitCode = await configCommand.execute({
@@ -91,7 +94,7 @@ describe("config command", () => {
     });
     expect(exitCode).toBe(0);
     const out = stdout.getOutput();
-    expect(JSON.parse(out.slice(0, -1))).toEqual(DEFAULT_SETTINGS.budgets.run);
+    expect(JSON.parse(out.slice(0, -1))).toEqual({ max_usd: 5 });
     expect(out).toContain("\n  ");
   });
 

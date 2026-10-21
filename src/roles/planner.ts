@@ -74,8 +74,10 @@ export const PLANNER_MIN_USD = 0.5;
 /**
  * The --max-budget-usd of one planner session: the run budget not yet spent, floored at
  * PLANNER_MIN_USD and never above the run cap. The per-task cap binds tasks, not the planner (R7.9).
+ * Undefined when the run has no cap (the default): the planner session then gets no cap either.
  */
-export function plannerSpawnBudgetUsd(runCapUsd: number, spentUsd: number): number {
+export function plannerSpawnBudgetUsd(runCapUsd: number | undefined, spentUsd: number): number | undefined {
+  if (runCapUsd === undefined) return undefined;
   return Math.min(runCapUsd, Math.max(runCapUsd - spentUsd, PLANNER_MIN_USD));
 }
 
@@ -285,7 +287,7 @@ export async function ingestPlanDraft(opts: {
   // Approval lint: the plan as the approval step re-reads it from the run directory.
   let loaded: Awaited<ReturnType<typeof safeLoadPlan>>;
   try {
-    loaded = await safeLoadPlan(manifestPath, opts.repoRoot, opts.settings.budgets?.task?.max_usd);
+    loaded = await safeLoadPlan(manifestPath, opts.repoRoot);
   } catch (err: any) {
     return { ok: false, diagnostics: [`Failed to load the plan for lint: ${err.message}`] };
   }
@@ -418,6 +420,11 @@ function money(value: number | undefined): string {
   return value === undefined ? "" : `$${value.toFixed(2)}`;
 }
 
+/** A cap as the planner request shows it: the dollar amount, or `no limit` when the caller set none. */
+function capText(value: number | undefined): string {
+  return value === undefined ? "no limit" : money(value);
+}
+
 function addTotals(totals: UsageTotals, record: UsageRecord): UsageTotals {
   return {
     input_tokens: totals.input_tokens + (record.input_tokens ?? 0),
@@ -471,8 +478,8 @@ async function requestVars(opts: PlannerRunOptions, route: Route): Promise<Recor
     base_ref: baseRef,
     repo_root: opts.repoRoot,
     classes: "search, mechanical, boilerplate, tests, feature, refactor, debug, review",
-    task_budget: money(budgets?.task?.max_usd),
-    run_budget: money(budgets?.run?.max_usd),
+    task_budget: capText(budgets?.task?.max_usd),
+    run_budget: capText(budgets?.run?.max_usd),
     max_tasks: "",
     charter: opts.charter ?? "",
     history: opts.history ?? "",
@@ -617,7 +624,8 @@ export async function runPlanner(
         : {}),
     };
   const maxAttempts = 1 + (settings.budgets?.planner_format_retries ?? 2);
-  const runCapUsd = settings.budgets?.run?.max_usd ?? 5.0;
+  // Undefined when the run has no cap (the default): the planner session gets no --max-budget-usd.
+  const runCapUsd = settings.budgets?.run?.max_usd;
   const instructionFiles = instructionFilesFor(opts);
 
   let totals: UsageTotals = { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
@@ -661,7 +669,9 @@ export async function runPlanner(
       },
       budget: {
         max_usd: plannerSpawnBudgetUsd(runCapUsd, opts.runSpentUsd?.() ?? totals.cost_usd),
-        timeout_ms: (settings.budgets?.task?.timeout_min ?? 30) * 60 * 1000,
+        ...(settings.budgets?.task?.timeout_min
+          ? { timeout_ms: settings.budgets.task.timeout_min * 60 * 1000 }
+          : {}),
         ...(settings.budgets?.task?.max_tokens
           ? { max_tokens: settings.budgets.task.max_tokens }
           : {}),
@@ -714,7 +724,7 @@ export async function runPlanner(
 
     if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
       // claude stopped the session at its --max-budget-usd cap: a budget failure, not a crash (R7.9).
-      if (res.killed_for === "budget") {
+      if (res.killed_for === "budget" && runCapUsd !== undefined) {
         const spent = sessionTotals?.cost_usd ?? res.usage.cost_usd;
         throw new PlannerFailure("budget", plannerBudgetMessage(spawnReq.budget.max_usd ?? 0, spent, runCapUsd));
       }

@@ -194,9 +194,12 @@ async function runAttempt(
   taskTotals: TaskTotals
 ): Promise<AttemptOutcome> {
   // Per-attempt timeout (R3.4): the timer is armed for every attempt, not only the
-  // first, and it kills this attempt's session, never the run.
+  // first, and it kills this attempt's session, never the run. Unset (the default) means no
+  // per-attempt timeout; the spec's budget.timeout_min is an estimate and never a kill.
   const timeoutMs =
-    (opts.spec.budget?.timeout_min ?? opts.settings.budgets.task.timeout_min ?? 30) * 60 * 1000;
+    opts.settings.budgets.task.timeout_min !== undefined
+      ? opts.settings.budgets.task.timeout_min * 60 * 1000
+      : undefined;
 
   const spawnReq: SpawnRequest = {
     role: "worker",
@@ -219,10 +222,13 @@ async function runAttempt(
         "subagents",
       ],
     },
+    // Only the project settings cap a worker (none by default); the spec's budget is advisory.
     budget: {
-      max_usd: opts.spec.budget?.max_usd ?? opts.settings.budgets.task.max_usd,
-      timeout_ms: timeoutMs,
-      ...(opts.spec.budget?.max_tokens ? { max_tokens: opts.spec.budget.max_tokens } : {}),
+      ...(opts.settings.budgets.task.max_usd !== undefined ? { max_usd: opts.settings.budgets.task.max_usd } : {}),
+      ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
+      ...(opts.settings.budgets.task.max_tokens !== undefined
+        ? { max_tokens: opts.settings.budgets.task.max_tokens }
+        : {}),
     },
   };
 
@@ -232,10 +238,13 @@ async function runAttempt(
   recordWorkerPid(opts.rawDir, pidRecord);
 
   let timedOut = false;
-  const timeoutTimer = setTimeout(() => {
-    timedOut = true;
-    void handle.kill("timeout");
-  }, timeoutMs);
+  const timeoutTimer =
+    timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true;
+          void handle.kill("timeout");
+        }, timeoutMs);
 
   let sessionId = session.resume ?? session.id ?? "";
   let sawUsage = false;

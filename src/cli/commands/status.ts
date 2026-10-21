@@ -190,7 +190,8 @@ function liveHeader(
           ? "Process: none (planned)"
           : "Process: not running (stopped)";
   const cost = formatCost(record.state.usage.total_usd);
-  const budgetText = budget !== undefined && budget !== null ? ` (budget $${Number(budget).toFixed(2)})` : "";
+  // No run cap is set unless the caller set one (the default): the text says so.
+  const budgetText = budget !== undefined && budget !== null ? ` (budget $${Number(budget).toFixed(2)})` : " (budget: none)";
   const limitText = timeLimit !== undefined ? `     Time limit: ${timeLimit.limitS}s (elapsed ${timeLimit.elapsedS}s)` : "";
   const countText = [
     `${counts.passed} passed`,
@@ -346,6 +347,7 @@ export const statusCommand: CliCommand = {
         elapsed_s: elapsedS,
         last_event_ts: record.lastEventAt !== undefined ? new Date(record.lastEventAt).toISOString() : null,
         cost_usd: state.usage.total_usd,
+        // null: no run cap is set (the default).
         budget_usd: typeof budget === "number" ? budget : null,
         // R11.2: the wall-clock limit in seconds, null when none is set.
         time_limit_s: timeLimitS,

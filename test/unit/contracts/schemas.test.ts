@@ -440,7 +440,7 @@ describe("backend layer", () => {
     expectReject("Capabilities", { ...valid, name: "unknown" });
   });
 
-  it("SpawnRequest requires role/cwd/prompt/model/permission/budget+timeout", () => {
+  it("SpawnRequest requires role/cwd/prompt/model/permission and a budget object; timeout and caps are optional", () => {
     const valid = {
       role: "worker",
       cwd: "/tmp/w",
@@ -452,7 +452,10 @@ describe("backend layer", () => {
     expectAccept("SpawnRequest", valid);
     expectReject("SpawnRequest", { ...valid, role: "admin" });
     expectReject("SpawnRequest", { ...valid, permission: { allow: [] } });
-    expectReject("SpawnRequest", { ...valid, budget: {} });
+    // Changed (2026-10-21, owner): no timeout and no cap are the default, so an empty budget is a valid
+    // request; the old assertion (an empty budget is rejected because timeout_ms was required) no longer holds.
+    expectAccept("SpawnRequest", { ...valid, budget: {} });
+    expectReject("SpawnRequest", { ...valid, budget: { max_usd: "x" } });
   });
 
   it("SessionResult kill reasons are budget/timeout/cancel only", () => {

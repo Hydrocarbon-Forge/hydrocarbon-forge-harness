@@ -8,13 +8,12 @@ import { parseManifest, parseTaskSpec, type ParsedPlan, type ParsedTaskSpec } fr
  * Loads a planned run's manifest and task specs for linting, the way the approval lint
  * sees them. Each contract file missing from the repository root gets a placeholder
  * (`export {};`), and each write target a stub, so the lint can see the stubs as they
- * will be. The returned cleanup removes what was created. `taskCapUsd` is the per-task
- * cap that a task without a budget gets (settings budgets.task.max_usd).
+ * will be. The returned cleanup removes what was created. A task without a budget keeps
+ * none: budgets are advisory and no cap is applied to it.
  */
 export async function safeLoadPlan(
   manifestPath: string,
-  repoRoot?: string,
-  taskCapUsd?: number
+  repoRoot?: string
 ): Promise<ParsedPlan & { cleanup: () => void }> {
   const resolvedManifestPath = path.resolve(manifestPath);
   const rawManifest = await fs.promises.readFile(resolvedManifestPath, "utf8");
@@ -41,11 +40,6 @@ export async function safeLoadPlan(
       rawSpec = await fs.promises.readFile(specPath, "utf8");
     }
     const parsedSpec = parseTaskSpec(rawSpec, task.spec);
-    // A task without a budget runs with the per-task cap (settings budgets.task), so the
-    // approval estimate counts the same amount the worker is given.
-    if (!parsedSpec.frontmatter.budget) {
-      parsedSpec.frontmatter.budget = { max_usd: taskCapUsd ?? 0.5, timeout_min: 30 };
-    }
 
     if (repoRoot) {
       const repoSpecPath = path.resolve(repoRoot, task.spec);

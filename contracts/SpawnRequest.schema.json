@@ -81,9 +81,6 @@
           "type": "number"
         }
       },
-      "required": [
-        "timeout_ms"
-      ],
       "additionalProperties": false
     },
     "env": {

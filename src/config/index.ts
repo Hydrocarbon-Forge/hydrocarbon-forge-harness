@@ -101,13 +101,15 @@ export const DEFAULT_SETTINGS: Contracts.Settings & { pricing: Contracts.Pricing
   pricing: {
     models: {},
   } as unknown as Contracts.PricingTable,
+  // Spend and time limits are off by default (owner, 2026-10-21): a run, a task and the approval
+  // threshold have no cap until the caller sets one (settings, SUBSTRATE_MAX_BUDGET_USD, --max-budget-usd,
+  // --timeout or the request's budget object).
   budgets: {
-    run: { max_usd: 5 },
-    task: { max_usd: 0.5 },
+    run: {},
+    task: {},
     l1_replans_per_task: 2,
     l2_per_run: 2,
     planner_format_retries: 2,
-    approval_threshold_usd: 2,
   },
   concurrency: { workers: 3 },
   permissions: { allow: [], deny: [] },

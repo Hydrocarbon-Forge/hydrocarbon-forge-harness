@@ -79,17 +79,17 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 
 | Key | Type | Meaning |
 |---|---|---|
-| `budgets.run.max_usd` | number | Spend cap for a whole run in USD. Default 5. It also bounds the planner: each planner session is capped at the run budget not yet spent, at least 0.5 and never above this cap. |
+| `budgets.run.max_usd` | number | Spend cap for a whole run in USD. Default unset: no cap, and the run is never ended for its cost. When set, it also bounds the planner: each planner session is capped at the run budget not yet spent, at least 0.5 and never above this cap. |
 | `budgets.run.max_tokens` | number | Token cap for a whole run. Unset by default. |
 | `budgets.run.max_wall_min` | number | Wall-clock limit for one `run` or `resume` process, in minutes, planning included. Unset by default; zero or less means no limit. `--timeout` (seconds) replaces it. When reached the run pauses with reason `timeout` and exits `4` (see the time limit stop in `cli.md`). |
-| `budgets.task.max_usd` | number | Spend cap for one task in USD. Default 0.5. It binds tasks only: the planner is bounded by the run budget (see `budgets.run.max_usd`), each planner session getting the run budget not yet spent, at least 0.5 and never above the run cap. |
+| `budgets.task.max_usd` | number | Spend cap for one task in USD. Default unset: no cap. When set, a task that reaches it is ended (`budget_exceeded`). It binds workers only; the spec's `budget.max_usd` is an advisory estimate and never a cap (see below). |
 | `budgets.task.max_tokens` | number | Token cap for one task. Unset by default. |
-| `budgets.task.timeout_min` | number | Timeout for one task, in minutes. Falls back to 30 when unset. |
+| `budgets.task.timeout_min` | number | Timeout for one task, in minutes. Default unset: no per-task timeout. When set, a worker session that runs past it is killed. The spec's `budget.timeout_min` is advisory and is not a timeout. |
 | `budgets.task.max_turns` | number | Turn cap for one task. Unset by default. |
 | `budgets.l1_replans_per_task` | integer | Maximum L1 replans (heal and retry attempts) for one task. Default 2. |
 | `budgets.l2_per_run` | integer | Maximum L2 full re-plans for one run. Default 2. |
 | `budgets.planner_format_retries` | integer | Planner retries after an invalid plan: a format, contract typecheck or approval lint refusal (see the events in `cli.md`). Default 2. |
-| `budgets.approval_threshold_usd` | number | Estimated cost above which approval is required. Default 2. |
+| `budgets.approval_threshold_usd` | number | Estimated cost above which the run pauses for approval (`needs_approval`). Default unset: the estimate never pauses a run. The permission mode `default` always asks, whatever the estimate. |
 | `concurrency.workers` | integer | Maximum number of worker tasks running at once, each in its own worktree. Default 3. |
 | `defaults.planner_provider` | string | Provider whose `plan` profile slot routes the planner. |
 | `defaults.worker_provider` | string | Provider whose profile routes worker tasks and the escalation chain. |
@@ -222,10 +222,13 @@ The built-in price table (`src/backends/default-pricing.ts`) is merged with this
 
 Spend, token and time limits, and retry counts.
 
-Default: `run.max_usd` 5, `task.max_usd` 0.5, `l1_replans_per_task` 2, `l2_per_run` 2, `planner_format_retries` 2, `approval_threshold_usd` 2.
+Default: `run.max_usd`, `task.max_usd`, `task.timeout_min` and `approval_threshold_usd` unset (no limit); `l1_replans_per_task` 2, `l2_per_run` 2, `planner_format_retries` 2.
+
+Limits are opt-in (owner, 2026-10-21). With none set, a run's cost is still shown live in `status` and `watch`, and `substrate stop <id>` is the way to end a run. `--timeout`, `--max-budget-usd` and the settings above are the brakes you turn on. The example below sets caps for illustration; it is not the default.
 
 - `run`: `max_usd`, `max_tokens` and `max_wall_min` are read. `max_wall_min` is the wall-clock limit of one run process (R11.2); `--timeout` (seconds) sets it. `--max-budget-usd` and `SUBSTRATE_MAX_BUDGET_USD` set `run.max_usd`.
-- `task`: `max_usd`, `max_tokens`, `timeout_min` (30 when unset) and `max_turns` are read.
+- `task`: `max_usd`, `max_tokens`, `timeout_min` and `max_turns` are read. Each is enforced only when it is set here.
+- Planner budgets (`budget` in the manifest, and `budget` in each task spec, with `max_usd`, `max_tokens`, `timeout_min`, `max_turns`) are advisory: they feed the cost estimate in the plan summary and the approval threshold, and they never end a task or the planner.
 - `l1_replans_per_task`, `l2_per_run`, `planner_format_retries` and `approval_threshold_usd` are read as described in the index.
 
 ```json

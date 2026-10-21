@@ -93,3 +93,16 @@ The rule now:
 - The reopening is recorded as one journal event, `run.reopened` (reason `planning`, `setup` or `tasks`, with `failed_tasks`, `skipped_tasks`, `kept_tasks`). The reducer is the only place that changes the states, so a replay of the log gives the same state.
 
 Code: `src/engine/engine.ts` (`endedFailed`, `reopenData`), `src/engine/reducer.ts` (`run.reopened`, `ladder_base`), `src/engine/ladder.ts`, `src/engine/actions/integrate.ts`, `src/engine/failed-run.ts`, `src/cli/commands/resume.ts`.
+
+## Note 2026-10-21 (R12.1): spend and time limits are opt-in; planner budgets are estimates
+
+The owner's instruction (2026-10-21): "there's no need, that seems like it will just stop agents that end up taking too long because their task is actually hard". This supersedes the budget-default rows above: "Run budget exhausted" (the exit 4 row, and its clause that a per-task budget exceeded is an L1 trigger, which now needs a per-task cap the caller set) and "Solo mode" (its budget checks run only when a cap is set).
+
+The rule now:
+- `budgets.run.max_usd`, `budgets.task.max_usd`, `budgets.task.timeout_min` and `budgets.approval_threshold_usd` are unset by default. An unset limit applies nowhere: no `--max-budget-usd` reaches a harness, no run pauses for its cost, no task is killed for its cost or time, and the estimate never pauses a run for approval.
+- The caller sets a limit with `--max-budget-usd`, `SUBSTRATE_MAX_BUDGET_USD`, `--timeout`, the settings keys, or the request's `budget` object. A set limit is enforced as before.
+- The planner's `budget` fields (`max_usd`, `max_tokens`, `timeout_min`, `max_turns` in a task spec; `max_usd` in the manifest) are advisory. They feed the cost estimate and nothing else.
+- Cost is still shown live (`status`, `watch`, the summary). `substrate stop <id>` ends a run at any time.
+
+Code and tests: `test/e2e/limits-optin.test.ts`; known issue 69.
+

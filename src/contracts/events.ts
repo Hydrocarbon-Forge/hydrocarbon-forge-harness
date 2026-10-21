@@ -48,8 +48,8 @@ export const RunCreatedEvent = member(
       // The worker count in effect at creation (R10.3): a resume uses it unless --concurrency is given again.
       concurrency: z.number().int().optional(),
       // R11.1: the run budget in effect at creation (the flag, the request or the setting). A resume uses it
-      // unless --max-budget-usd is given again; status and watch show it.
-      max_budget_usd: z.number().optional(),
+      // unless --max-budget-usd is given again; status and watch show it. null: no run cap was set.
+      max_budget_usd: z.number().nullable().optional(),
       // R11.2: the wall-clock limit in seconds in effect at creation, null when none is set. A resume uses it
       // unless --timeout is given again; the run stops with reason timeout when it is reached.
       time_limit_s: z.number().nullable().optional(),
@@ -110,8 +110,8 @@ export const RunResumedEvent = member(
             .strict()
         )
         .optional(),
-      // R11.1: the run budget the resume uses; a later resume without the flag keeps it.
-      max_budget_usd: z.number().optional(),
+      // R11.1: the run budget the resume uses (null: none); a later resume without the flag keeps it.
+      max_budget_usd: z.number().nullable().optional(),
       // R11.2: the wall-clock limit the resume uses (null: none); a later resume without --timeout keeps it.
       time_limit_s: z.number().nullable().optional(),
     })
@@ -136,8 +136,8 @@ export const RunReopenedEvent = member(
       draft_dir: z.string().optional(),
       // R11.3: a planning reopen whose planning round stopped before any plan existed (no plan was produced or refused).
       planning_cut_short: z.boolean().optional(),
-      // R11.1: the run budget the resume uses; a later resume without the flag keeps it.
-      max_budget_usd: z.number().optional(),
+      // R11.1: the run budget the resume uses (null: none); a later resume without the flag keeps it.
+      max_budget_usd: z.number().nullable().optional(),
       // R11.2: the wall-clock limit the resume uses (null: none); a later resume without --timeout keeps it.
       time_limit_s: z.number().nullable().optional(),
     })

@@ -452,6 +452,8 @@ const row08: MatrixRow = {
       files: SEED,
       args: [...RUN_ARGS, "Run the timeout case"],
       env: { FAKE_SCENARIO_FILE: scenarioPath },
+      // No task timeout is the default; the project setting is the timer that kills the hang.
+      settings: { budgets: { task: { timeout_min: 0.05 } } },
       timeoutMs: 120000,
     });
     try {

@@ -434,7 +434,11 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - Seen (live run `r_JEKHABPOAS5N`, 2026-10-21): during the planning phase the progress line and `status` show `Cost $0.0000` (or pending) for the whole planner session. claude reports the session's cost only when the session ends, so the engine has no figure earlier. The true cost appears in the planner's usage row once the session finishes (`usage.recorded`, role `planner`).
 - Direction: none planned. A live estimate would need a cost source other than claude's end-of-session report.
 
-## 67. OPEN (cosmetic, fact recorded): two budget numbers for one run
+## 67. MOOT (R12.1, 2026-10-21): two budget numbers for one run
+
+- Moot: the planner's `budget` figures are now advisory estimates (R12.1) and never a cap, so the manifest figure no longer competes with the run cap. The run cap is the one the caller sets (`--max-budget-usd`, the request's `budget`, or `budgets.run.max_usd`). The L025 warning still names the two when the caller set a run cap.
+- The text below is the state before R12.1.
+
 
 - Found (R11.3, from `src/`): the engine enforces `settings.budgets.run.max_usd`. The CLI flag `--max-budget-usd` writes that setting (`src/cli/request.ts` sets `budget.max_usd`, and `src/cli/request.ts` maps it to `overrides.budgets.run.max_usd`). The manifest's own `budget.max_usd` is not a run cap: the engine does not stop a run at it, and the only reader is lint rule L025 (`src/spec/rules.ts`), which warns when the manifest figure is above the run cap. A run can therefore show a manifest budget (for example $1.50) and a run budget (for example $3.00) that differ, and the run budget is the one that stops it.
 - Direction: none planned. The text output shows the run budget only.
@@ -443,3 +447,10 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - Found (R11.3): `summary.txt` starts with the last progress lines of the run (in run `r_JEKHABPOAS5N`: `merged into master` and `run ... finished: 3/3 passed`), the same lines `progress.log` ends with, then the `--- Run Summary ---` block. Both are written by the run; the text is correct, but a reader sees the lines twice when reading the two files one after the other.
 - Direction: none planned; drop the repeated lines from `summary.txt` if the owner wants it shorter.
+
+## 69. FIXED (R12.1): flat default caps ended hard tasks, and planner estimates were enforced
+
+- Found (owner, 2026-10-21): the defaults capped every run and task whatever its difficulty. `budgets.run.max_usd` 5, `budgets.task.max_usd` 0.5 and `budgets.task.timeout_min` 30 (fallback) applied to every run. The planner's per-task `budget` in each spec (and the manifest's) was enforced as a hard kill (`src/engine/actions/task.ts`, `src/roles/worker.ts`), and lint L016 made a planner ask for more than $0.50 an error, so a hard task could never get more than $0.50. `budgets.approval_threshold_usd` 2 paused a run `needs_approval` on the plan's estimate under the default mode.
+- Fixed: every limit is off unless the caller sets it. The planner's per-task and manifest budgets are estimates: they feed the approval estimate and the lint, and nothing ends a task or a planner session. Settings caps (`budgets.task.max_usd`, `budgets.task.timeout_min`), `--max-budget-usd`, `--timeout`, `SUBSTRATE_MAX_BUDGET_USD` and the request's `budget` still enforce as before when set. `status` prints `budget: none` and `budget_usd: null`; `run.created` records `max_budget_usd: null`.
+- Consequence: a worker that produces no output and never ends runs until `--timeout` (when set) or `substrate stop <id>`. Nothing else ends it.
+- Tests: `test/e2e/limits-optin.test.ts` (no-limit run past the old $0.50 cap, estimate above $2 without a pause, advisory spec budget versus the enforced settings cap, `--max-budget-usd` still stops, argv carries `--max-budget-usd` only when set, status, resume, lint, planner request), `test/unit/spec/rules.test.ts` (L016), `test/unit/contracts/schemas.test.ts` (SpawnRequest budget).

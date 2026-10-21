@@ -10,9 +10,9 @@
 ## Allowed task classes
 {{classes}}
 
-## Caps (you may request less, never more)
-- per-task budget: {{task_budget}}
-- run budget: {{run_budget}}
+## Caps
+- per-task cap: {{task_budget}}
+- run cap: {{run_budget}}
 - maximum tasks: {{max_tasks}}
 
 ## Project charter

@@ -170,9 +170,11 @@ export async function runPlanAction(
           ],
         },
         budget: {
-          // The planner is bounded by the run budget not yet spent, as in runPlanner (R7.9).
-          max_usd: plannerSpawnBudgetUsd(ctx.settings.budgets?.run?.max_usd ?? 5.0, totalUsd),
-          timeout_ms: (ctx.settings.budgets?.task?.timeout_min ?? 30) * 60 * 1000,
+          // The planner is bounded by the run budget not yet spent, as in runPlanner (R7.9); no cap when the run has none.
+          max_usd: plannerSpawnBudgetUsd(ctx.settings.budgets?.run?.max_usd, totalUsd),
+          ...(ctx.settings.budgets?.task?.timeout_min
+            ? { timeout_ms: ctx.settings.budgets.task.timeout_min * 60 * 1000 }
+            : {}),
           ...(ctx.settings.budgets?.task?.max_tokens ? { max_tokens: ctx.settings.budgets.task.max_tokens } : {}),
           ...(ctx.settings.budgets?.task?.timeout_min ? { timeout_min: ctx.settings.budgets.task.timeout_min } : {}),
         },
@@ -228,12 +230,13 @@ export async function runPlanAction(
       if (interruptOf(ctx)?.aborted) return;
 
       if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
-        if (res.killed_for === "budget") {
-          const capUsd = plannerSpawnBudgetUsd(ctx.settings.budgets?.run?.max_usd ?? 5.0, totalUsd);
+        const runCapUsd = ctx.settings.budgets?.run?.max_usd;
+        if (res.killed_for === "budget" && runCapUsd !== undefined) {
+          const capUsd = plannerSpawnBudgetUsd(runCapUsd, totalUsd) ?? runCapUsd;
           emit("task.failed", {
             failure_class: "budget_exceeded",
             message: boundedMessage(
-              plannerBudgetMessage(capUsd, sessionTotals?.cost_usd ?? res.usage.cost_usd, ctx.settings.budgets?.run?.max_usd ?? 5.0),
+              plannerBudgetMessage(capUsd, sessionTotals?.cost_usd ?? res.usage.cost_usd, runCapUsd),
             ),
           });
           emit("run.finished", { exit_code: 1, status: "failed" });

@@ -394,25 +394,32 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     expect(result.diagnostics.some((d) => d.code === "L015")).toBe(false);
   });
 
-  it("L016 warns, and does not reject, a task with no budget", async () => {
+  // Changed (2026-10-21, owner): budgets are advisory and no cap is the default. The old tests pinned a
+  // missing-budget warning and an error for an over-budget spec; both now depend on a per-task cap being set.
+  it("L016 is silent with no per-task cap: no missing-budget warning and no over-budget diagnostic", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
-    const spec = sampleParsedTaskSpec({
+    const specNoBudget = sampleParsedTaskSpec({
       frontmatter: sampleTaskSpecFrontmatter({ id: "T1", budget: undefined }),
     });
+    const specOverBudget = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({ id: "T2", budget: { max_usd: 1.5 } }),
+    });
     const plan = sampleParsedPlan({
-      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
-      specs: [spec],
+      manifest: sampleManifest({
+        tasks: [
+          { id: "T1", spec: "tasks/T1.md" },
+          { id: "T2", spec: "tasks/T2.md" },
+        ],
+      }),
+      specs: [specNoBudget, specOverBudget],
     });
 
     const result = await lintPlan(plan, repo, settings);
-    const diag = result.diagnostics.find((d) => d.code === "L016");
-    expect(diag?.severity).toBe("warn");
-    expect(diag?.message).toContain("per-task cap");
-    expect(result.diagnostics.filter((d) => d.code === "L016" && d.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((d) => d.code === "L016")).toEqual([]);
   });
 
-  it("L016: emits error when task budget is missing or exceeds per-task cap", async () => {
+  it("L016 warns (not an error) when a spec's budget estimate exceeds the per-task cap that is set", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings({
       budgets: {
@@ -435,7 +442,9 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L016");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
+    expect(diag?.message).toContain("exceeds the per-task cap");
+    expect(result.diagnostics.filter((d) => d.code === "L016" && d.severity === "error")).toEqual([]);
   });
 
   it("L017: emits error when task read set exceeds context budget cap", async () => {

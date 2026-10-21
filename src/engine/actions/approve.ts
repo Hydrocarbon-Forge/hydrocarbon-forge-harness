@@ -27,7 +27,7 @@ export async function runLintAction(
 
   let parsedPlan: ParsedPlan & { cleanup?: () => void };
   try {
-    parsedPlan = await safeLoadPlan(manifestPath, ctx.repoRoot, ctx.settings.budgets?.task?.max_usd);
+    parsedPlan = await safeLoadPlan(manifestPath, ctx.repoRoot);
   } catch (err: any) {
     emit("plan.lint", { valid: false, diagnostics: [] });
     emit("plan.rejected", { reason: `Failed to parse plan files: ${err.message}` });
@@ -49,20 +49,12 @@ export async function runLintAction(
     parsedPlan.cleanup?.();
   }
 
-  const settingsWithDefaults = {
-    ...ctx.settings,
-    budgets: {
-      ...ctx.settings.budgets,
-      task: {
-        max_usd: 0.5,
-        ...(ctx.settings.budgets?.task ?? {}),
-      },
-    },
-  };
-  const { estimated_usd } = estimateRunCost(parsedPlan.manifest, [], settingsWithDefaults);
-  const approvalThreshold = ctx.settings.budgets?.approval_threshold_usd ?? 2.0;
+  // The estimate pauses the run only when the caller set budgets.approval_threshold_usd (off by default).
+  const { estimated_usd } = estimateRunCost(parsedPlan.manifest, [], ctx.settings, parsedPlan.specs);
+  const approvalThreshold = ctx.settings.budgets?.approval_threshold_usd;
   const requiresApproval =
-    ctx.permission_mode === "default" || estimated_usd > approvalThreshold;
+    ctx.permission_mode === "default" ||
+    (approvalThreshold !== undefined && estimated_usd > approvalThreshold);
 
   if (requiresApproval) {
     if (ctx.permission_mode === "bypassPermissions") {

@@ -596,7 +596,9 @@ async function runPlannerSession(
     },
     budget: {
       max_usd: opts.settings.budgets.task.max_usd,
-      timeout_ms: (opts.settings.budgets.task.timeout_min ?? 30) * 60 * 1000,
+      ...(opts.settings.budgets.task.timeout_min !== undefined
+        ? { timeout_ms: opts.settings.budgets.task.timeout_min * 60 * 1000 }
+        : {}),
       ...(opts.settings.budgets.task.max_tokens
         ? { max_tokens: opts.settings.budgets.task.max_tokens }
         : {}),

@@ -110,12 +110,12 @@ export async function runTaskAction(
           : (ctx.signal ?? ctx.runStop?.signal);
       let rateLimits = 0;
 
+      // The per-task caps come only from the project settings (none by default). The spec's budget is
+      // the planner's estimate and never ends a task (owner, 2026-10-21).
       const taskBudget = {
-        max_usd: parsedSpec.frontmatter.budget?.max_usd ?? ctx.settings.budgets.task.max_usd,
-        max_tokens:
-          parsedSpec.frontmatter.budget?.max_tokens ?? ctx.settings.budgets.task.max_tokens,
-        max_turns:
-          parsedSpec.frontmatter.budget?.max_turns ?? ctx.settings.budgets.task.max_turns,
+        max_usd: ctx.settings.budgets.task.max_usd,
+        max_tokens: ctx.settings.budgets.task.max_tokens,
+        max_turns: ctx.settings.budgets.task.max_turns,
       };
 
       const rateLimitDecision = (): WorkerStopDecision => {
