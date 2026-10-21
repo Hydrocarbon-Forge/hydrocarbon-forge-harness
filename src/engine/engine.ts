@@ -89,7 +89,7 @@ function statusForState(runState: RunState): RunSummaryStatus {
 
 // Exit codes from the run's state (rule 7). There is no default: a run that is
 // not in a terminal state is not summarised.
-function exitCodeForState(runState: RunState, pauseReason?: PauseReason): number {
+export function exitCodeForState(runState: RunState, pauseReason?: PauseReason): number {
   switch (runState) {
     case "FINISHED":
       return 0;
@@ -106,7 +106,7 @@ function exitCodeForState(runState: RunState, pauseReason?: PauseReason): number
   }
 }
 
-function buildSummary(runId: RunId, state: EngineState, repoRoot: string): RunSummary {
+export function buildSummary(runId: RunId, state: EngineState, repoRoot: string): RunSummary {
   const summaryTasks: Record<
     TaskId,
     { state: string; generation: number; failure_class?: FailureClass }

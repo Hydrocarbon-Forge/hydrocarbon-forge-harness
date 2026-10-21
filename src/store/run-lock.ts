@@ -143,3 +143,20 @@ export class RunLockImpl implements RunLock {
     }
   }
 }
+
+/**
+ * The process holding a run's lock, read without taking the lock (R10.2): the pid recorded in
+ * the lock, and whether that process is alive with a heartbeat no older than the stale timeout.
+ * Undefined when no lock file exists. Used by status, watch and runs, which never write.
+ */
+export function runProcessOf(
+  baseDir: string,
+  runId: string,
+  staleTimeoutMs = 30000,
+): { pid: number; alive: boolean } | undefined {
+  const data = readLockData(path.join(baseDir, ".substrate", "state", `${runId}.lock`));
+  if (data === undefined || typeof data.pid !== "number") return undefined;
+  const heartbeatTime = new Date(data.heartbeat_at).getTime();
+  const fresh = !isNaN(heartbeatTime) && Date.now() - heartbeatTime <= staleTimeoutMs;
+  return { pid: data.pid, alive: fresh && isPidAlive(data.pid) };
+}

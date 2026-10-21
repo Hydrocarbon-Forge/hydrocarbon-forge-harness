@@ -38,6 +38,8 @@ export interface CliGlobalFlags {
   merge?: boolean;
   /** Do not merge a finished run into the checked-out branch, for this run only (R10.1). */
   noMerge?: boolean;
+  /** watch: print the run's history and exit, without following it (R10.2). */
+  noFollow?: boolean;
   hard?: boolean;
   verify?: string[];
   request?: string;
@@ -96,6 +98,8 @@ await import(`./commands/history.js`);
 await import(`./commands/archive.js`);
 await import(`./commands/charter.js`);
 await import(`./commands/gc.js`);
+await import(`./commands/watch.js`);
+await import(`./commands/runs.js`);
 await import(`./bench.js`);
 
 const CLI_OPTIONS = {
@@ -140,6 +144,7 @@ const CLI_OPTIONS = {
   partial: { type: "boolean" },
   merge: { type: "boolean" },
   "no-merge": { type: "boolean" },
+  "no-follow": { type: "boolean" },
   hard: { type: "boolean" },
   request: { type: "string" },
   answers: { type: "string" },
@@ -217,6 +222,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.partial) flags.partial = true;
   if (parsedValues.merge) flags.merge = true;
   if (parsedValues["no-merge"]) flags.noMerge = true;
+  if (parsedValues["no-follow"]) flags.noFollow = true;
   if (parsedValues.hard) flags.hard = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);
@@ -329,6 +335,7 @@ function printHelp(out: NodeJS.WriteStream): void {
   out.write(`  --from <value>          Source for agents import (claude or opencode)\n`);
   out.write(`  --run <value>           Run id for verify\n`);
   out.write(`  --sandbox                 Enable bubblewrap sandbox\n`);
+  out.write(`  --no-follow               watch: print the run's history and exit\n`);
 }
 
 export async function runCli(
