@@ -333,7 +333,7 @@ describe("R11.3: status names one next step and one task list", () => {
       expect(json.status).toBe("finished");
       expect(json.next).toEqual([]);
 
-      // A passing run shows nothing about the base check (R11.3), in any output.
+      // A passing run shows nothing about a base check, which no longer runs (R12.2), in any output.
       const base = /base (commit|check)|base_verify|integration verify also failed/;
       const runsOut = r.cli(["runs"]).stdout;
       const watchOut = r.cli(["watch", r.runId, "--no-follow"]).stdout;
@@ -342,8 +342,8 @@ describe("R11.3: status names one next step and one task list", () => {
       expect(runsOut).not.toMatch(base);
       expect(watchOut).not.toMatch(base);
       expect(summary).not.toMatch(base);
-      // The field is in the log (the base check ran and failed), and the text does not show it.
-      expect(eventsOf(r.repo.dir, r.runId).find((e) => e.type === "integration.started")?.data).toEqual({ base_verify_passed: false });
+      // The integration check started with no base-check field (R12.2): no base check ran.
+      expect(eventsOf(r.repo.dir, r.runId).find((e) => e.type === "integration.started")?.data).toEqual({});
     } finally {
       r.cleanup();
     }

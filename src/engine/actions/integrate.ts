@@ -2,11 +2,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Manifest, TaskId } from "../../contracts/index.js";
+import type { Command, Manifest, TaskId } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { checkBaseVerify, integrationFailureDetail, safeParseManifest } from "./shared.js";
+import { INTEGRATION_COMMAND_MAX, integrationFailureDetail, safeParseManifest } from "./shared.js";
 import { resolveBaseRef } from "../../git/base-ref.js";
 import { withRepoLock } from "../../git/repo-lock.js";
 import {
@@ -14,7 +14,9 @@ import {
   getRunBranch,
   getTaskBranch,
   mergeInto,
+  setUpWorktree,
   verifyIn,
+  type SetupOutcome,
 } from "../../git/index.js";
 import { EventStoreImpl } from "../../store/event-store.js";
 
@@ -62,13 +64,22 @@ function isBlameablePrefix(state: EngineState, order: TaskId[], k: number): bool
     .every((id) => !(state.tasks[id]?.depends_on ?? []).some((dep) => inside.has(dep)));
 }
 
-/** Verifies the run's first k merged tasks, merged onto the base commit in merge order. */
+/** The commands of the final check: the plan's setup, and its integration_verify. */
+interface IntegrationChecks {
+  setup: Command[];
+  verify: Command[];
+}
+
+/**
+ * Verifies the run's first k merged tasks, merged onto the base commit in merge order. The setup
+ * runs in the worktree first (once; see setUpWorktree), as it does for the final verify.
+ */
 async function prefixPasses(
   ctx: EffectContext,
   state: EngineState,
   baseSha: string,
   prefix: TaskId[],
-  verifyCommands: Manifest["integration_verify"]
+  checks: IntegrationChecks
 ): Promise<boolean> {
   const worktree = await withRepoLock(ctx.repoRoot, () =>
     createIntegrationWorktree(ctx.repoRoot, ctx.runId, baseSha)
@@ -78,7 +89,9 @@ async function prefixPasses(
     const branch = getTaskBranch(ctx.runId, taskId, generation);
     await withRepoLock(ctx.repoRoot, () => mergeInto(worktree, branch, `bisect: ${taskId}`));
   }
-  return (await verifyIn(worktree, verifyCommands, ctx.settings)).passed;
+  const setup = await setUpWorktree(worktree, checks.setup);
+  if (setup !== undefined && !setup.passed) return false;
+  return (await verifyIn(worktree, checks.verify, ctx.settings)).passed;
 }
 
 /**
@@ -92,23 +105,23 @@ async function isolateCulprit(
   ctx: EffectContext,
   state: EngineState,
   manifest: Manifest | undefined,
-  verifyCommands: Manifest["integration_verify"]
+  checks: IntegrationChecks
 ): Promise<TaskId | undefined> {
   const order = mergeOrder(ctx, state);
   // R10.4: a run that failed and was reopened has had its task branches swept, so a prefix cannot be
   // merged again. Without them no task can be blamed; the run fails with the verify output instead.
   if (!order.every((id) => taskBranchExists(ctx, id, state.tasks[id]?.generation ?? 1))) return undefined;
   const baseSha = resolveBaseRef(ctx.repoRoot, manifest?.base_ref).sha;
-  // The last blameable prefix known to pass. The empty prefix (the base) counts only when the base
-  // check passed. A base that fails is expected when the run adds code, so the search cannot blame a
-  // task that merely adds to a red base; a single-task run is blamed, since that task is the whole change.
+  // The base anchors the search (the empty prefix). It is verified here, only now that the final verify
+  // has failed, so a passing run never pays for it and no note about it is printed (R12.2). A base that
+  // fails leaves no anchor: nothing can then be shown to pass, so nothing is blamed.
   let lastPassing: number | undefined =
-    ctx.baseVerifyPassed === true || order.length === 1 ? 0 : undefined;
+    (await prefixPasses(ctx, state, baseSha, [], checks)) ? 0 : undefined;
   for (let k = 1; k <= order.length; k++) {
     if (!isBlameablePrefix(state, order, k)) continue;
     // The full order is the verify that failed, so it is not run again.
     const passes = k < order.length
-      ? await prefixPasses(ctx, state, baseSha, order.slice(0, k), verifyCommands)
+      ? await prefixPasses(ctx, state, baseSha, order.slice(0, k), checks)
       : false;
     if (!passes) return lastPassing === k - 1 ? order[k - 1] : undefined;
     lastPassing = k;
@@ -116,10 +129,28 @@ async function isolateCulprit(
   return undefined;
 }
 
+/** The event data for a setup that finished: passed, or the command that failed and how. */
+function setupFinishedData(outcome: SetupOutcome): {
+  passed: boolean;
+  command?: string;
+  exit_code?: number;
+  timed_out?: boolean;
+} {
+  if (outcome.passed) return { passed: true };
+  const { command, exit_code, timed_out } = outcome.failure;
+  return {
+    passed: false,
+    command: command.slice(0, INTEGRATION_COMMAND_MAX),
+    ...(exit_code !== null ? { exit_code } : {}),
+    ...(timed_out ? { timed_out: true } : {}),
+  };
+}
+
 /**
  * The final gate (R9.1): integration_verify runs once, on the run branch, after every task of the
- * plan has merged. A pass finishes the run. A failure names a culprit when bisect can isolate one
- * (its task is replanned, as before); otherwise the run fails with the verify output.
+ * plan has merged. The plan's setup runs in the integration worktree first (once per worktree).
+ * A pass finishes the run. A failure names a culprit when bisect can isolate one (its task is
+ * replanned, as before); otherwise the run fails with the verify output.
  */
 export async function runIntegrateAction(
   action: EngineAction,
@@ -134,10 +165,10 @@ export async function runIntegrateAction(
       manifest = safeParseManifest(readFileSync(manifestPath, "utf8"), manifestPath);
     } catch {}
   }
-  const verifyCommands = manifest?.integration_verify ?? [];
-
-  // Behavior 8: base check when no batch ran (e.g. 0 tasks planned); advisory (see checkBaseVerify)
-  await checkBaseVerify(ctx, manifest);
+  const checks: IntegrationChecks = {
+    setup: manifest?.setup ?? [],
+    verify: manifest?.integration_verify ?? [],
+  };
 
   const runBranch = getRunBranch(ctx.runId);
   const runBranchSha = execFileSync("git", ["rev-parse", runBranch], {
@@ -149,15 +180,26 @@ export async function runIntegrateAction(
     createIntegrationWorktree(ctx.repoRoot, ctx.runId, runBranchSha)
   );
 
-  emit(
-    "integration.started",
-    ctx.baseVerifyPassed === false ? { base_verify_passed: false } : {}
-  );
-  const verify = await verifyIn(
-    integrationWorktree,
-    verifyCommands,
-    ctx.settings
-  );
+  const setup = await setUpWorktree(integrationWorktree, checks.setup, {
+    onStart: (count) => emit("integration.setup.started", { commands: count }),
+    onFinish: (outcome) => emit("integration.setup.finished", setupFinishedData(outcome)),
+  });
+  if (setup !== undefined && !setup.passed) {
+    // The setup is part of the final check: a setup that fails fails the check.
+    const { command, exit_code, timed_out } = setup.failure;
+    const status = timed_out ? "timed out" : `exited ${exit_code}`;
+    emit("integration.failed", {
+      failure_class: "integration_failed",
+      message: `setup command failed: ${command.slice(0, INTEGRATION_COMMAND_MAX)} ${status}`,
+      command: command.slice(0, INTEGRATION_COMMAND_MAX),
+      ...(exit_code !== null ? { exit_code } : {}),
+    });
+    emit("run.finished", { exit_code: 1, status: "failed" });
+    return;
+  }
+
+  emit("integration.started", {});
+  const verify = await verifyIn(integrationWorktree, checks.verify, ctx.settings);
 
   if (verify.passed) {
     emit("integration.finished", { passed: true });
@@ -165,7 +207,7 @@ export async function runIntegrateAction(
     return;
   }
 
-  const culprit = await isolateCulprit(ctx, state, manifest, verifyCommands);
+  const culprit = await isolateCulprit(ctx, state, manifest, checks);
   if (culprit !== undefined) {
     const detail = integrationFailureDetail(verify.failure, [integrationWorktree, ctx.repoRoot]);
     emit("bisect.started", {});

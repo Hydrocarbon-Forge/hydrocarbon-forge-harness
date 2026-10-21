@@ -506,9 +506,26 @@ export const ReplanFinishedEvent = member(
 
 export const IntegrationStartedEvent = member(
   "integration.started",
-  // base_verify_passed: false when integration_verify did not pass on the base commit (R3.6
-  // behaviour 8, advisory). Absent when it passed there or the base was not checked.
+  // base_verify_passed was written by runs before R12.2, when the base check ran; new runs write {}.
   z.object({ base_verify_passed: z.boolean().optional() }).strict()
+);
+
+// The plan's setup, run once in the integration worktree before the final verify (R12.2).
+export const IntegrationSetupStartedEvent = member(
+  "integration.setup.started",
+  z.object({ commands: z.number().int().nonnegative() }).strict()
+);
+
+export const IntegrationSetupFinishedEvent = member(
+  "integration.setup.finished",
+  z
+    .object({
+      passed: z.boolean(),
+      command: z.string().max(500).optional(),
+      exit_code: z.number().int().optional(),
+      timed_out: z.boolean().optional(),
+    })
+    .strict()
 );
 
 export const IntegrationFinishedEvent = member(
@@ -608,6 +625,8 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   ReplanL2Event,
   ReplanFinishedEvent,
   IntegrationStartedEvent,
+  IntegrationSetupStartedEvent,
+  IntegrationSetupFinishedEvent,
   IntegrationFinishedEvent,
   IntegrationFailedEvent,
   BisectStartedEvent,
@@ -657,6 +676,8 @@ export const EVENT_TYPES = [
   "replan.finished",
   "replan.l2",
   "integration.started",
+  "integration.setup.started",
+  "integration.setup.finished",
   "integration.finished",
   "integration.failed",
   "bisect.started",

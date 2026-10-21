@@ -201,6 +201,7 @@ describe("R9.1: integration verify runs once, after every task has merged", () =
       expect(res.exitCode, diagnostics(res)).toBe(0);
       expect(eventsOf(res, "bisect.culprit").map((c) => c.data.culprit_task_id), diagnostics(res)).toEqual(["T3"]);
       expect(eventsOf(res, "replan.started").length, diagnostics(res)).toBeGreaterThan(0);
+      // One start for the first final verify and one for the verify after the replanned T3 (R9.1).
       expect(eventsOf(res, "integration.started").length, diagnostics(res)).toBe(2);
       expect(res.stdout, diagnostics(res)).toContain("Merged:     yes");
     } finally {

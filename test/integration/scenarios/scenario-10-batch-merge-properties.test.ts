@@ -222,11 +222,10 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     }
     expect(previous).toBe(runHead);
 
-    // R9.1: nothing is verified between merges. The base check runs once, on the contract commit (nothing
-    // merged yet), and one integration verify runs on the merged run ref after the last merge.
-    // The base check reads the run ref as it is at the gate (past the merges), so only its files are asserted.
-    expect(run.verifyRuns.map((r) => r.files)).toEqual([[], ["t1.ts", "t2.ts", "t3.ts"]]);
-    expect(run.verifyRuns[1]?.ref).toBe(runHead);
+    // R9.1, R12.2: nothing is verified between merges, and one integration verify runs on the merged run
+    // ref after the last merge. No base check runs for a passing run.
+    expect(run.verifyRuns.map((r) => r.files)).toEqual([["t1.ts", "t2.ts", "t3.ts"]]);
+    expect(run.verifyRuns[0]?.ref).toBe(runHead);
 
     // The user's checkout: HEAD, branch and the untracked file are unchanged.
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);
@@ -265,10 +264,11 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     const runHead = env.testRepo.git(["rev-parse", run.runRef]);
     expect(env.testRepo.git(["ls-tree", "-r", "--name-only", run.runRef, "src"]).split("\n")).toContain("src/bad.ts");
 
-    // The base check, the final verify on the run ref (it fails), then the bisect's prefix that holds only T2.
-    expect(run.verifyRuns[0]?.files).toEqual([]);
-    expect(run.verifyRuns[1]?.ref).toBe(runHead);
-    expect(run.verifyRuns[1]?.files).toContain("bad.ts");
+    // The final verify on the run ref (it fails), then, only now, the base that anchors the bisect (no
+    // file yet), then the bisect's prefixes.
+    expect(run.verifyRuns[0]?.ref).toBe(runHead);
+    expect(run.verifyRuns[0]?.files).toContain("bad.ts");
+    expect(run.verifyRuns[1]?.files).toEqual([]);
     expect(run.verifyRuns.length).toBeGreaterThanOrEqual(3);
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);
     expect(readFileSync(untrackedPath, "utf8")).toBe(untrackedContent);
@@ -287,10 +287,10 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     const culpritIdx = run.events.indexOf(culpritEvt!);
     expect(run.events.slice(0, culpritIdx).filter((e) => e.type === "task.merged").length).toBe(1);
 
-    // The base check, then the one integration verify on the merged run ref.
+    // The one integration verify on the merged run ref, then the base that anchors the bisect (R12.2).
     const runHead = env.testRepo.git(["rev-parse", run.runRef]);
-    expect(run.verifyRuns.map((r) => r.files)).toEqual([[], ["bad.ts"]]);
-    expect(run.verifyRuns[1]?.ref).toBe(runHead);
+    expect(run.verifyRuns.map((r) => r.files)).toEqual([["bad.ts"], []]);
+    expect(run.verifyRuns[0]?.ref).toBe(runHead);
     expect(env.testRepo.git(["rev-parse", run.runRef])).toBeTruthy();
   });
   it("a merge conflict in a batch halts it without verifying or advancing the run ref, and the user's checkout is untouched", async () => {

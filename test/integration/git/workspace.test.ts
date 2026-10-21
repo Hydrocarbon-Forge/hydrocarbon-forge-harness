@@ -6,19 +6,15 @@ import * as Contracts from "../../../src/contracts/index.js";
 import { createRunId } from "../../../src/util/index.js";
 import { createTestRepo, type TestRepo } from "./test-repo.js";
 import * as WorkspaceModule from "../../../src/git/workspace.js";
-import { workspaceManager, workspaceLifecycle } from "../../../src/git/workspace.js";
+import { runSetupCommands } from "../../../src/git/setup.js";
+import { workspaceManager } from "../../../src/git/workspace.js";
 import type {
   WorkspaceManager,
-  WorkspaceLifecycle,
   WorktreeInfo,
 } from "../../../src/git/workspace.js";
 
 function getWorkspaceManager(): WorkspaceManager {
   return workspaceManager;
-}
-
-function getWorkspaceLifecycle(): WorkspaceLifecycle {
-  return workspaceLifecycle;
 }
 
 function getRunBranch(runId: Contracts.RunId): string {
@@ -237,7 +233,7 @@ describe("git: WorkspaceManager - materializeSpec", () => {
   });
 });
 
-describe("git: WorkspaceLifecycle - runSetup, removeWorktree, pruneWorktrees", () => {
+describe("git: runSetupCommands", () => {
   let repo: TestRepo;
 
   beforeEach(() => {
@@ -250,7 +246,6 @@ describe("git: WorkspaceLifecycle - runSetup, removeWorktree, pruneWorktrees", (
 
   it("executes setup commands in sequence with network enabled and returns VerifyResult[]", async () => {
     const manager = getWorkspaceManager();
-    const lifecycle = getWorkspaceLifecycle();
     const runId = createRunId();
     await manager.createRunBranch(repo.dir, runId, "main");
 
@@ -262,10 +257,8 @@ describe("git: WorkspaceLifecycle - runSetup, removeWorktree, pruneWorktrees", (
       { run: "echo 'setup completed' > output.log", timeout_s: 30 },
     ];
 
-    const results = await lifecycle.runSetup(info.worktreePath, commands);
-    expect(results).toHaveLength(2);
-    expect(results[0].exit_code).toBe(0);
-    expect(results[1].exit_code).toBe(0);
+    const outcome = await runSetupCommands(info.worktreePath, commands);
+    expect(outcome).toEqual({ passed: true, ran: 2 });
 
     expect(existsSync(join(info.worktreePath, "setup_test_marker.txt"))).toBe(true);
     expect(readFileSync(join(info.worktreePath, "output.log"), "utf8")).toContain("setup completed");
@@ -273,7 +266,6 @@ describe("git: WorkspaceLifecycle - runSetup, removeWorktree, pruneWorktrees", (
 
   it("halts workspace initialization and surfaces failure when a setup command fails", async () => {
     const manager = getWorkspaceManager();
-    const lifecycle = getWorkspaceLifecycle();
     const runId = createRunId();
     await manager.createRunBranch(repo.dir, runId, "main");
 
@@ -285,32 +277,8 @@ describe("git: WorkspaceLifecycle - runSetup, removeWorktree, pruneWorktrees", (
       { run: "touch should_not_run.txt", timeout_s: 30 },
     ];
 
-    await expect(lifecycle.runSetup(info.worktreePath, commands)).rejects.toThrow();
+    const outcome = await runSetupCommands(info.worktreePath, commands);
+    expect(outcome).toEqual({ passed: false, ran: 1, failure: { command: "exit 42", exit_code: 42, timed_out: false } });
     expect(existsSync(join(info.worktreePath, "should_not_run.txt"))).toBe(false);
-  });
-
-  it("removes worktree with git worktree remove --force while preserving task branch", async () => {
-    const manager = getWorkspaceManager();
-    const lifecycle = getWorkspaceLifecycle();
-    const runId = createRunId();
-    await manager.createRunBranch(repo.dir, runId, "main");
-
-    const spec = makeSpec("TaskRemove");
-    const info = await manager.createTaskWorktree(repo.dir, runId, spec, 1);
-
-    // Add uncommitted file inside worktree to verify --force removes it cleanly
-    writeFileSync(join(info.worktreePath, "uncommitted.txt"), "temp file", "utf8");
-
-    await lifecycle.removeWorktree(repo.dir, info.worktreePath);
-    expect(existsSync(info.worktreePath)).toBe(false);
-
-    // Preserves the task branch in git
-    const branches = repo.git(["branch", "--list", info.branch]);
-    expect(branches).toContain(info.branch);
-  });
-
-  it("prunes worktrees cleanly using pruneWorktrees", async () => {
-    const lifecycle = getWorkspaceLifecycle();
-    await expect(lifecycle.pruneWorktrees(repo.dir)).resolves.not.toThrow();
   });
 });

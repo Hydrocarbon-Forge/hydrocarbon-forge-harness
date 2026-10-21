@@ -84,8 +84,6 @@ export class RunProgress {
   // repeats the failure a task already printed, and only the first line is shown.
   private readonly failedTasks = new Map<string, string>();
   private pendingPlan: PlanTaskView[] | undefined;
-  // R11.3: integration verify failed on the base commit (before this run's changes), reported at integration.started.
-  private baseVerifyFailed = false;
 
   constructor(
     private readonly models: ProgressModels,
@@ -301,20 +299,28 @@ export class RunProgress {
       case "replan.started":
         this.setPhase(`replanning ${tid}`.trimEnd(), at);
         return [];
+      case "integration.setup.started":
+        this.setPhase("integration setup", at);
+        return [`setting up the integration check (${data.commands ?? "?"} setup commands)`];
+      case "integration.setup.finished": {
+        // R12.2: the setup's failing command and how it ended; a setup that passed prints one line.
+        if (data.passed === true) return ["setup done"];
+        const status = typeof data.exit_code === "number" ? `exit ${data.exit_code}` : "timed out";
+        const command = typeof data.command === "string" ? data.command.slice(0, 160) : "?";
+        return [`setup failed: ${command} (${status})`];
+      }
       case "integration.started":
         this.setPhase("integration verify", at);
-        // R11.3: the base check's result is kept until the final verify reports; the note is printed only if it fails.
-        this.baseVerifyFailed = data.base_verify_passed === false;
         return ["integration verify started"];
       case "integration.finished":
-        return this.withBaseNote([`integration verify ${data.passed ? "passed" : "failed"}`], data.passed !== true);
+        return [`integration verify ${data.passed ? "passed" : "failed"}`];
       case "bisect.started":
-        return this.withBaseNote([], true);
+        return [];
       case "integration.failed": {
         // R7.11: the failing command and its exit code; older logs carry neither.
-        if (typeof data.command !== "string" || data.command === "") return this.withBaseNote(["integration verify failed"], true);
+        if (typeof data.command !== "string" || data.command === "") return ["integration verify failed"];
         const status = typeof data.exit_code === "number" ? `exit ${data.exit_code}` : "timed out";
-        return this.withBaseNote([`integration verify failed: ${data.command.slice(0, 160)} (${status})`], true);
+        return [`integration verify failed: ${data.command.slice(0, 160)} (${status})`];
       }
       case "merge.conflict": {
         const n = Array.isArray(data.conflict_files) ? data.conflict_files.length : 0;
@@ -328,15 +334,6 @@ export class RunProgress {
       default:
         return [];
     }
-  }
-
-  /** The base-check note (R11.3), added after a failing final verify only: the check was failing before this run. */
-  private withBaseNote(lines: string[], finalFailed: boolean): string[] {
-    if (!finalFailed || !this.baseVerifyFailed) return lines;
-    return [
-      ...lines,
-      "note: integration verify also failed on the base commit, before this run's changes, so the check was failing before this run started",
-    ];
   }
 
   private observeFormatRejected(data: Record<string, any>): string[] {

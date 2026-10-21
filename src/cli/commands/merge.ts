@@ -6,6 +6,7 @@ import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
 import { TaskMerger, verifyIn } from "../../git/merger.js";
 import { gitIdentityEnv } from "../../git/identity.js";
+import { setUpWorktree } from "../../git/setup.js";
 import { loadSettings } from "../../config/index.js";
 import { integrationFailureDetail, safeParseManifest } from "../../engine/actions/shared.js";
 import { spawnSync } from "node:child_process";
@@ -124,8 +125,9 @@ function partialRefusal(repoRoot: string, runId: string): string | undefined {
 }
 
 /**
- * Runs the plan's integration_verify on the run branch in a throwaway worktree (R8.2). The
- * worktree is removed afterwards whatever the outcome.
+ * Runs the plan's setup and integration_verify on the run branch in a throwaway worktree (R8.2,
+ * R12.2): the setup runs there first, as it does in the integration worktree. The worktree is
+ * removed afterwards whatever the outcome.
  */
 async function verifyRunBranch(
   ctx: CommandContext,
@@ -133,14 +135,20 @@ async function verifyRunBranch(
   runBranch: string,
 ): Promise<{ passed: true } | { passed: false; message: string }> {
   let commands: import("../../contracts/index.js").Command[] = [];
+  let setup: import("../../contracts/index.js").Command[] = [];
   try {
     const manifest = safeParseManifest(fs.readFileSync(path.join(ctx.cwd, ".substrate", "runs", runId, "manifest.yaml"), "utf8"));
     commands = manifest.integration_verify ?? [];
+    setup = manifest.setup ?? [];
   } catch {}
   const settings = await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings });
   const worktree = path.join(ctx.cwd, ".substrate", "worktrees", runId, "partial-verify");
   execFileSync("git", ["worktree", "add", "--detach", worktree, runBranch], { cwd: ctx.cwd, stdio: "pipe" });
   try {
+    const prepared = await setUpWorktree(worktree, setup);
+    if (prepared !== undefined && !prepared.passed) {
+      return { passed: false, message: `setup command failed: ${prepared.failure.command}` };
+    }
     const outcome = await verifyIn(worktree, commands, settings);
     if (outcome.passed) return { passed: true };
     return { passed: false, message: integrationFailureDetail(outcome.failure, [worktree, ctx.cwd]).message };

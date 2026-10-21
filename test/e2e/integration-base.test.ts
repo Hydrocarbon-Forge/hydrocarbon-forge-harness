@@ -100,7 +100,7 @@ describe("R7.11: integration verify on the base commit and on the merged result"
         "Create the hello file",
       ]);
       expect(res.status, diag(res)).toBe(0);
-      // R11.3: the base check failed, but the final verify passed, so the note (which says the check failed before the run) is not printed.
+      // R12.2: no base check runs, so no note about the base is printed.
       expect(res.stdout, diag(res)).not.toContain(BASE_NOTE);
       expect(res.stdout, diag(res)).toContain("integration verify passed\n");
       expect(readFileSync(join(s.project, "src", "hello.txt"), "utf8")).toBe("hello\n");
@@ -108,7 +108,7 @@ describe("R7.11: integration verify on the base commit and on the merged result"
       const runId = /Run ID:\s+(\S+)/.exec(res.stdout)?.[1];
       expect(runId, diag(res)).toBeDefined();
       const started = runEvents(s, runId!).find((e) => e.type === "integration.started");
-      expect(started?.data).toEqual({ base_verify_passed: false });
+      expect(started?.data).toEqual({});
       expect(runEvents(s, runId!).map((e) => e.type)).not.toContain("integration.failed");
     } finally {
       rmSync(s.root, { recursive: true, force: true });
@@ -127,11 +127,10 @@ describe("R7.11: integration verify on the base commit and on the merged result"
         "--permission-mode", "bypassPermissions",
         "Create the hello file",
       ]);
-      // The batch verify and the culprit bisect run the same command on the same tree, so the
-      // culprit (T1) carries the failure. No question is asked, so the run fails with exit 1
-      // and its reason names the command (R8.1); it no longer pauses for needs_human.
+      // R12.2: the base is red too, so the bisect has no passing prefix to blame and names no task. The
+      // run fails with exit 1 and its reason names the command (R8.1); it no longer pauses for needs_human.
       expect(res.status, diag(res)).toBe(1);
-      expect(res.stdout, diag(res)).toContain(`[task T1] failed: integration_failed: ${failing} exited 1\n`);
+      expect(res.stdout, diag(res)).not.toContain("[task T1] failed");
       expect(res.stdout, diag(res)).toContain(`Reason:     integration_failed: ${failing} exited 1\n`);
       expect(res.stdout, diag(res)).toContain("Status:     failed\n");
       expect(res.stdout, diag(res)).not.toContain("Merged:     yes");

@@ -106,3 +106,12 @@ The rule now:
 
 Code and tests: `test/e2e/limits-optin.test.ts`; known issue 69.
 
+
+## Note 2026-10-21 (R12.2): the plan's setup runs in the integration worktree; the base check is removed
+
+The owner's run `r_ZEEOKTFXRD33` failed its final check because `npx tsc` ran in the integration worktree, where the plan's `setup` (`npm install --no-save typescript@5`) had never run. Setup ran only in each task worktree. The rule now:
+- The plan's `setup` commands run once in every worktree that runs a check: each task worktree before its worker, the integration worktree before the final `integration_verify`, and the throwaway worktree of `merge --partial`. They run in that worktree's own cwd, with the same timeouts and environment, through one helper (`src/git/setup.ts`).
+- The base check (R3.6 behaviour 8, R7.11) is removed. `integration_verify` runs once, on the merged run branch, and the final verify decides the run. No note about the base commit is printed, and `integration.started` carries no `base_verify_passed` field (the schema keeps it optional so older logs still read).
+- The bisect keeps its anchor: when the final verify fails, the base commit is verified once, inside the bisect, and a passing base lets it name the culprit (R9.1). A passing run never runs that base verify, and no note about the base is printed.
+
+Code and tests: `test/e2e/integration-setup.test.ts`, `test/e2e/integration-base.test.ts`; known issue 70.

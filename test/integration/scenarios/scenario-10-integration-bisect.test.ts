@@ -193,6 +193,7 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     expect(eventTypes).not.toContain("integration.failed");
     expect(eventTypes).toContain("integration.finished");
     const started = events.find((e) => e.type === "integration.started");
-    expect(started?.data).toEqual({ base_verify_passed: false });
+    // R12.2: no base check runs, so the start carries no base field.
+    expect(started?.data).toEqual({});
   });
 });

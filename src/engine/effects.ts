@@ -95,9 +95,6 @@ export interface EffectContext {
   mode?: "auto" | "solo" | "plan";
   permission_mode?: PermissionMode;
   preBatchCheckpoint?: string;
-  baseChecked?: boolean;
-  /** Whether integration_verify passed on the base commit (set once, by the base check). */
-  baseVerifyPassed?: boolean;
   store?: EventStoreImpl;
   /** The live journal of the run (R8.3), set by runEffectsLoop. */
   journal?: RunJournal;

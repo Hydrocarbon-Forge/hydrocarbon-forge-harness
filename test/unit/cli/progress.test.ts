@@ -167,21 +167,39 @@ describe("progress line shapes (text mode, stdout)", () => {
     expect(refused.lines()).toEqual(["[00:00] no plan was accepted; planning again (planning costs again)"]);
   });
 
-  it("R7.11, R11.3: the base-check note is printed only after a final verify that fails, and nothing extra when it passes", () => {
+  it("R12.2: no base-check note is printed; a failing final verify prints its command, and a passing one prints one line", () => {
     const failed = sink();
     const f1 = createFormatter("text", failed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
-    f1.onEvent(ev("integration.started", { base_verify_passed: false }));
+    f1.onEvent(ev("integration.started", {}));
     expect(failed.lines()).toEqual(["[00:00] integration verify started"]);
     f1.onEvent(ev("integration.failed", { failure_class: "integration_failed", message: "x", command: "npm test", exit_code: 1 }));
     expect(failed.lines()).toEqual([
       "[00:00] integration verify started",
       "[00:00] integration verify failed: npm test (exit 1)",
-      "[00:00] note: integration verify also failed on the base commit, before this run's changes, so the check was failing before this run started",
     ]);
     const passed = sink();
     const f2 = createFormatter("text", passed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
     f2.onEvent(ev("integration.started", {}));
     expect(passed.lines()).toEqual(["[00:00] integration verify started"]);
+  });
+
+  it("R12.2: the integration setup prints its start, then done, or the failing command and its exit code", () => {
+    const passed = sink();
+    const f1 = createFormatter("text", passed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
+    f1.onEvent(ev("integration.setup.started", { commands: 2 }));
+    f1.onEvent(ev("integration.setup.finished", { passed: true }));
+    expect(passed.lines()).toEqual([
+      "[00:00] setting up the integration check (2 setup commands)",
+      "[00:00] setup done",
+    ]);
+    const failed = sink();
+    const f2 = createFormatter("text", failed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
+    f2.onEvent(ev("integration.setup.started", { commands: 1 }));
+    f2.onEvent(ev("integration.setup.finished", { passed: false, command: "npm install", exit_code: 1 }));
+    expect(failed.lines()).toEqual([
+      "[00:00] setting up the integration check (1 setup commands)",
+      "[00:00] setup failed: npm install (exit 1)",
+    ]);
   });
 
   it("names the failing integration command and its exit code (R7.11); older logs print the plain line", () => {

@@ -4,11 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import type {
   RunId,
   TaskId,
-  Command,
-  VerifyResult,
   TaskSpecFrontmatter,
 } from "../contracts/index.js";
-import { VerifyRunner } from "../verify/runner.js";
 
 export interface WorktreeInfo {
   worktreePath: string;
@@ -77,18 +74,6 @@ export interface WorkspaceManager {
     worktreePath: string,
     specContent: string
   ): Promise<string>;
-}
-
-export interface WorkspaceLifecycle {
-  runSetup(
-    worktreePath: string,
-    commands: Command[]
-  ): Promise<VerifyResult[]>;
-  removeWorktree(
-    repoRoot: string,
-    worktreePath: string
-  ): Promise<void>;
-  pruneWorktrees(repoRoot: string): Promise<void>;
 }
 
 export function ensureGitExclude(repoRoot: string): void {
@@ -251,54 +236,4 @@ export class WorkspaceManagerImpl implements WorkspaceManager {
   }
 }
 
-export class WorkspaceLifecycleImpl implements WorkspaceLifecycle {
-  async runSetup(
-    worktreePath: string,
-    commands: Command[]
-  ): Promise<VerifyResult[]> {
-    const runner = new VerifyRunner();
-    const results: VerifyResult[] = [];
-    for (const cmd of commands) {
-      const [result] = await runner.runVerify({
-        cwd: worktreePath,
-        commands: [cmd],
-        sandbox: false,
-        network: "allow",
-      });
-      results.push(result);
-      if (result.exit_code !== 0 || result.timed_out) {
-        throw new Error(
-          `Setup command failed: ${cmd.run} (exit: ${result.exit_code}, timed_out: ${result.timed_out})`
-        );
-      }
-    }
-    return results;
-  }
-
-  async removeWorktree(repoRoot: string, worktreePath: string): Promise<void> {
-    try {
-      execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
-        cwd: repoRoot,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-    } catch {
-      // Fallback manual cleanup
-    }
-    if (existsSync(worktreePath)) {
-      rmSync(worktreePath, { recursive: true, force: true });
-    }
-  }
-
-  async pruneWorktrees(repoRoot: string): Promise<void> {
-    execFileSync("git", ["worktree", "prune"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-  }
-}
-
 export const workspaceManager = new WorkspaceManagerImpl();
-
-export const workspaceLifecycle = new WorkspaceLifecycleImpl();

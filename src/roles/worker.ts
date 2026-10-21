@@ -24,9 +24,9 @@ import { assembleSystem, loadTemplate } from "../prompts/index.js";
 import { render } from "../prompts/render.js";
 import {
   workspaceManager,
-  workspaceLifecycle,
   scopeEnforcer,
   gitCommitter,
+  runSetupCommands,
 } from "../git/index.js";
 import { VerifyRunner } from "../verify/index.js";
 import { resolveTaskRoute } from "./router.js";
@@ -580,37 +580,36 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
     branch: "",
   };
 
-  // Rule 2: manifest setup. A failure fails the task and keeps the worktree.
+  // Rule 2: manifest setup, the same helper the integration worktree uses (src/git/setup.ts).
+  // A failure fails the task and keeps the worktree.
   if (opts.setupCommands && opts.setupCommands.length > 0) {
-    for (const cmd of opts.setupCommands) {
-      try {
-        await workspaceLifecycle.runSetup(worktree.worktreePath, [cmd]);
-      } catch {
-        opts.onEvent?.("task.failed", {
-          task_id: opts.taskId,
-          generation: opts.generation,
-          attempt,
-          failure_class: "worker_crashed",
-          detail: cmd.run,
-        });
-        return {
-          task_id: opts.taskId,
-          generation: opts.generation,
-          attempt,
-          session_id: opts.session?.resume ?? opts.session?.id ?? "",
-          backend: route.backend,
-          model: route.model,
-          ...(route.effort ? { effort: route.effort } : {}),
-          status: "failed",
-          failure_class: "worker_crashed",
-          files_changed: [],
-          usage,
-          duration_ms: Date.now() - startTime,
-          verify: [],
-          denials: [],
-          final_message: `setup command failed: ${cmd.run}`,
-        };
-      }
+    const setup = await runSetupCommands(worktree.worktreePath, opts.setupCommands);
+    if (!setup.passed) {
+      const failedCmd = setup.failure.command;
+      opts.onEvent?.("task.failed", {
+        task_id: opts.taskId,
+        generation: opts.generation,
+        attempt,
+        failure_class: "worker_crashed",
+        detail: failedCmd,
+      });
+      return {
+        task_id: opts.taskId,
+        generation: opts.generation,
+        attempt,
+        session_id: opts.session?.resume ?? opts.session?.id ?? "",
+        backend: route.backend,
+        model: route.model,
+        ...(route.effort ? { effort: route.effort } : {}),
+        status: "failed",
+        failure_class: "worker_crashed",
+        files_changed: [],
+        usage,
+        duration_ms: Date.now() - startTime,
+        verify: [],
+        denials: [],
+        final_message: `setup command failed: ${failedCmd}`,
+      };
     }
   }
 

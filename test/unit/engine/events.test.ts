@@ -65,6 +65,8 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "replan.finished": { task_id: "T1", generation: 2 },
   "replan.l2": {},
   "integration.started": {},
+  "integration.setup.started": { commands: 1 },
+  "integration.setup.finished": { passed: true },
   "integration.finished": { passed: true },
   "integration.failed": {},
   "bisect.started": {},

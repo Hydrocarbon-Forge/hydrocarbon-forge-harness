@@ -17,7 +17,7 @@ run_id: <given in the request>
 goal: <one sentence>
 base_ref: <copy the base_ref from the request exactly, character for character>
 ecosystem: node-ts            # optional: node-ts | python | rust | go | other
-setup:                        # run once per task worktree, with network; may be empty
+setup:                        # run once in every task worktree before its worker, and once in the integration worktree before integration_verify, with network; install dependencies here (installed packages are not in git); may be empty
   - run: npm ci
     timeout_s: 300
 contracts:
@@ -26,7 +26,7 @@ contracts:
   typecheck:                  # commands that prove the stubs compile
     - run: npx tsc --noEmit
       timeout_s: 120
-integration_verify:           # run once, after every task has merged (not between merges); the engine also records an advisory base check, which may fail when the run creates the code it checks
+integration_verify:           # run once, after every task has merged (not between merges), in the integration worktree after setup
   - run: npm test
     timeout_s: 600
 tasks:

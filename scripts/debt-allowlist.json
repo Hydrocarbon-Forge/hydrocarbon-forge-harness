@@ -11,6 +11,8 @@
     "batch.started",
     "bisect.started",
     "contracts.committed",
+    "integration.setup.finished",
+    "integration.setup.started",
     "integration.started",
     "merge.conflict",
     "plan.ready",

@@ -14,10 +14,8 @@ import {
   type ParsedPlan,
   type ParsedTaskSpec,
 } from "../../spec/index.js";
-import { resolveBaseRef } from "../../git/base-ref.js";
-import { createIntegrationWorktree, verifyIn, type VerifyFailure } from "../../git/index.js";
+import type { VerifyFailure } from "../../git/index.js";
 import { withoutRootPaths } from "../../roles/planner.js";
-import { withRepoLock } from "../../git/repo-lock.js";
 import { redactSecrets, takeTail } from "../../util/index.js";
 
 export type Emit = TypedEmit;
@@ -26,26 +24,6 @@ export { makeEmitter } from "../emit.js";
 
 export function safeParseManifest(raw: string, filePath?: string): Manifest {
   return parseManifest(raw, filePath);
-}
-
-/**
- * The base check (R3.6 behaviour 8), run once per run before the first batch merge or the
- * final integration. It runs integration_verify on the base commit and records the result
- * in ctx.baseVerifyPassed. A failure does not stop the run: a run that adds new code is
- * expected to fail there, and the verify on the merged result decides the run.
- */
-export async function checkBaseVerify(
-  ctx: EffectContext,
-  manifest: Manifest | undefined
-): Promise<void> {
-  const verifyCommands = manifest?.integration_verify ?? [];
-  if (verifyCommands.length === 0 || ctx.baseChecked) return;
-  ctx.baseChecked = true;
-  const baseSha = resolveBaseRef(ctx.repoRoot, manifest?.base_ref).sha;
-  const baseWt = await withRepoLock(ctx.repoRoot, () =>
-    createIntegrationWorktree(ctx.repoRoot, ctx.runId, baseSha)
-  );
-  ctx.baseVerifyPassed = (await verifyIn(baseWt, verifyCommands, ctx.settings)).passed;
 }
 
 /** Longest command text an integration failure carries. */
