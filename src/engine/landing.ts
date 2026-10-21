@@ -31,7 +31,7 @@ export interface LandingFacts {
   /** The run paused for answers; its resume line is printed by the formatter, not `next`. */
   needsInput: boolean;
   /** The failing event's class and message, when the run failed on one. */
-  failure?: { failure_class: string; message?: string };
+  failure?: { failure_class: string; message?: string; output_tail?: string };
   /** The command that continues the run, when it is not plain `substrate resume <id>` (R8.2). */
   resumeCommand?: string;
   /** Why a finished run did not land (R8.2), shown in the Result block. */
@@ -126,7 +126,9 @@ interface EventLike {
 }
 
 /** The last event that names a failure_class (a task.failed, usually), or undefined. */
-export function failureOf(events: readonly EventLike[]): { failure_class: string; message?: string } | undefined {
+export function failureOf(
+  events: readonly EventLike[],
+): { failure_class: string; message?: string; output_tail?: string } | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const data = events[i].data;
     if (data === null || typeof data !== "object") continue;
@@ -138,7 +140,13 @@ export function failureOf(events: readonly EventLike[]): { failure_class: string
         : typeof record.detail === "string"
           ? record.detail
           : undefined;
-    return { failure_class: record.failure_class, ...(message !== undefined ? { message } : {}) };
+    // A failed final check carries the tail of its output (integration.failed, R12.2).
+    const outputTail = typeof record.output_tail === "string" ? record.output_tail : undefined;
+    return {
+      failure_class: record.failure_class,
+      ...(message !== undefined ? { message } : {}),
+      ...(outputTail !== undefined ? { output_tail: outputTail } : {}),
+    };
   }
   return undefined;
 }
@@ -186,6 +194,7 @@ export function withLanding(summary: RunSummary, facts: LandingFacts): RunSummar
           drafts_dir: `.substrate/runs/${runId}`,
           failure_class: facts.failure?.failure_class ?? summary.pause_reason ?? summary.status,
           message: facts.failure?.message ?? "",
+          ...(facts.failure?.output_tail !== undefined ? { output_tail: facts.failure.output_tail } : {}),
         }
       : {}),
   };

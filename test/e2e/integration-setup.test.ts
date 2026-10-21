@@ -389,3 +389,32 @@ describe("R12.2: a single-task plan skips the final verify", () => {
     }
   });
 });
+
+describe("R12.2: a failed final check says what failed and shows the tail of its output", () => {
+  it("the summary names the integration check, keeps Reason to one line, prints the last ten output lines, and json carries output_tail", () => {
+    // Thirteen output lines: the summary shows the last ten (lines 4 to 12 and the assertion).
+    const integration = `sh -c 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo "line $i"; done; echo "AssertionError: expected 1 to be 2"; exit 1'`;
+    const s = scratch();
+    try {
+      const plan: Plan = { setup: installingSetup(s), integration, tasks: ["T1", "T2"] };
+      prepare(s, plan);
+      const res = cli(s, RUN_ARGS);
+      expect(res.status, diag(res)).toBe(1);
+      expect(res.stdout, diag(res)).toContain(
+        "NOT merged: the integration check failed (see Reason); the 2 tasks passed their own checks and stay on branch substrate/runs/",
+      );
+      expect(res.stdout, diag(res)).not.toContain("tasks failed or were skipped");
+      const reasonLines = res.stdout.split("\n").filter((line) => line.startsWith("Reason:"));
+      expect(reasonLines, diag(res)).toHaveLength(1);
+      expect(reasonLines[0]).toMatch(/^Reason:     integration_failed: .* exited 1$/);
+      expect(res.stdout, diag(res)).toContain("Output:\n  line 4\n");
+      expect(res.stdout, diag(res)).toContain("  line 12\n  AssertionError: expected 1 to be 2\n");
+      expect(res.stdout, diag(res)).not.toContain("  line 3\n");
+      const result = resultOf(s, runIdOf(res)) as { output_tail?: string; failure_class?: string };
+      expect(result.failure_class).toBe("integration_failed");
+      expect(result.output_tail, diag(res)).toContain("AssertionError: expected 1 to be 2");
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+});

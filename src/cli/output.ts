@@ -284,11 +284,19 @@ class TextFormatter implements OutputFormatter {
     }
     // Only a failed run is "NOT merged: N of M failed"; an interrupted run is paused (R8.2).
     if (summary.status === "failed" && summary.branch !== undefined && passed > 0 && !summary.merged) {
-      // A partial run lands nothing: the passed work stays on the run branch (R8.1).
-      this.out.write(
-        `NOT merged: ${failedCount + skippedCount} of ${taskKeys.length} tasks failed or were skipped; ` +
-          `the ${passed} passed ${passed === 1 ? "task stays" : "tasks stay"} on branch ${summary.branch}\n`,
-      );
+      if (summary.failure_class === "integration_failed") {
+        // R12.2: the tasks passed their own checks; the final check is what failed, and Reason names it.
+        this.out.write(
+          `NOT merged: the integration check failed (see Reason); the ${passed} ${passed === 1 ? "task" : "tasks"} ` +
+            `passed their own checks and ${passed === 1 ? "stays" : "stay"} on branch ${summary.branch}\n`,
+        );
+      } else {
+        // A partial run lands nothing: the passed work stays on the run branch (R8.1).
+        this.out.write(
+          `NOT merged: ${failedCount + skippedCount} of ${taskKeys.length} tasks failed or were skipped; ` +
+            `the ${passed} passed ${passed === 1 ? "task stays" : "tasks stay"} on branch ${summary.branch}\n`,
+        );
+      }
     }
     if (summary.drafts_dir !== undefined || (!landed && summary.exit_code !== 0)) {
       this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
@@ -316,6 +324,14 @@ class TextFormatter implements OutputFormatter {
         // An internal error reads as one phrase: `internal error: <message>` (R9.1).
         const label = summary.failure_class === "internal_error" ? "internal error" : summary.failure_class;
         this.out.write(`Reason:     ${label}${message}\n`);
+        // R12.2: a failed final check shows the last ten non-empty lines of its output.
+        if (summary.failure_class === "integration_failed" && summary.output_tail !== undefined) {
+          const lines = summary.output_tail.split("\n").map((line) => line.trimEnd()).filter((line) => line !== "");
+          if (lines.length > 0) {
+            this.out.write(`Output:\n`);
+            for (const line of lines.slice(-10)) this.out.write(`  ${line}\n`);
+          }
+        }
       }
     }
     // R8.2: an interrupted run says how to continue, in the words a caller can copy.

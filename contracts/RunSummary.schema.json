@@ -139,6 +139,9 @@
     "message": {
       "type": "string"
     },
+    "output_tail": {
+      "type": "string"
+    },
     "drafts_dir": {
       "type": "string"
     },

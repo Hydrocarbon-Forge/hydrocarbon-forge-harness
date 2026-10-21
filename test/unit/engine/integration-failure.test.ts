@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   INTEGRATION_COMMAND_MAX,
-  INTEGRATION_LINE_MAX,
   INTEGRATION_TAIL_MAX_BYTES,
   integrationFailureDetail,
 } from "../../../src/engine/actions/shared.js";
@@ -25,7 +24,7 @@ describe("R7.11: what an integration failure says", () => {
       command: "npm test",
       exit_code: 1,
       output_tail: "ok 1\n  AssertionError: expected 2 to be 3\n\n",
-      message: "npm test exited 1: AssertionError: expected 2 to be 3",
+      message: "npm test exited 1",
     });
   });
 
@@ -62,10 +61,11 @@ describe("R7.11: what an integration failure says", () => {
     expect(detail.output_tail).not.toContain(ROOT);
     expect(detail.output_tail).not.toContain(token);
     expect(detail.output_tail).toContain("[REDACTED]");
-    expect(detail.message).toContain("node check.js src/x.js exited 2: ");
+    expect(detail.message).toBe("node check.js src/x.js exited 2");
+    expect(detail.message).not.toContain(token);
   });
 
-  it("caps the command, the output tail and the quoted line", () => {
+  it("caps the command and the output tail; the message names the command and its exit code only (R12.2)", () => {
     const long = "x".repeat(INTEGRATION_TAIL_MAX_BYTES * 2);
     const detail = integrationFailureDetail(
       { command: `echo ${"c".repeat(INTEGRATION_COMMAND_MAX + 50)}`, exit_code: 1, timed_out: false, output: `head\n${long}` },
@@ -73,7 +73,6 @@ describe("R7.11: what an integration failure says", () => {
     );
     expect(detail.command.length).toBe(INTEGRATION_COMMAND_MAX);
     expect(Buffer.byteLength(detail.output_tail, "utf8")).toBeLessThanOrEqual(INTEGRATION_TAIL_MAX_BYTES);
-    const quoted = detail.message.slice(detail.message.indexOf(": ") + 2);
-    expect(quoted.length).toBeLessThanOrEqual(INTEGRATION_LINE_MAX);
+    expect(detail.message).toBe(`${detail.command} exited 1`);
   });
 });

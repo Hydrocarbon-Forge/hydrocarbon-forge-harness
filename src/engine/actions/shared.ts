@@ -30,14 +30,12 @@ export function safeParseManifest(raw: string, filePath?: string): Manifest {
 export const INTEGRATION_COMMAND_MAX = 500;
 /** Output an integration failure carries (the tail, after redaction). */
 export const INTEGRATION_TAIL_MAX_BYTES = 2000;
-/** Longest output line the failure message quotes. */
-export const INTEGRATION_LINE_MAX = 200;
 
 export interface IntegrationFailureDetail {
   command: string;
   exit_code: number | null;
   output_tail: string;
-  /** `<command> exited <n>: <last output line>`, or `<command> timed out`. */
+  /** `<command> exited <n>`, or `<command> timed out`; the output itself is in output_tail (R12.2). */
   message: string;
 }
 
@@ -59,19 +57,12 @@ export function integrationFailureDetail(
   const clean = (text: string): string => cleanIntegrationText(text, roots);
   const command = clean(failure.command).slice(0, INTEGRATION_COMMAND_MAX);
   const output_tail = takeTail(clean(failure.output), INTEGRATION_TAIL_MAX_BYTES).text;
-  const lastLine =
-    output_tail
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line !== "")
-      .pop() ?? "";
   const status = failure.timed_out ? "timed out" : `exited ${failure.exit_code}`;
-  const quoted = lastLine === "" ? "" : `: ${lastLine.slice(0, INTEGRATION_LINE_MAX)}`;
   return {
     command,
     exit_code: failure.timed_out ? null : failure.exit_code,
     output_tail,
-    message: `${command} ${status}${quoted}`,
+    message: `${command} ${status}`,
   };
 }
 
