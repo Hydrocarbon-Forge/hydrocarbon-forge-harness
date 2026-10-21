@@ -191,19 +191,22 @@ describe("E2E merge & integration worktree (R3.6)", () => {
         expect(types).toContain("merge.conflict");
         const conflictEvt = eventAt(res, "merge.conflict");
         expect(conflictEvt).toBeDefined();
-        expect(conflictEvt?.data.task_id).toBe("T2");
+        // R8.3: whichever task passes first merges; the other one conflicts with it.
+        const loser = String(conflictEvt?.data.task_id);
+        expect(["T1", "T2"]).toContain(loser);
+        const winner = loser === "T1" ? "T2" : "T1";
 
         // Verify that task.failed was emitted with merge_conflict
         const failedEvts = eventsOfType(res, "task.failed");
         const conflictFailed = failedEvts.find(
-          (e) => e.data.task_id === "T2" && e.data.failure_class === "merge_conflict"
+          (e) => e.data.task_id === loser && e.data.failure_class === "merge_conflict"
         );
         expect(conflictFailed).toBeDefined();
 
         // R8.1: the loser's change is dropped, not replanned: it fails for good and the
         // event names the task it collided with.
         expect(conflictFailed?.data.can_replan).toBe(false);
-        expect(String(conflictFailed?.data.detail)).toContain("T1");
+        expect(String(conflictFailed?.data.detail)).toContain(winner);
         expect(types).not.toContain("replan.started");
       } finally {
         res.cleanup();

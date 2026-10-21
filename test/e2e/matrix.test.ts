@@ -485,12 +485,15 @@ const row09: MatrixRow = {
       args: [...RUN_ARGS, "Run the conflict case"],
     });
     try {
-      expect(ofType(res, "merge.conflict")[0]?.data.task_id).toBe("T2");
-      const failed = ofType(res, "task.failed").find((e) => e.data.task_id === "T2");
+      // R8.3: whichever task passes first merges; the other one conflicts with it.
+      const loser = ofType(res, "merge.conflict")[0]?.data.task_id as string;
+      expect(["T1", "T2"]).toContain(loser);
+      const winner = loser === "T1" ? "T2" : "T1";
+      const failed = ofType(res, "task.failed").find((e) => e.data.task_id === loser);
       expect(failed?.data.failure_class).toBe("merge_conflict");
-      // The conflicting change is dropped: no replan, and the failure names T1 (R8.1).
+      // The conflicting change is dropped: no replan, and the failure names the task that merged (R8.1).
       expect(failed?.data.can_replan).toBe(false);
-      expect(String(failed?.data.detail)).toContain("T1");
+      expect(String(failed?.data.detail)).toContain(winner);
       expect(ofType(res, "replan.started")).toHaveLength(0);
       expect(res.exitCode).toBe(1);
     } finally {
