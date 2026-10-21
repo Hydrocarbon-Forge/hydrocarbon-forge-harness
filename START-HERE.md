@@ -29,7 +29,7 @@ build/, docs/archive/                legacy material; ignore
 ```
 
 ## 5. The CLI and how to check it
-The built CLI is `dist/substrate.mjs`. Its commands are `run`, `plan`, `resume`, `status`, `tasks`, `usage`, `report`, `verify`, `merge`, `undo`, `discard`, `models`, `agents`, `backends`, `sessions`, `config`, `doctor`, `init`, `history`, `archive`, `charter`, `gc` and `bench`. `docs/reference/cli.md` documents each one.
+The built CLI is `dist/substrate.mjs`. Its commands are `run`, `plan`, `resume`, `status`, `watch`, `runs`, `tasks`, `usage`, `report`, `verify`, `merge`, `undo`, `discard`, `models`, `agents`, `backends`, `sessions`, `config`, `doctor`, `init`, `history`, `archive`, `charter`, `gc` and `bench`. `docs/reference/cli.md` documents each one.
 
 ```
 npm run typecheck         TypeScript check

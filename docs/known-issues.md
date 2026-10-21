@@ -333,3 +333,22 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - (c) `Session ID` and `Run ID` both appear in the summary and are easy to confuse.
 - (d) The base-check note appears on every run that adds code and may be read as a warning. It now says it is not a failure.
 - (e) The worktree preparation lines go to stderr, not stdout.
+
+## 49. `status` read a finished or failed run as `EXECUTING` (FIXED, R10.2)
+
+- The status reader used the plain reducer, which ignores `run.finished`, so a run that had ended printed `State: EXECUTING`. It now uses the journal's reduction (`src/engine/journal.ts`), which sets the state the exit code names.
+
+## 50. OPEN: a run that ends before a summary writes no summary.txt or result.json
+
+- R10.2 writes the outcome files from the summary the formatter renders. The run command's own error returns (a run lock refused, an exception outside the engine) end before any summary, so no outcome files are written for them. Engine-level failures (internal errors, interrupts, budget stops) do write them.
+- Direction: a small follow-up if a caller needs a file for every exit.
+
+## 51. OPEN (owner decision): the json `tasks` field stays an object, so the task rows are `task_list`
+
+- R10.2 asked for a `tasks` array in `status --output-format json`. `status` already had a `tasks` object keyed by task id, and the rule is that existing json fields are kept. The rows are in `task_list` instead.
+- Direction: the owner says whether `task_list` is the name to keep, or whether a breaking change to `tasks` is wanted.
+
+## 52. OPEN: `watch` replays from the journal, so a replay has no heartbeats and no landing line
+
+- A live run prints heartbeat lines and the `merged into <branch>` line; both are not journal events, so `watch` shows them only in the summary. `watch --no-follow` on a finished run therefore shows the history without the landing line and without the summary block; a followed or completed watch prints the summary from `summary.txt`.
+- The start line's models are recovered from the roles the run.created event recorded and the settings now on disk, so they can differ from the live line if the settings changed since the run started.

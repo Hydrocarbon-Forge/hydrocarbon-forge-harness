@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Effort, Engine, PermissionMode, Question, RunId } from "../../contracts/index.js";
+import type { Effort, Engine, PermissionMode, Question, RunId, Settings } from "../../contracts/index.js";
 import { parseEngineEvent } from "../../contracts/events.js";
-import { reduce, type EngineState } from "../../engine/reducer.js";
+import type { EngineState } from "../../engine/reducer.js";
+import { applyJournalEvent } from "../../engine/journal.js";
 import type { SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -51,6 +52,13 @@ export interface CliCommand {
 }
 
 const { registry } = await import(`../registry.js`);
+const { formatCost, formatElapsed, progressModelsFor } = await import(`../progress.js`);
+const { RunReplay, countsOf, mergedOf, outcomeOf, recordOf, requestOf, runPathOf, settingsOf, taskRowsOf } = await import(`../run-observe.js`);
+
+// The view types of run-observe.ts, named from the values above (cli modules are not imported by type).
+type RunRecord = ReturnType<typeof recordOf>;
+type TaskRow = ReturnType<typeof taskRowsOf>[number];
+type RunProgress = NonNullable<InstanceType<typeof RunReplay>["progress"]>;
 
 export function isPassedState(state: string): boolean {
   return state === "PASSED" || state === "MERGED";
@@ -91,6 +99,7 @@ export function readCatalogEvents(
   return events;
 }
 
+// The journal's reduction (journal.ts), so a run that finished or failed names that state (R10.2).
 export function reduceRunEvents(eventsPath: string, stderr: NodeJS.WriteStream): {
   state: EngineState;
   events: ReturnType<typeof parseEngineEvent>[];
@@ -104,7 +113,7 @@ export function reduceRunEvents(eventsPath: string, stderr: NodeJS.WriteStream):
     checkpoints: [],
   };
   for (const ev of events) {
-    state = reduce(state, ev);
+    state = applyJournalEvent(state, ev);
   }
   return { state, events };
 }
@@ -127,6 +136,95 @@ function findLatestRunId(runsDir: string): string | null {
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.mtime - a.mtime);
   return candidates[0].id;
+}
+
+/** The request's first 200 characters, as `status` shows it (R10.2). */
+function requestPreview(request: string): string {
+  return request.length > 200 ? request.slice(0, 200) : request;
+}
+
+/** Seconds, as `status` prints a task's running time: `34s`, or `2m05s` past a minute. */
+function ageText(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+/** The lines a live header names for a run: its phase, process, tasks, log and next commands (R10.2). */
+function liveHeader(
+  record: RunRecord,
+  view: { settings: Settings | undefined; rows: TaskRow[]; next: string[]; now: number; elapsedS: number },
+  progress: RunProgress | undefined,
+): string[] {
+  const id = record.runId;
+  const { settings, rows, next, now, elapsedS } = view;
+  const request = requestOf(record.events);
+  const counts = countsOf(rows);
+  const planner = settings !== undefined ? progressModelsFor(settings).planner : undefined;
+  const worker = settings !== undefined ? progressModelsFor(settings).worker : undefined;
+  const merge = settings?.git?.auto_merge === true ? "on" : "off";
+  const budget = settings?.budgets?.run?.max_usd;
+  const lastActivity = record.lastEventAt !== undefined ? Math.max(0, Math.floor((now - record.lastEventAt) / 1000)) : undefined;
+  const processLine = record.process === undefined
+    ? record.terminal ? "Process: none (the run has ended)" : `Process: not running (stopped; resume with: substrate resume ${id})`
+    : record.process.alive
+      ? `Process: pid ${record.process.pid} alive`
+      : `Process: not running (stopped; resume with: substrate resume ${id})`;
+  const cost = formatCost(record.state.usage.total_usd);
+  const budgetText = budget !== undefined && budget !== null ? ` (budget $${Number(budget).toFixed(2)})` : "";
+  const countText = [
+    `${counts.passed} passed`,
+    `${counts.running} running`,
+    `${counts.failed} failed`,
+    `${counts.waiting} waiting`,
+    ...(counts.skipped > 0 ? [`${counts.skipped} skipped`] : []),
+  ].join(", ");
+  const lines = [
+    `Run ${id}  ${record.status}   elapsed ${formatElapsed(elapsedS * 1000)}   request: ${requestPreview(request)}`,
+    `Planner ${planner ?? "-"}   Worker ${worker ?? "-"}   merge: ${merge}`,
+    `Phase:  ${record.terminal ? "ended" : (progress?.phase ?? "-")}     last activity ${lastActivity !== undefined ? `${lastActivity}s ago` : "never"}     Cost ${cost}${budgetText}`,
+    processLine,
+    `Tasks: ${countText}`,
+  ];
+  for (const row of rows) {
+    const title = (row.title ?? "").padEnd(32);
+    let detail = "";
+    if (row.state === "passed") detail = `gen ${row.generation}  ${formatCost(row.cost_usd)}${row.merged ? "  merged" : ""}`;
+    else if (row.state === "running") {
+      const since = row.started_at !== null ? Math.max(0, Math.floor((now - Date.parse(row.started_at)) / 1000)) : undefined;
+      detail = `gen ${row.generation}  attempt ${row.attempt}${since !== undefined ? `  ${ageText(since)}` : ""}`;
+    } else if (row.state === "failed") detail = row.failure_class ?? "";
+    else if (row.state === "waiting" && row.depends_on.length > 0) detail = `after ${row.depends_on.join(", ")}`;
+    lines.push(`  ${row.id.padEnd(4)}${title} ${row.state.padEnd(8)} ${detail}`.replace(/\s+$/, ""));
+  }
+  lines.push(`Log:   ${runPathOf(id, "progress.log")}`);
+  if (next.length > 0) lines.push(`Next:  ${next.join("   (or: ")}${next.length > 1 ? ")" : ""}`);
+  return lines;
+}
+
+/** The commands a caller can run next for a run in this state (R10.2). */
+async function nextOf(cwd: string, record: RunRecord, rows: TaskRow[]): Promise<string[]> {
+  const id = record.runId;
+  switch (record.status) {
+    case "running":
+      return [`substrate watch ${id}`];
+    case "stopped":
+    case "paused":
+    case "interrupted":
+      return [`substrate resume ${id}`];
+    case "finished":
+      return mergedOf(cwd, record) ? [] : [`substrate merge ${id}`];
+    case "failed": {
+      const { failedRunAdvice } = await import("../../engine/failed-run.js");
+      const advice = failedRunAdvice(id, {
+        partialLandable: record.events.some((e) => e.type === "task.merged"),
+        planningFailed: rows.length === 0,
+        internalError: record.events.some((e) => (e.data as { failure_class?: unknown } | undefined)?.failure_class === "internal_error"),
+      });
+      return [advice.next];
+    }
+    default:
+      return [];
+  }
 }
 
 export const statusCommand: CliCommand = {
@@ -168,6 +266,24 @@ export const statusCommand: CliCommand = {
     const taskCount = taskEntries.length;
     const passedCount = taskEntries.filter(([, t]) => isPassedState(t.state)).length;
 
+    // R10.2: the live view. It reads the journal and the run's lock only; it never writes.
+    const record = recordOf(ctx.cwd, state.run_id || targetRunId, events);
+    const settings = await settingsOf(ctx.cwd, events);
+    const rows = taskRowsOf(record);
+    const counts = countsOf(rows);
+    const now = Date.now();
+    const progress = new RunReplay(settings !== undefined ? progressModelsFor(settings) : {}, record.runId);
+    for (const ev of events) progress.feed(ev);
+    const next = await nextOf(ctx.cwd, record, rows);
+    const outcome = outcomeOf(runDir, record.lastEventAt);
+    const budget = settings?.budgets?.run?.max_usd ?? null;
+    // Elapsed runs to the run's last event once it has ended, else to now.
+    const endAt = record.terminal && record.lastEventAt !== undefined ? record.lastEventAt : now;
+    const elapsedS = Math.max(0, Math.floor((endAt - (record.createdAt ?? endAt)) / 1000));
+    const request = requestOf(events);
+    const planner = settings !== undefined ? progressModelsFor(settings).planner : undefined;
+    const worker = settings !== undefined ? progressModelsFor(settings).worker : undefined;
+
     if (ctx.flags.outputFormat === "json") {
       const payload = {
         run_id: state.run_id || targetRunId,
@@ -188,12 +304,51 @@ export const statusCommand: CliCommand = {
           ])
         ),
         usage: state.usage,
+        // R10.2: the live view. `tasks` above is kept as it was; the task rows are `task_list`.
+        status: record.status,
+        phase: record.terminal ? "ended" : (progress.progress?.phase ?? "starting"),
+        elapsed_s: elapsedS,
+        last_event_ts: record.lastEventAt !== undefined ? new Date(record.lastEventAt).toISOString() : null,
+        cost_usd: state.usage.total_usd,
+        budget_usd: typeof budget === "number" ? budget : null,
+        process: record.process ? { pid: record.process.pid, alive: record.process.alive } : null,
+        request: requestPreview(request),
+        planner: planner ?? null,
+        worker: worker ?? null,
+        task_list: rows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          class: r.class,
+          state: r.state,
+          depends_on: r.depends_on,
+          generation: r.generation,
+          attempt: r.attempt,
+          cost_usd: r.cost_usd,
+          started_at: r.started_at,
+          merged: r.merged,
+        })),
+        counts,
+        log: runPathOf(record.runId, "progress.log"),
+        next,
+        ...(record.terminal
+          ? {
+              summary: outcome.summary_path !== undefined ? runPathOf(record.runId, "summary.txt") : null,
+              result: outcome.result_path !== undefined ? runPathOf(record.runId, "result.json") : null,
+            }
+          : {}),
       };
       ctx.stdout.write(JSON.stringify(payload) + "\n");
       return 0;
     }
 
-    ctx.stdout.write(`=== Run Status ===\n`);
+    for (const line of liveHeader(record, { settings, rows, next, now, elapsedS }, progress.progress)) {
+      ctx.stdout.write(`${line}\n`);
+    }
+    if (record.terminal && (outcome.summary_path !== undefined || outcome.result_path !== undefined)) {
+      const files = [outcome.summary_path !== undefined ? "summary.txt" : undefined, outcome.result_path !== undefined ? "result.json" : undefined];
+      ctx.stdout.write(`Outcome: ${files.filter((f) => f !== undefined).join(", ")} in .substrate/runs/${record.runId}/\n`);
+    }
+    ctx.stdout.write(`\n=== Run Status ===\n`);
     ctx.stdout.write(`Run ID:      ${state.run_id || targetRunId}\n`);
     ctx.stdout.write(`State:       ${state.state}\n`);
     if (state.pause_reason) {

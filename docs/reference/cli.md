@@ -54,6 +54,16 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
 
 `run`, `plan` and `resume` report what they are doing while they work, so a caller does not need to poll `status` or read event files. `--output-format` (or `SUBSTRATE_OUTPUT_FORMAT`) picks the form.
 
+**Following a run from another process (R10.2).** Every run writes its progress to `.substrate/runs/<id>/progress.log` in every output format: each progress line the text renderer prints, the summary block, and a header `# run <id> started <ISO time>`. A resume appends `# resumed <ISO time>` and goes on. The log is appended and flushed line by line; a write that fails never fails the run (one warning goes to stderr). The first lines of a run say how to follow it:
+  - text: after the start line, `[mm:ss] follow this run from another terminal: substrate watch <id>` and `[mm:ss] log: .substrate/runs/<id>/progress.log`
+  - json and stream-json: one stderr line, `run <id> started; follow it with: substrate watch <id>` (a resume says `resumed`); the stdout contract is unchanged
+
+Once a run ends, in any state, its outcome is kept in the run directory: `summary.txt` (the summary block exactly as printed) and `result.json` (the object `--output-format json` prints). A resumed run overwrites both when it ends.
+
+Two other processes can read a run while it works: `substrate watch <id>` follows it (see below), and `substrate status <id> --output-format json` gives a snapshot that a poll can read. Neither takes the run lock or writes anything.
+
+Durability of the journal: `events.jsonl` is appended with a synchronous write per event, before the next step; the write is not `fsync`ed, so a power loss can lose the last events the operating system had not yet written. A kill of the process does not lose a written event.
+
 - **`text` (default).** Progress lines and the summary block go to stdout, in order, so one stream carries the whole run. Errors and warnings go to stderr. Every progress line starts with `[mm:ss]`, the time since the run started. Lines written:
   - `run <id> started: mode <mode>, planner <harness:model>, worker <harness:model>` (a `solo` run has no planner)
   - `routed to plan (<rationale>)` or `routed to solo (<rationale>)`. The rationale says why: `explicit mode flag` (the mode was set explicitly), `mechanical edit of a named file` (auto mode, one existing file named with a mechanical verb, so solo), or `request is not a mechanical edit of a named file` (auto mode, so plan)
@@ -117,6 +127,32 @@ Total Cost: $0.0003
 Exit Code:  0
 Merged:     yes
 ```
+
+## watch
+
+```text
+substrate watch [--no-follow] [--output-format stream-json] [run-id]
+```
+
+Follows a run from any terminal or process, at any time. Without a run id it follows the newest run that is still running in this project, else the newest run. It prints the run's history from `events.jsonl` with the same renderer a live run uses, so the lines match what the run printed (the `[mm:ss]` is the time since the run started), then follows new events, polling about twice a second.
+
+- A heartbeat line `[mm:ss] still working: <phase> (<s>s, $<cost>)` is printed when nothing has been printed for 15 s (`SUBSTRATE_HEARTBEAT_MS` changes the interval).
+- When the run reaches a terminal state (finished, failed, paused, interrupted or budget-stopped), watch prints the run's summary block (its `summary.txt`) and exits with the run's exit code (`result.json`'s `exit_code`).
+- If the process that started the run has gone while the run is not terminal (killed, crashed, the machine restarted), watch stops: `run <id> is not running (the process that started it has gone). Resume with: substrate resume <id>`, exit `1`.
+- `--no-follow` prints the history and exits `0` at once, without the summary.
+- `--output-format stream-json` prints the raw events as JSON lines, history and then new events, instead of the text. `--output-format json` is refused (exit `2`); use `status`.
+
+Watch takes no lock and writes no file. A resumed run's history shows its `# resumed` line from the progress log.
+
+Exit codes of `watch`: the run's own exit code when it ends while watched or when it has ended (`0`, `1`, `3`, `4`, `130`, ...); `1` when the run's process has gone; `2` for `No such run: <id>`, or when the project has no runs.
+
+## runs
+
+```text
+substrate runs [--output-format json]
+```
+
+Lists the runs in this project, newest first, one line each: id, status, start time (how long ago, and ISO), cost, `passed/total` tasks, `merged yes|no`, and the first 60 characters of the request. The status is `running` only while the run's process holds the run lock; a run with no terminal event and no live process shows `stopped`; the others are `finished`, `failed`, `paused`, `interrupted` (a Ctrl+C) and `cancelled`. With no runs it prints `No runs yet` and exits `0`. `--output-format json` prints one JSON array of objects (`run_id`, `status`, `started_at`, `cost_usd`, `passed`, `total`, `merged`, `request` up to 200 characters). `history` lists archived runs and is unchanged.
 
 ## run
 
@@ -187,7 +223,33 @@ substrate resume <run_id> --answers answers.json
 substrate status [--output-format json] [run-id]
 ```
 
-Shows a run's state, its tasks and any pause reason. Without a run id it uses the most recent run in `.substrate/runs/`. With no runs it exits 2 with `No run found to display status`. `--output-format json` prints a JSON object.
+Shows a run's state, its tasks and any pause reason. Without a run id it uses the most recent run in `.substrate/runs/`. With no runs it exits 2 with `No run found to display status`. It never takes the run lock and never writes, so it works while the run is live, paused, failed or finished.
+
+The text starts with a live header, then the older block (its lines are unchanged):
+
+```text
+Run r_BHS2PJJ53GQG  stopped   elapsed 00:03   request: make a snake game
+Planner claude:claude-sonnet-5-5   Worker claude:haiku   merge: on
+Phase:  finishing     last activity 3s ago     Cost $0.0000 (budget $5.00)
+Process: not running (stopped; resume with: substrate resume r_BHS2PJJ53GQG)
+Tasks: 0 passed, 1 running, 0 failed, 0 waiting
+  SOLO                                 running  gen 1  attempt 1  3s
+Log:   .substrate/runs/r_BHS2PJJ53GQG/progress.log
+Next:  substrate resume r_BHS2PJJ53GQG
+```
+
+- the status word: `running` (the process holds the lock), `stopped` (no terminal event and no live process), `finished`, `failed`, `paused`, `interrupted` or `cancelled`
+- `Phase:` is the phase the run's progress lines name (`running T1, T3` while two workers run), and `ended` once the run has ended; `last activity` is the age of its newest event
+- `Process:` is `pid <n> alive` for a live process, `not running` for a stopped run, and `none (the run has ended)` for a finished one
+- one row per task: id, title, state (`passed`, `running`, `failed`, `waiting` or `skipped`), generation, attempt, cost, `merged`, or the failure class, or `after <deps>`
+- `Next:` is the command a caller runs next: `substrate watch <id>` while running, `substrate resume <id>` when stopped or paused, `substrate merge <id>` for a finished run that is not merged
+- a run that has ended names its `summary.txt` and `result.json` on an `Outcome:` line
+
+The `State:` line of the older block is the run's state as the journal ends: a run that finished or failed reads `FINISHED` or `FAILED` (it read `EXECUTING` before R10.2, because the reader ignored `run.finished`).
+
+`--output-format json` keeps every field it had and adds: `status`, `phase`, `elapsed_s`, `last_event_ts`, `cost_usd`, `budget_usd` (null when no budget is set), `process` (`{pid, alive}`, or null), `request` (the first 200 characters of the prompt), `planner` and `worker` (`harness:model`), `task_list` (one object per task: `id`, `title`, `class`, `state`, `depends_on`, `generation`, `attempt`, `cost_usd`, `started_at`, `merged`), `counts` (`passed`, `running`, `failed`, `waiting`, `skipped`), `log`, `next` (command strings), and, for a run that has ended, `summary` and `result` (the file paths, or null). The existing `tasks` object is unchanged; the task rows are `task_list`.
+
+For a poll, call `substrate status <id> --output-format json` and read `status`, `phase` and `counts`; when `status` is `finished`, `failed`, `paused`, or `interrupted`, read `result.json` in the run directory.
 
 ## tasks
 

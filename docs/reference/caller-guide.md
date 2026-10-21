@@ -73,6 +73,14 @@ Run `substrate run` in the foreground and read its stdout as it arrives. Do not 
 
 Use the exit code when the process ends.
 
+If you cannot keep `substrate run`'s stdout open (a second terminal, a script that starts the run and reads it later), follow the run by its id:
+
+- Note the run id. Text prints `run <id> started` on its first line; json and stream-json print `run <id> started; follow it with: substrate watch <id>` on stderr.
+- `substrate watch <id>` prints the run's history, then each new line as it happens, then the summary when the run ends. Its exit code is the run's exit code.
+- To poll, run `substrate status <id> --output-format json` and read `status` (`running`, `stopped`, `finished`, `failed`, `paused` or `interrupted`), `phase`, `counts` and `next`. `status` never changes anything, so it is safe to call often.
+- When `status` says the run has ended, read `result.json` in `.substrate/runs/<id>/`. `summary.txt` in the same directory holds the summary block that text mode prints.
+- `stopped` means the process that started the run has gone. Resume it with `substrate resume <id>`.
+
 ## Handle needs_input
 
 Exit code `3` with `subtype` `needs_input` means the planner has questions. The result carries `run_id` and `questions`. Each question has an `id`, a `text` and, when one exists, a `default`.

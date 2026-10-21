@@ -44,6 +44,7 @@ substrate run --plan claude:opus --work claude:sonnet "Add a request rate limite
 | `plan` | Run the planner only and stop before any worker starts. |
 | `resume` | Continue a paused or interrupted run, or answer its questions with `--answers`. |
 | `status`, `tasks`, `report` | Inspect a run: its state, its tasks, a diagnostic report. |
+| `watch`, `runs` | Follow a run from another terminal, at any time; list the runs in this project and their status. |
 | `verify` | Re-run one task's verify commands in its worktree. |
 | `merge`, `undo`, `discard` | Merge a finished run, revert the last merged batch, or remove a run. |
 | `models` | List models per provider, with prices and profile slots. `--stats` shows per-model results. |
