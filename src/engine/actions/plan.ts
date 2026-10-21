@@ -6,6 +6,7 @@ import type { Question, SpawnRequest, TaskId } from "../../contracts/index.js";
 import {
   PlannerFailure,
   commitContractStubs,
+  withoutRootPaths,
   finishLine,
   formatRejectedData,
   planTasksForEvent,
@@ -310,7 +311,7 @@ export async function runPlanAction(
         (d) => d.severity === "error" && !isSuppressedForRunDir(ctx.runDir, d)
       );
       if (errors.length > 0) {
-        diagnostics = errors.map((d: any) => `[${d.code}] ${d.message}`);
+        diagnostics = errors.map((d: any) => `[${d.code}] ${withoutRootPaths(d.message, [ctx.runDir, ctx.repoRoot])}`);
         continue;
       }
 
@@ -328,7 +329,7 @@ export async function runPlanAction(
       const typecheckErrors = (typecheckRes.diagnostics ?? []).filter((d: any) => d.severity === "error");
       if (!typecheckRes.ok || typecheckErrors.length > 0) {
         diagnostics = typecheckErrors.length > 0
-          ? typecheckErrors.map((d: any) => `[${d.code}] ${d.message}`)
+          ? typecheckErrors.map((d: any) => `[${d.code}] ${withoutRootPaths(d.message, [ctx.runDir, ctx.repoRoot])}`)
           : ["Contract typecheck failed with a non-zero exit code"];
         continue;
       }
@@ -403,6 +404,7 @@ export async function runPlanAction(
       charter,
       history,
       signal: ctx.signal,
+      runBudgetExceeded: () => stoppedForBudget,
     });
   } catch (err) {
     if (stoppedForBudget) return;

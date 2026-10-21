@@ -87,7 +87,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `budgets.task.max_turns` | number | Turn cap for one task. Unset by default. |
 | `budgets.l1_replans_per_task` | integer | Maximum L1 replans (heal and retry attempts) for one task. Default 2. |
 | `budgets.l2_per_run` | integer | Maximum L2 full re-plans for one run. Default 2. |
-| `budgets.planner_format_retries` | integer | Planner retries after an invalid plan. Default 2. |
+| `budgets.planner_format_retries` | integer | Planner retries after an invalid plan: a format, contract typecheck or approval lint refusal (see the events in `cli.md`). Default 2. |
 | `budgets.approval_threshold_usd` | number | Estimated cost above which approval is required. Default 2. |
 | `concurrency.workers` | integer | Maximum number of tasks running at once. Default 3. |
 | `defaults.planner_provider` | string | Provider whose `plan` profile slot routes the planner. |

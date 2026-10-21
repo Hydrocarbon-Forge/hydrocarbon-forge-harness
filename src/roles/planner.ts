@@ -21,6 +21,7 @@ import {
   parseManifest,
   parseTaskSpec,
   lintPlan,
+  safeLoadPlan,
   typecheckContracts,
   detectEcosystem,
   generateRepoMap,
@@ -60,6 +61,8 @@ export interface PlannerRunOptions {
   history?: string;
   /** Run abort signal: the planner session is killed when it aborts. */
   signal?: AbortSignal;
+  /** True once the run budget is spent; a retry the budget no longer covers is not started (R7.7). */
+  runBudgetExceeded?: () => boolean;
 }
 
 export type PlannerOutcome =
@@ -126,6 +129,42 @@ export function formatRejectedData(
     max_attempts: maxAttempts,
     errors: diagnostics.slice(0, 5).map((d) => d.replace(/\s+/g, " ").trim().slice(0, 300)),
   };
+}
+
+/**
+ * A diagnostic's text with the run directory and the repository root taken out, so a path
+ * in a tool's output (a Node error, for one) reaches the planner as a relative path.
+ */
+export function withoutRootPaths(text: string, roots: string[]): string {
+  let out = text;
+  for (const root of [...roots].sort((a, b) => b.length - a.length)) {
+    if (root === "") continue;
+    out = out.split(root + path.sep).join("").split(root).join(".");
+  }
+  return out;
+}
+
+/**
+ * The approval lint (the LINTING step in approve.ts) for a manifest in the run directory:
+ * the same load with placeholder stubs, the same lint, every error. The planner runs it
+ * before it commits the contract stubs, so a plan the approval lint refuses is a format
+ * rejection with the others and nothing reaches the run branch (R7.7).
+ */
+async function approvalLintDiagnostics(opts: PlannerRunOptions, manifestPath: string): Promise<string[]> {
+  let loaded: Awaited<ReturnType<typeof safeLoadPlan>>;
+  try {
+    loaded = await safeLoadPlan(manifestPath, opts.repoRoot, opts.settings.budgets?.task?.max_usd);
+  } catch (err: any) {
+    return [`Failed to load the plan for lint: ${err.message}`];
+  }
+  try {
+    const result = await lintPlan(loaded, opts.repoRoot, opts.settings);
+    return result.diagnostics
+      .filter((d) => d.severity === "error")
+      .map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`);
+  } finally {
+    loaded.cleanup();
+  }
 }
 
 /**
@@ -445,6 +484,8 @@ export async function runPlanner(
   let diagnostics: string[] = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // The run budget stops the planner's retries as it stops the run (R7.7).
+    if (attempt > 1 && opts.runBudgetExceeded?.()) break;
     // diagnostics still hold the previous attempt's refusal: report it before the retry.
     if (attempt > 1) {
       opts.onEvent?.("plan.format_rejected", formatRejectedData(attempt - 1, maxAttempts, diagnostics));
@@ -650,7 +691,7 @@ export async function runPlanner(
       (d) => d.severity === "error" && !isSuppressedForRunDir(opts.runDir, d)
     );
     if (errors.length > 0) {
-      diagnostics = errors.map((d) => `[${d.code}] ${d.message}`);
+      diagnostics = errors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`);
       continue;
     }
 
@@ -670,8 +711,14 @@ export async function runPlanner(
     const typecheckErrors = typecheckRes.diagnostics.filter((d) => d.severity === "error");
     if (!typecheckRes.ok || typecheckErrors.length > 0) {
       diagnostics = typecheckErrors.length > 0
-        ? typecheckErrors.map((d) => `[${d.code}] ${d.message}`)
+        ? typecheckErrors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`)
         : ["Contract typecheck failed with a non-zero exit code"];
+      continue;
+    }
+
+    const approvalErrors = await approvalLintDiagnostics(opts, manifestPath);
+    if (approvalErrors.length > 0) {
+      diagnostics = approvalErrors;
       continue;
     }
 
