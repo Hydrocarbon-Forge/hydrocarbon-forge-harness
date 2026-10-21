@@ -408,8 +408,12 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         failure_class: data.failure_class ?? current.failure_class,
         ...(message !== undefined ? { failure_message: message } : {}),
       };
+      // R9.1: a culprit named at the final gate is already merged. Its failure puts the run back
+      // in EXECUTING, so the replan runs; a run stays INTEGRATING only while its verify runs.
+      const runState = state.state === "INTEGRATING" ? "EXECUTING" : state.state;
       return {
         ...state,
+        state: runState,
         tasks: { ...state.tasks, [taskId]: updated },
       };
     }

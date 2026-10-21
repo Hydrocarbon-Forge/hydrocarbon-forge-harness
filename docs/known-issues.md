@@ -300,3 +300,19 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - Direction: owner decision. Either keep the kill (the cap is hard), or let the in-flight task finish and stop before the next one (the cap is soft by one task). The per-task cap is unaffected.
 - Note: the stop's `failure_class` is `budget_exhausted` (the pause reason and exit 4), not `budget_exceeded` (the class of a task that hits its own cap).
 
+
+## 44. integration_verify ran after every batch, so a test-first plan failed mid-run and blamed an innocent task (FIXED, R9.1)
+
+- Seen: live run r_4JRK6NGFMVQD (concurrency 3; T1 writes tests that stay red until T2 is merged; `integration_verify: node --test test/game.test.js`). T1 merged alone, the verify ran in the merge action (`src/engine/actions/merge.ts`) against the contract stub, bisect blamed T1 (`integration_failed`), and the run tried to replan T1 (then died: entry 45). The earlier run r_JKJKOMEEIH5C had the same T1/T2/T3 shape and passed, for two reasons in its events: its plan's verify was `sh -c 'if grep -q CONTRACT_STUB src/game.js; then echo contract-stubs-still-present-skipping-tests; else node --test ...; fi'`, which skips the tests while the stub is there; and its batches were one task at a time (T1 alone, then T2 and T3), because workers ran one at a time before R8.3. Only the first was a property of the plan; the second changed when batches formed, and the mid-run verify then ran on a state the plan never reaches at a gate.
+- Fixed (R9.1): the merge action only merges (preflight and the merge into the run branch), and no verify runs between merges. `integration_verify` runs once, in the final gate (`runIntegrateAction`, `src/engine/actions/integrate.ts`), after every task is MERGED. When it fails, bisect tests the merge-order prefixes that no task outside them depends on, and names a culprit only when the last such prefix that passes is the one just before the first that fails (the base counts as passing only when the base check passed; a single-task run is blamed, since its one task is the whole change). Otherwise the run fails with `integration_failed: <cmd> exited <n>` and the output tail, and names no task. A culprit's failure puts the run back in EXECUTING (`src/engine/reducer.ts`, `task.failed`), so its replan runs; its merged work stays on the run branch.
+- Tests: `test/e2e/integration-timing.test.ts` (T1 the live plan 3/3 with one verify after the last merge; T2 a broken implementation fails gracefully with no culprit; T3 a verify failing on every state names no culprit; T4 a culprit found at the final gate is replanned and the run finishes). Pinned text updated: `test/e2e/integration-base.test.ts` (comment only; its assertions hold under the final gate).
+
+## 46. OPEN: bisect trusts a whole-project verify on a prefix of the plan
+
+- Evidence (R9.1): a culprit is named from the verify's result on a prefix of the merged tasks, and the verify is whole-project. Only a dependency absence is excluded (a prefix is not tested while an outside task depends on it). A verify that fails because an independent task that is not in the prefix is missing is not excluded. The rule limits the risk (a culprit needs the adjacent prefix to pass) but does not remove it; this was not reproduced.
+- Direction: owner decision. Either keep this (a culprit is named only when the adjacent prefixes split cleanly) or run the final verify per task in its own worktree.
+
+## 47. OPEN: a culprit found at the final gate is replanned on top of its merged work
+
+- Evidence (R9.1): the culprit's code is already on the run branch when the final gate fails, so its replan works from the run branch and edits that code in place (generation 2). The planner's replan prompt says merged work is fixed. Covered by `test/e2e/integration-timing.test.ts` (T4) only.
+- Direction: owner decision if un-merging a culprit is wanted instead.

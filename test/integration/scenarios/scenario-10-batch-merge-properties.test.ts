@@ -222,17 +222,11 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     }
     expect(previous).toBe(runHead);
 
-    // Integration verify runs: the base check (nothing merged yet), one per batch (the run ref still at
-    // that batch's checkpoint, with the files merged up to and including the batch), then the
-    // post-run integration on the merged ref.
-    expect(run.verifyRuns[0]).toEqual({ ref: preBatchSha, files: [] });
-    const cumulative: string[] = [];
-    batches.forEach((b, i) => {
-      for (const id of b.batch) cumulative.push(`t${id.slice(1)}.ts`);
-      expect(run.verifyRuns[1 + i]).toEqual({ ref: b.checkpoint_ref, files: [...cumulative].sort() });
-    });
-    expect(run.verifyRuns.length).toBe(batches.length + 2);
-    expect(run.verifyRuns.at(-1)?.ref).toBe(runHead);
+    // R9.1: nothing is verified between merges. The base check runs once, on the contract commit (nothing
+    // merged yet), and one integration verify runs on the merged run ref after the last merge.
+    // The base check reads the run ref as it is at the gate (past the merges), so only its files are asserted.
+    expect(run.verifyRuns.map((r) => r.files)).toEqual([[], ["t1.ts", "t2.ts", "t3.ts"]]);
+    expect(run.verifyRuns[1]?.ref).toBe(runHead);
 
     // The user's checkout: HEAD, branch and the untracked file are unchanged.
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);
@@ -262,19 +256,20 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     expect(culpritIdx).toBeGreaterThan(-1);
     expect((run.events[culpritIdx]?.data as any).culprit_task_id).toBe("T2");
 
-    // (c) the culprit is never merged, and no integration verify ran on a ref that holds its file.
-    // Which siblings merged before it depends on when each one passed (R8.3).
+    // R9.1: every task merges as it passes, with no verify between merges, so the culprit is merged before
+    // the one integration verify runs. That verify is the one that fails, on the run ref holding its file.
     const mergedIds = run.events.filter((e) => e.type === "task.merged").map((e) => (e.data as any).task_id);
-    expect(mergedIds).not.toContain("T2");
-    for (const record of run.verifyRuns) {
-      const listing = env.testRepo.git(["ls-tree", "-r", "--name-only", record.ref, "src"]).split("\n");
-      expect(listing).not.toContain("src/bad.ts");
-    }
-    expect(env.testRepo.git(["ls-tree", "-r", "--name-only", run.runRef, "src"]).split("\n")).not.toContain("src/bad.ts");
+    expect([...mergedIds].sort()).toEqual(["T1", "T2", "T3"]);
+    const lastMergeIdx = Math.max(...run.events.map((e, i) => (e.type === "task.merged" ? i : -1)));
+    expect(run.events.findIndex((e) => e.type === "integration.started")).toBeGreaterThan(lastMergeIdx);
+    const runHead = env.testRepo.git(["rev-parse", run.runRef]);
+    expect(env.testRepo.git(["ls-tree", "-r", "--name-only", run.runRef, "src"]).split("\n")).toContain("src/bad.ts");
 
-    // (a) and (b): the bisect ran for the failing batch.
+    // The base check, the final verify on the run ref (it fails), then the bisect's prefix that holds only T2.
+    expect(run.verifyRuns[0]?.files).toEqual([]);
+    expect(run.verifyRuns[1]?.ref).toBe(runHead);
+    expect(run.verifyRuns[1]?.files).toContain("bad.ts");
     expect(run.verifyRuns.length).toBeGreaterThanOrEqual(3);
-    expect(run.verifyRuns[0]).toEqual({ ref: run.contractsSha, files: [] });
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);
     expect(readFileSync(untrackedPath, "utf8")).toBe(untrackedContent);
   });
@@ -287,19 +282,15 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     const culpritEvt = run.events.find((e) => e.type === "bisect.culprit");
     expect((culpritEvt?.data as any).culprit_task_id).toBe("T1");
 
+    // R9.1: the task merges (no verify between merges); the one integration verify after it fails and
+    // names the task, which is the whole change, so no prefix needs a verify of its own.
     const culpritIdx = run.events.indexOf(culpritEvt!);
-    expect(
-      run.events
-        .slice(0, culpritIdx)
-        .filter((e) => e.type === "task.merged" || e.type === "batch.merged")
-    ).toEqual([]);
+    expect(run.events.slice(0, culpritIdx).filter((e) => e.type === "task.merged").length).toBe(1);
 
-    // Base check, batch (fails), bisect (fails): 1 + N = 2 batch and bisect runs.
-    const [base, batch, bisect] = run.verifyRuns;
-    expect(base).toEqual({ ref: run.contractsSha, files: [] });
-    expect(batch).toEqual({ ref: run.contractsSha, files: ["bad.ts"] });
-    expect(bisect).toEqual({ ref: run.contractsSha, files: ["bad.ts"] });
-    expect(run.verifyRuns.slice(1, 3).length).toBeLessThanOrEqual(1 + 1);
+    // The base check, then the one integration verify on the merged run ref.
+    const runHead = env.testRepo.git(["rev-parse", run.runRef]);
+    expect(run.verifyRuns.map((r) => r.files)).toEqual([[], ["bad.ts"]]);
+    expect(run.verifyRuns[1]?.ref).toBe(runHead);
     expect(env.testRepo.git(["rev-parse", run.runRef])).toBeTruthy();
   });
   it("a merge conflict in a batch halts it without verifying or advancing the run ref, and the user's checkout is untouched", async () => {
@@ -338,9 +329,9 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
       .split("\n");
     expect(runSubjects).toEqual([`merge: task ${winner}`]);
 
-    // The base check ran at main, which holds the committed shared file; the conflicting
-    // batch itself never reached its integration verify.
-    expect(run.verifyRuns[0]).toEqual({ ref: run.contractsSha, files: ["shared.ts"] });
+    // R9.1: the run ends at the conflict (the loser is blocked, so the plan never completes), before the
+    // final gate: no integration verify runs at all.
+    expect(run.verifyRuns).toEqual([]);
 
     // (d) the user's checkout keeps HEAD and the untracked file.
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);

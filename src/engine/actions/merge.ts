@@ -1,13 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 
-import type { Manifest, TaskId } from "../../contracts/index.js";
+import type { TaskId } from "../../contracts/index.js";
 import { matchGlob } from "../../util/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { checkBaseVerify, integrationFailureDetail, safeParseManifest } from "./shared.js";
 import { withRepoLock } from "../../git/repo-lock.js";
 import {
   advanceRunRef,
@@ -16,7 +13,6 @@ import {
   getTaskBranch,
   mergeInto,
   preflight,
-  verifyIn,
 } from "../../git/index.js";
 
 /**
@@ -56,25 +52,13 @@ export async function runMergeAction(
   // R8.2: a batch merges into the run branch through the integration worktree and never
   // touches the checkout, so uncommitted changes in the user's checkout do not stop it. The
   // checkout is checked where the work lands (`substrate merge` and the run's merge flag).
-  const manifestPath = join(ctx.runDir, "manifest.yaml");
-  let manifest: Manifest | undefined;
-  if (existsSync(manifestPath)) {
-    try {
-      manifest = safeParseManifest(readFileSync(manifestPath, "utf8"), manifestPath);
-    } catch {}
-  }
-  const verifyCommands = manifest?.integration_verify ?? [];
-
-  // Behavior 8: base check before the first batch (advisory; see checkBaseVerify)
-  await checkBaseVerify(ctx, manifest);
-
   const runBranch = getRunBranch(ctx.runId);
   const preBatchSha = execFileSync("git", ["rev-parse", runBranch], {
     cwd: ctx.repoRoot,
     encoding: "utf8",
   }).trim();
 
-  // R8.3: the git steps of a merge run under the repo lock; the verify commands do not.
+  // R8.3: the git steps of a merge run under the repo lock.
   const integrationWorktree = await withRepoLock(ctx.repoRoot, () =>
     createIntegrationWorktree(ctx.repoRoot, ctx.runId, preBatchSha)
   );
@@ -115,80 +99,13 @@ export async function runMergeAction(
     );
   }
 
-  const batchVerify = await verifyIn(
-    integrationWorktree,
-    verifyCommands,
-    ctx.settings
+  // R9.1: no whole-project verify here. integration_verify runs once, at the final gate, after every
+  // task of the plan has merged. A merge that applied cleanly is the only check made mid-run.
+  await withRepoLock(ctx.repoRoot, () =>
+    advanceRunRef(ctx.repoRoot, ctx.runId, integrationHead, preBatchSha)
   );
-  if (batchVerify.passed) {
-    await withRepoLock(ctx.repoRoot, () =>
-      advanceRunRef(ctx.repoRoot, ctx.runId, integrationHead, preBatchSha)
-    );
-    for (const taskId of batch) {
-      emit("task.merged", { task_id: taskId });
-    }
-    emit("batch.merged", { batch, checkpoint_ref: preBatchSha });
-    return;
-  }
-
-  // Bisect
-  emit("bisect.started", {});
-
-  execFileSync("git", ["reset", "--hard", preBatchSha], {
-    cwd: integrationWorktree,
-    encoding: "utf8",
-    stdio: "pipe",
-  });
-  execFileSync("git", ["clean", "-fd"], {
-    cwd: integrationWorktree,
-    encoding: "utf8",
-    stdio: "pipe",
-  });
-
-  let culprit = batch[batch.length - 1];
-  let lastGoodSha = preBatchSha;
-  // The failure the culprit's task carries: the batch's own, unless bisect pins one on a task.
-  let culpritFailure = batchVerify.failure;
-
   for (const taskId of batch) {
-    const taskState = state.tasks[taskId];
-    const gen = taskState?.generation ?? 1;
-    const taskBranch = getTaskBranch(ctx.runId, taskId, gen);
-
-    const newHead = await withRepoLock(ctx.repoRoot, () =>
-      mergeInto(integrationWorktree, taskBranch, `bisect: ${taskId}`)
-    );
-
-    const outcome = await verifyIn(
-      integrationWorktree,
-      verifyCommands,
-      ctx.settings
-    );
-    if (!outcome.passed) {
-      culprit = taskId;
-      culpritFailure = outcome.failure;
-      execFileSync("git", ["reset", "--hard", lastGoodSha], {
-        cwd: integrationWorktree,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-      execFileSync("git", ["clean", "-fd"], {
-        cwd: integrationWorktree,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-      break;
-    }
-    lastGoodSha = newHead;
+    emit("task.merged", { task_id: taskId });
   }
-
-  emit("bisect.culprit", { culprit_task_id: culprit });
-  const detail = culpritFailure
-    ? integrationFailureDetail(culpritFailure, [integrationWorktree, ctx.repoRoot])
-    : undefined;
-  emit("task.failed", {
-    task_id: culprit,
-    failure_class: "integration_failed",
-    ...(detail ? { message: detail.message } : {}),
-  });
+  emit("batch.merged", { batch, checkpoint_ref: preBatchSha });
 }
