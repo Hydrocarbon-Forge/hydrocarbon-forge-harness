@@ -503,8 +503,8 @@ describe("cli: execution commands (run, plan, resume)", () => {
       )) as any;
       const { createTestRepo } = await import("../git/test-repo.js");
       const { writePlanFiles } = await import("../scenarios/helpers.js");
-      const { sampleValidManifest } = await import("../roles/fixtures.js");
-      const { FakeAdapter } = await import("../../conformance/fake-adapter.js");
+      const { sampleValidManifest, sampleValidContractStub } = await import("../roles/fixtures.js");
+      const { fakeClaudeAdapter } = await import("../scenarios/helpers.js");
       const { DEFAULT_SETTINGS } = await import("../../../src/config/index.js");
 
       const testRepo = createTestRepo("sub-cli-resume-finished-");
@@ -514,11 +514,14 @@ describe("cli: execution commands (run, plan, resume)", () => {
           ...sampleValidManifest(runId),
           tasks: [],
         };
-        writePlanFiles(testRepo.dir, runId, manifest as any, {});
+        writePlanFiles(testRepo.dir, runId, manifest as any, {}, { "contracts/types.ts": sampleValidContractStub() });
 
+        // A planner that finishes with PLAN READY, so the zero-task run really finishes (known issue 41:
+        // a failed run is not resumed, so the test needs a finished one).
+        const claude = fakeClaudeAdapter([{ reply: "PLAN READY" }]);
         const engine = engineMod.createEngine({
           settings: { ...DEFAULT_SETTINGS },
-          adapter: new FakeAdapter(),
+          adapter: claude.adapter,
         });
         await engine.run({
           prompt: "Zero task run to completion",

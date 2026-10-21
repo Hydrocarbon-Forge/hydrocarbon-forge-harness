@@ -9,6 +9,7 @@ import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
 import { changedFilesOnRun, currentBranchName, runLandedInHead } from "../../git/landing.js";
 import { budgetResumeCommand, budgetStopMessage, failureOf, withLanding } from "../../engine/landing.js";
+import { planHasIntegrationVerify } from "../../engine/failed-run.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -219,7 +220,8 @@ async function landRun(
       ...(notMergedReason !== undefined ? { notMergedReason } : {}),
       // A task merged into the run branch is what `merge --partial` lands (R8.2).
       partialLandable: summary.status === "failed" && summary.branch !== undefined &&
-        opts.events.some((e) => e.type === "task.merged"),
+        opts.events.some((e) => e.type === "task.merged") &&
+        planHasIntegrationVerify(path.join(ctx.cwd, ".substrate", "runs", summary.run_id)),
     },
   );
   return { summary: landed, exitCode };

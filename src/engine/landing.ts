@@ -25,7 +25,10 @@ export interface LandingFacts {
   resumeCommand?: string;
   /** Why a finished run did not land (R8.2), shown in the Result block. */
   notMergedReason?: string;
-  /** A failed run whose run branch holds a passed task: `merge --partial` can land it (R8.2). */
+  /**
+   * A failed run whose run branch holds a passed task and whose plan has integration verify:
+   * `merge --partial` can land it (R8.2, known issue 41).
+   */
   partialLandable?: boolean;
 }
 
@@ -91,10 +94,12 @@ export function withLanding(summary: RunSummary, facts: LandingFacts): RunSummar
     next.push(`substrate merge ${runId}`);
   }
   if (facts.runFailed && !facts.needsInput) {
-    next.push(facts.resumeCommand ?? `substrate resume ${runId}`);
-  }
-  if (facts.runFailed && facts.partialLandable === true) {
-    next.push(`substrate merge ${runId} --partial`);
+    // A failed run is not resumable (known issue 41): its only next command is the partial landing.
+    if (summary.status === "failed") {
+      if (facts.partialLandable === true) next.push(`substrate merge ${runId} --partial`);
+    } else {
+      next.push(facts.resumeCommand ?? `substrate resume ${runId}`);
+    }
   }
   return {
     ...summary,

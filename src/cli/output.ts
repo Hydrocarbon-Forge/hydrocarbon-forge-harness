@@ -1,5 +1,6 @@
 import type { EngineEvent, Question, RunId, RunSummary } from "../contracts/index.js";
 import { TEXT_FILES_LIMIT } from "../engine/landing.js";
+import { failedRunAdvice } from "../engine/failed-run.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
 const { Heartbeat, RunProgress, formatCost, formatElapsed, heartbeatMsFromEnv } = await import(`./progress.js`);
@@ -162,15 +163,19 @@ class TextFormatter implements OutputFormatter {
     if (summary.drafts_dir !== undefined || (!landed && summary.exit_code !== 0)) {
       this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
       if (!needsInput) {
-        // Without a branch the run failed in planning, and resuming plans again (R7.9).
-        const replan = summary.branch === undefined ? "  (re-runs planning; costs again)" : "";
-        // A budget stop names the resume with a higher budget (R8.2); other runs name plain resume.
-        const resume = summary.next?.find((c) => c.startsWith("substrate resume ")) ?? `substrate resume ${summary.run_id}`;
-        this.out.write(`Next:       ${resume}${replan}\n`);
-        // R8.2: a failed run with a passed task on its run branch can land that work deliberately.
-        const partial = summary.next?.find((c) => c.endsWith(" --partial"));
-        if (partial !== undefined) {
-          this.out.write(`            or ${partial}  (lands the passed tasks after integration verify passes)\n`);
+        if (summary.status === "failed") {
+          // Known issue 41: a failed run is not resumable. Its Next line names what it can do instead:
+          // the partial landing of a passed task, a new run for a planning failure, or a narrower request.
+          const partialLandable = summary.next?.some((c) => c.endsWith(" --partial")) === true;
+          const planningFailed = Object.keys(summary.tasks ?? {}).length === 0;
+          const advice = failedRunAdvice(summary.run_id, { partialLandable, planningFailed });
+          this.out.write(`Next:       ${advice.next}\n`);
+        } else {
+          // Without a branch the run failed in planning, and resuming plans again (R7.9).
+          const replan = summary.branch === undefined ? "  (re-runs planning; costs again)" : "";
+          // A budget stop names the resume with a higher budget (R8.2); other runs name plain resume.
+          const resume = summary.next?.find((c) => c.startsWith("substrate resume ")) ?? `substrate resume ${summary.run_id}`;
+          this.out.write(`Next:       ${resume}${replan}\n`);
         }
       }
       if (summary.failure_class !== undefined) {

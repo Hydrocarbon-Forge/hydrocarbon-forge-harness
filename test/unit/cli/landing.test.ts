@@ -75,7 +75,7 @@ describe("R7.4 withLanding", () => {
     expect(out.files_changed_total).toBe(JSON_FILES_LIMIT + 7);
   });
 
-  it("failed run: drafts_dir, the failing class and message, and next names resume", () => {
+  it("failed run: drafts_dir, the failing class and message, and next names no resume (known issue 41)", () => {
     const out = withLanding(summaryOf({ status: "failed", exit_code: 1 }), {
       merged: false,
       base_branch: "main",
@@ -88,7 +88,7 @@ describe("R7.4 withLanding", () => {
       drafts_dir: `.substrate/runs/${RUN_ID}`,
       failure_class: "verify_failed",
       message: "npm test failed",
-      next: [`substrate resume ${RUN_ID}`],
+      next: [],
     });
   });
 
@@ -155,7 +155,9 @@ describe("R7.4 text summary", () => {
       }) as RunSummary,
     );
     expect(text).toContain(`Drafts and logs: .substrate/runs/${RUN_ID}/\n`);
-    expect(text).toContain(`Next:       substrate resume ${RUN_ID}\n`);
+    // Known issue 41: a failed run is not resumable; the Next line names what it can do instead.
+    expect(text).toContain("Next:       Start a new run with a narrower request\n");
+    expect(text).not.toContain("substrate resume");
     expect(text).toContain("Reason:     verify_failed: npm test failed\n");
     expect(text).not.toContain("Result:");
   });
@@ -211,7 +213,7 @@ describe("R7.4 json and stream-json summaries", () => {
       base_branch: "main",
       files_changed: [],
       files_changed_total: 0,
-      next: [`substrate resume ${RUN_ID}`],
+      next: [],
       failure_class: "timeout",
       message: "task T1 timed out",
       drafts_dir: `.substrate/runs/${RUN_ID}`,

@@ -282,10 +282,11 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - Behaviour that changed with it: a merge is made of the tasks that have passed when it starts, so the batches of a run depend on when each task finished, not on a barrier after the scheduled set. `budgets.run.max_tokens` counts the whole run (as `config.md` says); it was counted per action before.
 - Tests: `test/e2e/concurrency.test.ts` (three tasks side by side with barriers met, `concurrency.workers: 1` does not overlap, never more than the limit alive, a failing task does not stop its sibling, a dependency chain beside an independent task, the journal's sequence and replay, SIGINT stopping both workers with a resume, a run budget stopping every in-flight worker, two merges at the same moment), `test/unit/git/repo-lock.test.ts`, `test/unit/cli/progress.test.ts` (the heartbeat names several running workers), and `test/e2e/graceful-concurrency.test.ts`.
 
-## 41. OPEN: `resume` of a failed run says "already finished" while the summary's `Next:` names resume
+## 41. `resume` of a failed run said "already finished" while the summary's `Next:` named resume (FIXED, R8.3)
 
 - Evidence (R8.2): a run that ends `failed` (exit 1) prints `Next: substrate resume <id>` in its summary and in `next`. `substrate resume <id>` then prints `Run <id> is already finished. Nothing to resume.` and exits 0, because `isRunAlreadyFinished` in `src/cli/commands/resume.ts` treats any `run.finished` as finished. A planning failure's `Next:` (`re-runs planning; costs again`) has the same problem.
-- Direction: owner decision. Either a failed run is resumable (its failed tasks run again, which is the item 36 question), or the `Next:` line for a failed run names no resume command and says what to do instead.
+- Fixed (R8.3; the owner chose that a failed run is not resumable, because the engine drops failed tasks by design): `substrate resume` refuses a failed run with exit 1 and `failure_class: not_resumable`, and the summary's `Next:` line and json `next` name `substrate merge <id> --partial` when a passed task can land (the plan has integration verify). Otherwise they say `Run substrate run again (planning costs again)` for a planning failure or `Start a new run with a narrower request`. Code: `src/cli/failed-run.ts`, `src/cli/commands/resume.ts`, `src/cli/output.ts`, `src/engine/landing.ts`.
+- Tests: `test/e2e/graceful-resume.test.ts`, and the pinned texts updated in `test/e2e/graceful-merge.test.ts`, `test/e2e/landing.test.ts`, `test/e2e/planner-failure-cause.test.ts` and `test/unit/cli/landing.test.ts`.
 
 ## 42. An interrupted run did not say how to resume, and a killed CLI left a worker (FIXED, R8.2)
 
