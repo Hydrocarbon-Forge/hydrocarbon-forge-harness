@@ -32,6 +32,8 @@ export interface CliGlobalFlags {
   noMerge?: boolean;
   /** watch: print the history and exit, without following (R10.2). */
   noFollow?: boolean;
+  /** Start the run in the background and return at once (R10.3). */
+  detach?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -56,6 +58,7 @@ export interface CommandContext {
   engine?: Engine;
   sessionStore?: SessionStore;
   signal?: AbortSignal;
+  argv?: string[];
 }
 
 export interface CliCommand {
@@ -287,6 +290,11 @@ export const runCommand: CliCommand = {
   name: "run",
   description: "Execute Substrate run with specified prompt",
   async execute(ctx: CommandContext): Promise<number> {
+    // R10.3: a detached run is started by a child of this CLI, which then runs the same code.
+    if (ctx.flags.detach === true) {
+      const { detachFrom } = await import(`../detach.js`);
+      return detachFrom(ctx);
+    }
     if (ctx.flags.resume) {
       const { resumeCommand } = await import(`./resume.js`);
       return resumeCommand.execute({ ...ctx, rawArgs: [ctx.flags.resume] });

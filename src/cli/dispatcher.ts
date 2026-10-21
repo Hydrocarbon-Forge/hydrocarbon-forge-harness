@@ -40,6 +40,8 @@ export interface CliGlobalFlags {
   noMerge?: boolean;
   /** watch: print the run's history and exit, without following it (R10.2). */
   noFollow?: boolean;
+  /** run, resume: start the run in the background and print how to follow it (R10.3). */
+  detach?: boolean;
   hard?: boolean;
   verify?: string[];
   request?: string;
@@ -71,6 +73,8 @@ export interface CommandContext {
   engine?: Engine;
   sessionStore?: SessionStore;
   signal?: AbortSignal;
+  /** The CLI's argv (R10.3): a detached run starts itself again with the same arguments. */
+  argv?: string[];
 }
 
 const { registry } = await import(`./registry.js`);
@@ -146,6 +150,7 @@ const CLI_OPTIONS = {
   merge: { type: "boolean" },
   "no-merge": { type: "boolean" },
   "no-follow": { type: "boolean" },
+  detach: { type: "boolean" },
   hard: { type: "boolean" },
   request: { type: "string" },
   answers: { type: "string" },
@@ -224,6 +229,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.merge) flags.merge = true;
   if (parsedValues["no-merge"]) flags.noMerge = true;
   if (parsedValues["no-follow"]) flags.noFollow = true;
+  if (parsedValues.detach) flags.detach = true;
   if (parsedValues.hard) flags.hard = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);
@@ -337,6 +343,7 @@ function printHelp(out: NodeJS.WriteStream): void {
   out.write(`  --run <value>           Run id for verify\n`);
   out.write(`  --sandbox                 Enable bubblewrap sandbox\n`);
   out.write(`  --no-follow               watch: print the run's history and exit\n`);
+  out.write(`  --detach                  run, resume: start in the background; watch, status and stop follow it\n`);
 }
 
 export async function runCli(
@@ -482,6 +489,7 @@ export async function runCli(
     stdout,
     stderr,
     signal: streams?.signal,
+    argv,
   };
 
   return cmd.execute(ctx);

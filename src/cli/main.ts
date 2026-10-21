@@ -1,6 +1,11 @@
 const { runCli } = await import(`./dispatcher.js`);
 const { installSignalHandlers, exitCodeForSignal } = await import(`./signals.js`);
 
+// A run started with --detach (R10.3) ignores a hangup: closing the terminal does not end it.
+if (process.env.SUBSTRATE_DETACHED === "1") {
+  process.on("SIGHUP", () => {});
+}
+
 let lastSignal: "SIGINT" | "SIGTERM" = "SIGINT";
 const controller = new AbortController();
 

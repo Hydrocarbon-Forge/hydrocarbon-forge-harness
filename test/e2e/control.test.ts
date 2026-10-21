@@ -306,3 +306,127 @@ describe("R10.3: substrate stop ends a run from another terminal", () => {
     expect(alive(sleeperPid), "the sleeper was not signalled").toBe(true);
   }, 120000);
 });
+
+function sessionOf(pid: number): { sid: string; pgid: string } {
+  const res = spawnSync("ps", ["-o", "sid=,pgid=", "-p", String(pid)], { encoding: "utf8" });
+  const [sid, pgid] = (res.stdout ?? "").trim().split(/\s+/);
+  return { sid, pgid };
+}
+
+/** `run --detach` (or resume --detach) prints the run id and pid; the test records the pid for cleanup. */
+function detachedOf(done: Done): { runId: string; pid: number } {
+  const match = /run (\S+) started in the background \(pid (\d+)\)/.exec(done.stdout);
+  expect(match, `detached start line: ${done.stdout} ${done.stderr}`).not.toBeNull();
+  const pid = Number(match![2]);
+  pids.push(pid);
+  return { runId: match![1], pid };
+}
+
+describe("R10.3: run --detach starts a run in the background", () => {
+  it("run --detach returns at once with the id and the commands; the run keeps going after its parent has gone; it lands; summary.txt exists", async () => {
+    const repo = newRepo();
+    const trace = tempDir("substrate-control-trace-");
+    const scn = scenarioFor([planFor("Detach case", ["T1"]), heldWorker("T1", trace)]);
+    const started = await run(repo, ["run", "--detach", ...MODELS, "Detach case"], scn.env);
+    expect(started.code, started.stderr + started.stdout).toBe(0);
+    expect(started.ms, `returned in ${started.ms} ms`).toBeLessThan(15000);
+    const { runId, pid } = detachedOf(started);
+    expect(started.stdout).toContain(`watch:  substrate watch ${runId}`);
+    expect(started.stdout).toContain(`status: substrate status ${runId}`);
+    expect(started.stdout).toContain(`stop:   substrate stop ${runId}`);
+    expect(started.stdout).toContain(`log:    .substrate/runs/${runId}/progress.log`);
+
+    await heldPid(trace, "T1");
+    expect(alive(pid), "the detached CLI is alive after its parent exited").toBe(true);
+    const mine = sessionOf(process.pid);
+    const theirs = sessionOf(pid);
+    expect(theirs.sid).not.toBe(mine.sid);
+    expect(theirs.pgid).not.toBe(mine.pgid);
+
+    const status = await run(repo, ["status", runId, "--output-format", "json"], scn.env);
+    expect(status.code).toBe(0);
+    expect(JSON.parse(status.stdout.trim()).status).toBe("running");
+
+    writeFileSync(join(trace, "start-GATE.json"), JSON.stringify({ at: Date.now() }), "utf8");
+    expect(await waitUntil(() => !alive(pid), 60000), "the detached run ends").toBe(true);
+    const events = eventsOf(repo, runId);
+    expect(events.some((e) => e.type === "run.finished" && e.data.exit_code === 0)).toBe(true);
+    expect(existsSync(join(repo.dir, ".substrate", "runs", runId, "summary.txt"))).toBe(true);
+    expect(readFileSync(join(repo.dir, "src", "a.txt"), "utf8")).toContain("t1-done");
+    expect(existsSync(join(repo.dir, ".substrate", "detached"))).toBe(true);
+  }, 240000);
+
+  it("run --detach with a missing model flag exits 2 with the same message as a foreground run and creates no run", async () => {
+    const repo = newRepo();
+    const plain = await run(repo, ["run", "No models case"], process.env as NodeJS.ProcessEnv);
+    expect(plain.code).toBe(2);
+    const detached = await run(repo, ["run", "--detach", "No models case"], process.env as NodeJS.ProcessEnv);
+    expect(detached.code).toBe(2);
+    expect(detached.stderr).toContain(plain.stderr.trim().split("\n")[0]);
+    expect(detached.stdout).not.toContain("started in the background");
+    expect(existsSync(join(repo.dir, ".substrate", "runs"))).toBe(false);
+  }, 120000);
+
+  it("run --detach with an invalid request exits 2 with the same invalid_request output and creates no run", async () => {
+    const repo = newRepo();
+    const bad = join(tempDir("substrate-control-req-"), "bad.json");
+    writeFileSync(bad, JSON.stringify({ goal: "x", mode: "not-a-mode", budget: { max_usd: "lots" } }), "utf8");
+    const plain = await run(repo, ["run", ...MODELS, "--request", bad], process.env as NodeJS.ProcessEnv);
+    expect(plain.code).toBe(2);
+    expect(plain.stdout).toContain("invalid_request");
+    const detached = await run(repo, ["run", "--detach", ...MODELS, "--request", bad], process.env as NodeJS.ProcessEnv);
+    expect(detached.code).toBe(2);
+    expect(detached.stderr + detached.stdout).toContain("invalid_request");
+    expect(existsSync(join(repo.dir, ".substrate", "runs"))).toBe(false);
+  }, 120000);
+
+  it("watch on a detached run follows it live to the end and exits with the run's exit code", async () => {
+    const repo = newRepo();
+    const trace = tempDir("substrate-control-trace-");
+    const scn = scenarioFor([planFor("Watch case", ["T1"]), heldWorker("T1", trace)]);
+    const started = await run(repo, ["run", "--detach", ...MODELS, "Watch case"], scn.env);
+    expect(started.code, started.stderr).toBe(0);
+    const { runId, pid } = detachedOf(started);
+    await heldPid(trace, "T1");
+
+    const watching = launch(repo, ["watch", runId], scn.env);
+    await sleep(1500);
+    writeFileSync(join(trace, "start-GATE.json"), JSON.stringify({ at: Date.now() }), "utf8");
+    const code = await Promise.race([watching.exited, sleep(90000).then(() => "timeout" as const)]);
+    expect(code).toBe(0);
+    expect(watching.stdout()).toMatch(/Status:\s+finished/);
+    expect(await waitUntil(() => !alive(pid), 30000)).toBe(true);
+  }, 240000);
+
+  it("--detach with stream-json is refused with exit 2; plan --detach is refused with exit 2", async () => {
+    const repo = newRepo();
+    const streamed = await run(repo, ["run", "--detach", "--output-format", "stream-json", ...MODELS, "Stream case"], process.env as NodeJS.ProcessEnv);
+    expect(streamed.code).toBe(2);
+    expect(streamed.stderr).toContain("--detach cannot stream; use substrate watch");
+    const planned = await run(repo, ["plan", "--detach", ...MODELS, "Plan case"], process.env as NodeJS.ProcessEnv);
+    expect(planned.code).toBe(2);
+    expect(planned.stderr).toContain("--detach is not supported for plan");
+    expect(existsSync(join(repo.dir, ".substrate", "runs"))).toBe(false);
+  }, 120000);
+
+  it("resume --detach continues a stopped run in the background and it finishes", async () => {
+    const repo = newRepo();
+    const trace = tempDir("substrate-control-trace-");
+    const scn = scenarioFor([planFor("Resume detach", ["T1", "T2"]), okWorker("T1"), heldWorker("T2", trace), okWorker("T2")]);
+    const runner = launch(repo, ["run", ...MODELS, "Resume detach"], scn.env);
+    await heldPid(trace, "T2");
+    const runId = (await waitUntil(() => runIdOfPid(repo, runner.child.pid!) !== undefined, 10000)) ? runIdOfPid(repo, runner.child.pid!)! : "";
+    expect(runId).not.toBe("");
+    const stopped = await run(repo, ["stop", runId], scn.env);
+    expect(stopped.code, stopped.stderr).toBe(0);
+    expect(await runner.exited).toBe(143);
+
+    const resumed = await run(repo, ["resume", runId, "--detach", ...MODELS], scn.env);
+    expect(resumed.code, resumed.stderr + resumed.stdout).toBe(0);
+    const { pid } = detachedOf(resumed);
+    expect(await waitUntil(() => !alive(pid), 90000), "the detached resume ends").toBe(true);
+    const events = eventsOf(repo, runId);
+    expect(events.some((e) => e.type === "run.finished" && e.data.exit_code === 0)).toBe(true);
+    expect(events.filter((e) => e.type === "task.session.started" && e.data.task_id === "T1").length).toBe(1);
+  }, 240000);
+});

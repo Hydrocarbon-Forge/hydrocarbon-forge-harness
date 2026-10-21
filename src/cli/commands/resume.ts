@@ -30,6 +30,8 @@ export interface CliGlobalFlags {
   answers?: string;
   plan?: string;
   work?: string;
+  /** Start the resumed run in the background and return at once (R10.3). */
+  detach?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -54,6 +56,7 @@ export interface CommandContext {
   engine?: Engine;
   sessionStore?: SessionStore;
   signal?: AbortSignal;
+  argv?: string[];
 }
 
 export interface CliCommand {
@@ -129,6 +132,11 @@ export const resumeCommand: CliCommand = {
   name: "resume",
   description: "Resume a paused or interrupted Substrate run",
   async execute(ctx: CommandContext): Promise<number> {
+    // R10.3: the resume runs in a detached child; its own arguments minus --detach start it.
+    if (ctx.flags.detach === true) {
+      const { detachFrom } = await import(`../detach.js`);
+      return detachFrom(ctx);
+    }
     const mergeConflict = mergeFlagsConflict(ctx.flags);
     if (mergeConflict !== undefined) {
       ctx.stderr.write(mergeConflict);

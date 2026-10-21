@@ -9,6 +9,8 @@ import { createSessionStore, type SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
+  /** Refused for plan (R10.3): only run and resume start in the background. */
+  detach?: boolean;
   outputFormat?: "text" | "json" | "stream-json";
   model?: string;
   workerModel?: string;
@@ -64,6 +66,11 @@ export const planCommand: CliCommand = {
   name: "plan",
   description: "Plan changes for a goal without executing modifications",
   async execute(ctx: CommandContext): Promise<number> {
+    // R10.3: a plan is not started in the background; the detached start is for run and resume.
+    if (ctx.flags.detach === true) {
+      ctx.stderr.write("Error: --detach is not supported for plan; use substrate run --detach\n");
+      return 2;
+    }
     // Models first, then the request, and only then the repository (see run.ts).
     const modelCheck = modelPreflight("plan", { cwd: ctx.cwd, flags: ctx.flags, stdin: ctx.stdin });
     if (!modelCheck.ok) {

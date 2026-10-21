@@ -82,6 +82,16 @@ If you cannot keep `substrate run`'s stdout open (a second terminal, a script th
 - `stopped` means the process that started the run has gone. Resume it with `substrate resume <id>`.
 - To end a running run from another terminal, run `substrate stop <id>`. It sends the same graceful stop as Ctrl+C and waits up to 15 seconds; it exits `0` with `run <id> stopped. Resume with: substrate resume <id>`. Resume continues the run without running passed tasks again. `substrate stop` with no id stops the only running run of the project and refuses (exit `2`) when there are two.
 
+## Running without being tied to the terminal
+
+A run started in the foreground ends when its terminal or its calling process goes. To keep it running on its own, start it detached:
+
+- `substrate run --detach <goal> ...` (or `substrate resume <id> --detach`) returns at once with exit `0`. Text prints `run <id> started in the background (pid <n>)` and the watch, status, stop and log lines; `--output-format json` prints one object with `run_id`, `pid`, `log`, `watch`, `status` and `stop`. The run keeps going after the calling process has exited.
+- Read the run's progress with `substrate watch <id>` (it follows the run to its end and exits with the run's exit code) or poll `substrate status <id> --output-format json`, as described above.
+- End it with `substrate stop <id>`. It exits `0` with `run <id> stopped. Resume with: substrate resume <id>` once the run's process has gone. A run stopped this way is paused, not failed: `substrate resume <id>` continues it without running passed tasks again.
+- `--detach` cannot be combined with `--output-format stream-json` (exit `2`); use `watch` for the live events. `plan` has no `--detach`.
+- Detached preflight errors (a missing model, an invalid request) come back with exit `2` and no run is created.
+
 ## Handle needs_input
 
 Exit code `3` with `subtype` `needs_input` means the planner has questions. The result carries `run_id` and `questions`. Each question has an `id`, a `text` and, when one exists, a `default`.
