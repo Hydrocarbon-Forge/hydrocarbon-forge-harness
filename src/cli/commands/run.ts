@@ -30,6 +30,8 @@ export interface CliGlobalFlags {
   merge?: boolean;
   /** Keep a finished run on its branch, for this run only (R10.1). */
   noMerge?: boolean;
+  /** watch: print the history and exit, without following (R10.2). */
+  noFollow?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -63,7 +65,8 @@ export interface CliCommand {
   execute(ctx: CommandContext): Promise<number>;
 }
 
-const { createFormatter } = await import(`../output.js`);
+const { createFormatter, summaryPayload } = await import(`../output.js`);
+const { ProgressLog, runDirOf, writeOutcome } = await import(`../run-files.js`);
 const { modelPreflight, repoPreflight, reportPreflightError, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
 
@@ -437,12 +440,15 @@ export const runCommand: CliCommand = {
 
     // The formatter is built after settings load so the start line can name the models.
     const { progressModelsFor } = await import(`../progress.js`);
+    // R10.2: the progress log opens when the run is created, and takes every progress line.
+    let progressLog: InstanceType<typeof ProgressLog> | undefined;
     const formatter = createFormatter(
       ctx.flags.outputFormat ?? "text",
       ctx.stdout,
       ctx.stderr,
       {
         ...(loadedSettings ? { models: progressModelsFor(loadedSettings) } : {}),
+        log: (text) => progressLog?.append(text),
       },
     );
 
@@ -457,6 +463,10 @@ export const runCommand: CliCommand = {
       onEvent: (event) => {
         if (mode === "auto" && warnNoVerify && event.type === "run.routed" && (event.data as { mode?: unknown }).mode === "solo") {
           ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
+        }
+        if (event.type === "run.created") {
+          progressLog = new ProgressLog(runDirOf(ctx.cwd, event.run_id), (m) => ctx.stderr.write(m));
+          progressLog.header(`run ${event.run_id} started ${new Date().toISOString()}`);
         }
         runEvents.push(event);
         formatter.onEvent(event);
@@ -495,6 +505,12 @@ export const runCommand: CliCommand = {
       });
       formatter.onSummary(landed.summary, session?.sessionId ?? "");
       await formatter.flush();
+      // R10.2: the outcome is kept in the run directory, whatever state the run ended in.
+      writeOutcome(
+        runDirOf(ctx.cwd, landed.summary.run_id),
+        formatter.renderedSummary() ?? "",
+        summaryPayload(landed.summary, session?.sessionId ?? "", runEvents),
+      );
       return landed.exitCode;
     } catch (err: any) {
       if (err instanceof RunLockError) {

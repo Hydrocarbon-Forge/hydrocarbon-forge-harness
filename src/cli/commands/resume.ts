@@ -63,7 +63,8 @@ export interface CliCommand {
   execute(ctx: CommandContext): Promise<number>;
 }
 
-const { createFormatter } = await import(`../output.js`);
+const { createFormatter, summaryPayload } = await import(`../output.js`);
+const { ProgressLog, writeOutcome } = await import(`../run-files.js`);
 const { registry } = await import(`../registry.js`);
 const { buildSettingsOverrides, landRun, mergeChoiceOf, mergeFlagsConflict } = await import(`./run.js`);
 const { withRequestedRoles } = await import(`../../config/index.js`);
@@ -204,10 +205,13 @@ export const resumeCommand: CliCommand = {
       return 1;
     }
 
+    // R10.2: the resume appends to the run's progress log, under a `# resumed` line.
+    const progressLog = new ProgressLog(runDir, (m) => ctx.stderr.write(m));
     const formatter = createFormatter(
       ctx.flags.outputFormat ?? "text",
       ctx.stdout,
       ctx.stderr,
+      { log: (text) => progressLog.append(text) },
     );
 
     // Read events to check if run is paused with pending questions
@@ -247,6 +251,8 @@ export const resumeCommand: CliCommand = {
       return 2;
     }
 
+    // R10.2: the resume is going ahead; its progress log gets a `# resumed` line first.
+    progressLog.header(`resumed ${new Date().toISOString()}`);
     if (hasPendingQuestions) {
       const { parseQuestions } = await import(`../questions.js`);
       let questions: Question[] = [];
@@ -384,6 +390,8 @@ export const resumeCommand: CliCommand = {
       },
     };
 
+    // A run the engine does not resume from a pause emits no run.resumed; this names the resume instead.
+    if (!isCurrentlyPaused) formatter.beginResume(resolved.runId);
     try {
       const resumed = await engine.resume(resolved.runId, resumeOpts);
       if (resumed.pause_reason === "needs_human" && resumed.questions === undefined) {
@@ -409,6 +417,12 @@ export const resumeCommand: CliCommand = {
         formatter.onSummary(summary, resolved.sessionId ?? "");
       }
       await formatter.flush();
+      // R10.2: a resumed run's outcome replaces the earlier summary.txt and result.json.
+      writeOutcome(
+        runDir,
+        formatter.renderedSummary() ?? "",
+        summaryPayload(summary, forked ? forked.sessionId : (resolved.sessionId ?? ""), runEvents),
+      );
 
       return landed.exitCode;
     } catch (err: any) {

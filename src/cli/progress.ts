@@ -389,3 +389,24 @@ export function progressModelsFor(settings: Settings): ProgressModels {
     worker: worker?.backend && worker.model ? `${worker.backend}:${worker.model}` : undefined,
   };
 }
+
+/** One progress line as the text renderer writes it: `[mm:ss] body`, with its newline (R10.2). */
+export function progressLine(body: string, at: number, startedAt: number): string {
+  return `[${formatElapsed(at - startedAt)}] ${body}\n`;
+}
+
+/**
+ * The two lines a run prints after its start line, naming how to follow it from another terminal
+ * and where its progress log is (R10.2). Text output, the progress log and `watch` all use them.
+ */
+export function followLines(runId: string): string[] {
+  return [
+    `follow this run from another terminal: substrate watch ${runId}`,
+    `log: .substrate/runs/${runId}/progress.log`,
+  ];
+}
+
+/** The stderr line json and stream-json output print for the same announcement (R10.2). */
+export function followStderrLine(runId: string, verb: "started" | "resumed"): string {
+  return `run ${runId} ${verb}; follow it with: substrate watch ${runId}\n`;
+}

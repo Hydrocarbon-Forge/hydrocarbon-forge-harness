@@ -87,7 +87,14 @@ describe("progress line shapes (text mode, stdout)", () => {
     f.onSummary(summary(), "sess_1");
     void f.flush();
 
-    const lines = out.lines();
+    // R10.2: two announcement lines follow the start line. They are checked here, and the shape
+    // below is checked without them, so its line numbers are unchanged.
+    const all = out.lines();
+    expect(all.slice(1, 3)).toEqual([
+      `[00:00] follow this run from another terminal: substrate watch ${RUN}`,
+      `[00:00] log: .substrate/runs/${RUN}/progress.log`,
+    ]);
+    const lines = [all[0], ...all.slice(3)];
     expect(lines[0]).toBe(`[00:00] run ${RUN} started: mode auto, planner claude:opus, worker claude:haiku`);
     expect(lines[1]).toBe("[00:00] routed to plan (no mechanical verb)");
     expect(lines[2]).toBe("[00:00] planning with claude:opus");

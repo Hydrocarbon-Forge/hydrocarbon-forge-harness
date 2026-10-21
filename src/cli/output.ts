@@ -3,7 +3,8 @@ import { MERGE_TURNED_OFF_REASON, TEXT_FILES_LIMIT } from "../engine/landing.js"
 import { failedRunAdvice } from "../engine/failed-run.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
-const { Heartbeat, RunProgress, formatCost, formatElapsed, heartbeatMsFromEnv } = await import(`./progress.js`);
+const { Heartbeat, RunProgress, followLines, followStderrLine, formatCost, heartbeatMsFromEnv, progressLine } =
+  await import(`./progress.js`);
 type HeartbeatState = InstanceType<typeof Heartbeat>;
 type RunProgressState = InstanceType<typeof RunProgress>;
 
@@ -15,6 +16,8 @@ export interface FormatterOptions {
   heartbeatMs?: number;
   /** Clock in milliseconds; tests inject one. */
   now?: () => number;
+  /** Receives every progress line and the summary block as text, for the run's progress.log (R10.2). */
+  log?: (text: string) => void;
 }
 
 export interface StreamResultEvent {
@@ -45,6 +48,49 @@ export interface OutputFormatter {
   onSummary(summary: RunSummary, sessionId: string): void;
   onError(error: Error | string): void;
   flush(): Promise<void>;
+  /** A resumed run that emits no run.resumed event of its own: prints the resume's start line (R10.2). */
+  beginResume(runId: string): void;
+  /** The summary block the last onSummary rendered as text (the summary.txt content), once it ran. */
+  renderedSummary(): string | undefined;
+}
+
+/**
+ * Where the text renderer's output goes (R10.2): the stream (stdout in text mode, none in json
+ * modes), the run's progress log, and, while the summary renders, a capture of the summary block.
+ */
+class TextSink {
+  capture: string[] | undefined;
+
+  constructor(
+    private readonly stream: NodeJS.WriteStream | undefined,
+    private readonly log: ((text: string) => void) | undefined,
+  ) {}
+
+  write(text: string): void {
+    this.stream?.write(text);
+    this.log?.(text);
+    this.capture?.push(text);
+  }
+}
+
+/** The result object `--output-format json` prints for a run's summary; result.json holds the same object (R10.2). */
+export function summaryPayload(summary: RunSummary, sessionId: string, events: EngineEvent[]): Record<string, unknown> {
+  const lastPaused = [...events].reverse().find((e) => e.type === "run.paused");
+  const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
+  const isNeedsInput = summary.pause_reason === "needs_human" && questions !== undefined;
+  return {
+    ...summary,
+    ...(isNeedsInput ? { subtype: "needs_input", run_id: summary.run_id, questions } : {}),
+    session_id: sessionId,
+    events,
+  };
+}
+
+// The run announcements (R10.2): a run's start or resume names how to follow it from elsewhere.
+function bannerOf(event: EngineEvent): string | undefined {
+  if (event.type === "run.created") return "started";
+  if (event.type === "run.resumed") return "resumed";
+  return undefined;
 }
 
 function isPassedTask(t: { state: string }): boolean {
@@ -61,11 +107,13 @@ class TextFormatter implements OutputFormatter {
   private readonly now: () => number;
   private readonly progress: RunProgressState;
   private readonly heartbeat: HeartbeatState;
+  private summaryBlock: string | undefined;
 
   // Text mode writes progress to stdout, in order with the summary, so a caller reading
-  // one stream sees the whole run. Errors and warnings stay on stderr.
+  // one stream sees the whole run. Errors and warnings stay on stderr. In json modes the
+  // stream is absent: the renderer still feeds the progress log (R10.2).
   constructor(
-    private readonly out: NodeJS.WriteStream,
+    private readonly out: TextSink,
     private readonly err: NodeJS.WriteStream,
     private readonly options: FormatterOptions = {}
   ) {
@@ -79,7 +127,25 @@ class TextFormatter implements OutputFormatter {
   }
 
   private writeLine(at: number, body: string): void {
-    this.out.write(`[${formatElapsed(at - this.progress.startedAt)}] ${body}\n`);
+    this.out.write(progressLine(body, at, this.progress.startedAt));
+  }
+
+  // The announcement that follows a run's start or resume line (R10.2).
+  private announce(runId: string, at: number): void {
+    for (const line of followLines(runId)) {
+      this.writeLine(at, line);
+    }
+  }
+
+  beginResume(runId: string): void {
+    const at = this.now();
+    this.heartbeat.start();
+    this.writeLine(at, `run ${runId} resumed`);
+    this.announce(runId, at);
+  }
+
+  renderedSummary(): string | undefined {
+    return this.summaryBlock;
   }
 
   onEvent(event: EngineEvent): void {
@@ -98,10 +164,23 @@ class TextFormatter implements OutputFormatter {
     if (lines.length > 0) {
       this.heartbeat.wrote(at);
     }
+    if (bannerOf(event) !== undefined) {
+      this.announce(String(event.run_id), at);
+    }
   }
 
   onSummary(summary: RunSummary, sessionId: string): void {
     this.heartbeat.stop();
+    this.out.capture = [];
+    try {
+      this.renderSummary(summary, sessionId);
+      this.summaryBlock = this.out.capture.join("");
+    } finally {
+      this.out.capture = undefined;
+    }
+  }
+
+  private renderSummary(summary: RunSummary, sessionId: string): void {
     const questions = summary.questions ?? this.lastPausedQuestions;
     const tasks = summary.tasks ?? {};
     const taskKeys = Object.keys(tasks);
@@ -247,25 +326,38 @@ class TextFormatter implements OutputFormatter {
 
 class JsonFormatter implements OutputFormatter {
   private readonly events: EngineEvent[] = [];
+  // The text renderer runs silently: its lines go to the progress log only (R10.2).
+  private readonly text: TextFormatter;
 
-  constructor(private readonly out: NodeJS.WriteStream) {}
+  // The announcement goes to stderr when a stderr stream is given; without one, nothing is written beside stdout.
+  constructor(
+    private readonly out: NodeJS.WriteStream,
+    private readonly err: NodeJS.WriteStream | undefined,
+    options: FormatterOptions = {},
+  ) {
+    this.text = new TextFormatter(new TextSink(undefined, options.log), err ?? out, options);
+  }
 
   onEvent(event: EngineEvent): void {
     this.events.push(event);
+    this.text.onEvent(event);
+    const verb = bannerOf(event);
+    if (verb !== undefined) this.err?.write(followStderrLine(String(event.run_id), verb as "started" | "resumed"));
+  }
+
+  beginResume(runId: string): void {
+    this.text.beginResume(runId);
+    this.err?.write(followStderrLine(runId, "resumed"));
+  }
+
+  renderedSummary(): string | undefined {
+    return this.text.renderedSummary();
   }
 
   // JSON mode: exactly one JSON object on stdout, nothing else.
   onSummary(summary: RunSummary, sessionId: string): void {
-    const lastPaused = [...this.events].reverse().find((e) => e.type === "run.paused");
-    const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
-    const isNeedsInput = summary.pause_reason === "needs_human" && questions !== undefined;
-    const payload = {
-      ...summary,
-      ...(isNeedsInput ? { subtype: "needs_input", run_id: summary.run_id, questions } : {}),
-      session_id: sessionId,
-      events: this.events,
-    };
-    this.out.write(JSON.stringify(payload) + "\n");
+    this.text.onSummary(summary, sessionId);
+    this.out.write(JSON.stringify(summaryPayload(summary, sessionId, this.events)) + "\n");
   }
 
   onError(error: Error | string): void {
@@ -284,10 +376,16 @@ class StreamJsonFormatter implements OutputFormatter {
   private readonly now: () => number;
   private readonly progress: RunProgressState;
   private readonly heartbeat: HeartbeatState;
+  private readonly text: TextFormatter;
 
-  constructor(private readonly out: NodeJS.WriteStream, options: FormatterOptions = {}) {
+  constructor(
+    private readonly out: NodeJS.WriteStream,
+    private readonly err: NodeJS.WriteStream | undefined,
+    options: FormatterOptions = {},
+  ) {
     this.now = options.now ?? Date.now;
     this.progress = new RunProgress(options.models ?? {}, this.now());
+    this.text = new TextFormatter(new TextSink(undefined, options.log), err ?? out, options);
     // A heartbeat object, not an engine event: { type: "heartbeat", elapsed_s, phase, ... }.
     this.heartbeat = new Heartbeat(
       options.heartbeatMs ?? heartbeatMsFromEnv(),
@@ -296,11 +394,23 @@ class StreamJsonFormatter implements OutputFormatter {
     );
   }
 
+  beginResume(runId: string): void {
+    this.text.beginResume(runId);
+    this.err?.write(followStderrLine(runId, "resumed"));
+  }
+
+  renderedSummary(): string | undefined {
+    return this.text.renderedSummary();
+  }
+
   onEvent(event: EngineEvent): void {
     this.events.push(event);
     const at = this.now();
     this.heartbeat.start();
     this.progress.observe(event, at);
+    this.text.onEvent(event);
+    const verb = bannerOf(event);
+    if (verb !== undefined) this.err?.write(followStderrLine(String(event.run_id), verb as "started" | "resumed"));
     this.heartbeat.wrote(at);
 
     const data = (event.data && typeof event.data === "object")
@@ -320,6 +430,7 @@ class StreamJsonFormatter implements OutputFormatter {
 
   onSummary(summary: RunSummary, sessionId: string): void {
     this.heartbeat.stop();
+    this.text.onSummary(summary, sessionId);
     const lastPaused = [...this.events].reverse().find((e) => e.type === "run.paused");
     const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
 
@@ -413,6 +524,22 @@ function landingFields(summary: RunSummary): Partial<StreamResultEvent> {
   return fields;
 }
 
+/**
+ * The summary block of a run, rendered from its summary alone, for a run whose summary.txt is
+ * missing (R10.2). The block is timed from `startAt` to `endAt`, the run's first and last events.
+ */
+export function renderSummaryText(
+  summary: RunSummary,
+  sessionId: string,
+  times: { startAt: number; endAt: number },
+): string {
+  let clock = times.startAt;
+  const formatter = new TextFormatter(new TextSink(undefined, undefined), process.stderr, { now: () => clock });
+  clock = times.endAt;
+  formatter.onSummary(summary, sessionId);
+  return formatter.renderedSummary() ?? "";
+}
+
 export function createFormatter(
   format: "text" | "json" | "stream-json",
   out: NodeJS.WriteStream,
@@ -421,12 +548,12 @@ export function createFormatter(
 ): OutputFormatter {
   switch (format) {
     case "json":
-      return new JsonFormatter(out);
+      return new JsonFormatter(out, err, options);
     case "stream-json":
-      return new StreamJsonFormatter(out, options);
+      return new StreamJsonFormatter(out, err, options);
     case "text":
     default:
-      return new TextFormatter(out, err ?? out, options);
+      return new TextFormatter(new TextSink(out, options.log), err ?? out, options);
   }
 }
 

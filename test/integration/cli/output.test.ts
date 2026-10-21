@@ -255,8 +255,8 @@ describe("cli: output formatters driven by real engine runs", () => {
     expect(last.num_tasks).toBe(2);
     expect(typeof last.duration_ms).toBe("number");
 
-    // Nothing else goes to stdout: stderr holds nothing in stream-json mode.
-    expect(stderr.getOutput()).toBe("");
+    // Nothing else goes to stdout. stderr holds one line in stream-json mode: the R10.2 announcement.
+    expect(stderr.getOutput()).toBe(`run ${summary.run_id} started; follow it with: substrate watch ${summary.run_id}\n`);
   });
 
   // Edge case: run.paused streams with its reason field, mapped unchanged.
