@@ -22,6 +22,19 @@ export function getRunBranch(runId: RunId): string {
   return `substrate/runs/${runId}`;
 }
 
+/** True when the run's branch exists in the repository; a run that failed before creating it has none (R7.9). */
+export function runBranchExists(repoRoot: string, runId: RunId): boolean {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${getRunBranch(runId)}`], {
+      cwd: repoRoot,
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function getTaskBranch(
   runId: RunId,
   taskId: TaskId,

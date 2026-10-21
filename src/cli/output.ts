@@ -129,7 +129,7 @@ class TextFormatter implements OutputFormatter {
     this.out.write(`Run ID:     ${summary.run_id}\n`);
     this.out.write(`Session ID: ${sessionId}\n`);
     this.out.write(`Status:     ${summary.status}\n`);
-    this.out.write(`Branch:     ${summary.branch}\n`);
+    this.out.write(`Branch:     ${summary.branch ?? "(none, planning failed)"}\n`);
     this.out.write(`Tasks:      ${passed} passed / ${taskKeys.length} total\n`);
     this.out.write(`Total Cost: $${totalCost}\n`);
     this.out.write(`Exit Code:  ${summary.exit_code}\n`);
@@ -138,13 +138,15 @@ class TextFormatter implements OutputFormatter {
     const merged = summary.merged ?? this.progress.merged > 0;
     this.out.write(`Merged:     ${merged ? "yes" : "no"}\n`);
     const landed = summary.merged !== undefined;
-    if (landed && summary.drafts_dir === undefined) {
+    if (landed && summary.drafts_dir === undefined && summary.branch !== undefined) {
       this.writeResult(summary);
     }
     if (summary.drafts_dir !== undefined || (!landed && summary.exit_code !== 0)) {
       this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
       if (!needsInput) {
-        this.out.write(`Next:       substrate resume ${summary.run_id}\n`);
+        // Without a branch the run failed in planning, and resuming plans again (R7.9).
+        const replan = summary.branch === undefined ? "  (re-runs planning; costs again)" : "";
+        this.out.write(`Next:       substrate resume ${summary.run_id}${replan}\n`);
       }
       if (summary.failure_class !== undefined) {
         const message = summary.message ? `: ${summary.message}` : "";
@@ -318,7 +320,7 @@ class StreamJsonFormatter implements OutputFormatter {
       total_cost_usd,
       usage,
       duration_ms,
-      branch: summary.branch,
+      ...(summary.branch !== undefined ? { branch: summary.branch } : {}),
       ...(questions !== undefined ? { questions } : {}),
       ...landingFields(summary),
     };

@@ -110,6 +110,42 @@ export async function runDialect(argv, env) {
     return 1;
   }
 
+  // claude stopped the session at its --max-budget-usd cap (the fixture budget-exceeded.ndjson shape).
+  if (call.failure === "budget") {
+    process.stdout.write(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_max_budget_usd",
+        is_error: true,
+        result: "",
+        total_cost_usd: call.cost_usd ?? 0.0001,
+        usage: { input_tokens: call.usage?.input ?? 0, output_tokens: call.usage?.output ?? 0 },
+        permission_denials: [],
+        errors: ["Reached maximum budget ($0.001)"],
+        session_id: sessionId,
+      }) + "\n"
+    );
+    return 1;
+  }
+
+  // An error result with no reply text: the subtype and the error lines are all the harness reports.
+  if (call.failure === "error_result") {
+    process.stdout.write(
+      JSON.stringify({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "",
+        total_cost_usd: 0,
+        usage: { input_tokens: 0, output_tokens: 0 },
+        permission_denials: [],
+        errors: ["fake harness aborted the turn"],
+        session_id: sessionId,
+      }) + "\n"
+    );
+    return 1;
+  }
+
   const reply = call.reply ?? "DONE";
   const rawUsage = call.usage;
   const usageTokens = {

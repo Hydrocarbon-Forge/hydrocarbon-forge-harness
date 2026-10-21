@@ -96,10 +96,10 @@ export type PlannerOutcome =
     };
 
 export class PlannerFailure extends Error {
-  readonly reason: "format" | "session";
+  readonly reason: "format" | "session" | "budget";
   readonly diagnostics: string[];
 
-  constructor(reason: "format" | "session", message: string, diagnostics: string[] = []) {
+  constructor(reason: "format" | "session" | "budget", message: string, diagnostics: string[] = []) {
     super(diagnostics.length > 0 ? `${message}\n${diagnostics.map((d) => `- ${d}`).join("\n")}` : message);
     this.name = "PlannerFailure";
     this.reason = reason;
@@ -111,12 +111,19 @@ export class PlannerFailure extends Error {
 export function sessionFailureMessage(
   exitCode: number | null,
   finalText: string,
-  harnessError?: string
+  harnessError: string | undefined,
+  harness: string,
 ): string {
   const detail = [finalText.trim(), harnessError ? `harness error: ${harnessError}` : ""]
     .filter((part) => part !== "")
     .join("; ");
-  return `Planner session failed with exit code ${exitCode}${detail ? `: ${detail}` : ""}`;
+  // Nothing from the harness is named as such, so the caller is not left with the exit code alone (R7.9).
+  return `Planner session failed with exit code ${exitCode}: ${detail || `no error output from ${harness}`}`;
+}
+
+/** The message of a planner session that stopped at claude's --max-budget-usd cap (R7.9). */
+export function plannerBudgetMessage(capUsd: number, spentUsd: number, runCapUsd: number): string {
+  return `planner stopped at its budget cap of $${capUsd.toFixed(2)} (spent $${spentUsd.toFixed(2)}); the run budget is $${runCapUsd.toFixed(2)}`;
 }
 
 /**
@@ -490,6 +497,7 @@ export async function runPlanner(
         : {}),
     };
   const maxAttempts = 1 + (settings.budgets?.planner_format_retries ?? 2);
+  const runCapUsd = settings.budgets?.run?.max_usd ?? 5.0;
   const instructionFiles = instructionFilesFor(opts);
 
   let totals: UsageTotals = { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
@@ -532,10 +540,7 @@ export async function runPlanner(
         deny: DENY_PERMISSIONS,
       },
       budget: {
-        max_usd: plannerSpawnBudgetUsd(
-          settings.budgets?.run?.max_usd ?? 5.0,
-          opts.runSpentUsd?.() ?? totals.cost_usd,
-        ),
+        max_usd: plannerSpawnBudgetUsd(runCapUsd, opts.runSpentUsd?.() ?? totals.cost_usd),
         timeout_ms: (settings.budgets?.task?.timeout_min ?? 30) * 60 * 1000,
         ...(settings.budgets?.task?.max_tokens
           ? { max_tokens: settings.budgets.task.max_tokens }
@@ -583,7 +588,15 @@ export async function runPlanner(
     }
 
     if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
-      throw new PlannerFailure("session", sessionFailureMessage(res.exit_code, res.final_text, harnessError));
+      // claude stopped the session at its --max-budget-usd cap: a budget failure, not a crash (R7.9).
+      if (res.killed_for === "budget") {
+        const spent = sessionTotals?.cost_usd ?? res.usage.cost_usd;
+        throw new PlannerFailure("budget", plannerBudgetMessage(spawnReq.budget.max_usd ?? 0, spent, runCapUsd));
+      }
+      throw new PlannerFailure(
+        "session",
+        sessionFailureMessage(res.exit_code, res.final_text, harnessError, route.backend),
+      );
     }
 
     const line = finishLine(res.final_text);

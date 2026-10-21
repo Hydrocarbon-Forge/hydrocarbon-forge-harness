@@ -406,6 +406,13 @@ export function normalizeClaudeEvent(
           kind: "auth",
           message: finalText || "Authentication failed",
         });
+      } else if (subtype !== "error_max_budget_usd") {
+        // The result's subtype and error lines name a failure the exit code alone does not (R7.9).
+        const errorLines = Array.isArray(eventObj.errors)
+          ? eventObj.errors.filter((line: unknown): line is string => typeof line === "string" && line.trim() !== "")
+          : [];
+        const named = [String(subtype ?? "error"), ...errorLines].join(": ");
+        events.push({ type: "error", kind: "crash", message: named });
       }
     }
 

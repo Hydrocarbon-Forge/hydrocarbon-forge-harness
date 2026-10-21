@@ -146,7 +146,6 @@
     "status",
     "tasks",
     "usage",
-    "branch",
     "exit_code"
   ],
   "additionalProperties": false

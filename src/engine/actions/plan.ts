@@ -10,7 +10,9 @@ import {
   finishLine,
   formatRejectedData,
   planTasksForEvent,
+  plannerBudgetMessage,
   plannerFailureMessage,
+  plannerSpawnBudgetUsd,
   runPlanner,
   sessionFailureMessage,
   type PlannerEmit,
@@ -173,7 +175,8 @@ export async function runPlanAction(
           ],
         },
         budget: {
-          max_usd: ctx.settings.budgets?.task?.max_usd ?? 5.0,
+          // The planner is bounded by the run budget not yet spent, as in runPlanner (R7.9).
+          max_usd: plannerSpawnBudgetUsd(ctx.settings.budgets?.run?.max_usd ?? 5.0, totalUsd),
           timeout_ms: (ctx.settings.budgets?.task?.timeout_min ?? 30) * 60 * 1000,
           ...(ctx.settings.budgets?.task?.max_tokens ? { max_tokens: ctx.settings.budgets.task.max_tokens } : {}),
           ...(ctx.settings.budgets?.task?.timeout_min ? { timeout_min: ctx.settings.budgets.task.timeout_min } : {}),
@@ -226,9 +229,20 @@ export async function runPlanAction(
       if (ctx.signal?.aborted) return;
 
       if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
+        if (res.killed_for === "budget") {
+          const capUsd = plannerSpawnBudgetUsd(ctx.settings.budgets?.run?.max_usd ?? 5.0, totalUsd);
+          emit("task.failed", {
+            failure_class: "budget_exceeded",
+            message: boundedMessage(
+              plannerBudgetMessage(capUsd, sessionTotals?.cost_usd ?? res.usage.cost_usd, ctx.settings.budgets?.run?.max_usd ?? 5.0),
+            ),
+          });
+          emit("run.finished", { exit_code: 1, status: "failed" });
+          return;
+        }
         emit("task.failed", {
           failure_class: "worker_crashed",
-          message: boundedMessage(sessionFailureMessage(res.exit_code, res.final_text, harnessError)),
+          message: boundedMessage(sessionFailureMessage(res.exit_code, res.final_text, harnessError, route.backend)),
         });
         emit("run.finished", { exit_code: 1, status: "failed" });
         return;
@@ -412,7 +426,8 @@ export async function runPlanAction(
     if (ctx.signal?.aborted) return;
 
     if (err instanceof PlannerFailure) {
-      const failureClass = err.reason === "session" ? "worker_crashed" : "spec_invalid";
+      const failureClass =
+        err.reason === "budget" ? "budget_exceeded" : err.reason === "session" ? "worker_crashed" : "spec_invalid";
       emit("task.failed", { failure_class: failureClass, message: plannerFailureMessage(err) });
       emit("run.finished", { exit_code: 1, status: "failed" });
       return;

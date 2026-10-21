@@ -97,7 +97,8 @@ export class RunProgress {
   observe(event: EngineEvent, at: number): string[] {
     const data = (event.data && typeof event.data === "object" ? event.data : {}) as Record<string, any>;
     const tid: string = typeof data.task_id === "string" ? data.task_id : "";
-    const taskLabel = `[task ${tid}]`;
+    // An event with no task id is a plan or run event: a planning failure reads [plan], never [task ].
+    const taskLabel = tid !== "" ? `[task ${tid}]` : this.phase === "planning" ? "[plan]" : "[run]";
     if (this.runId === undefined && typeof event.run_id === "string") this.runId = event.run_id;
     // A refused planner attempt: the retry follows, so the attempt's cost closes here.
     if (event.type === "plan.format_rejected") return this.observeFormatRejected(data);

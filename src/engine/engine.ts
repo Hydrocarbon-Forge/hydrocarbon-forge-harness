@@ -22,6 +22,7 @@ import { type EffectContext, runEffectsLoop } from "./effects.js";
 import { EventStoreImpl } from "../store/event-store.js";
 import { RunLockImpl, RunLockError } from "../store/run-lock.js";
 import { getRunBranch } from "../git/index.js";
+import { runBranchExists } from "../git/workspace.js";
 import { deepMerge } from "../util/merge.js";
 import { createRunId } from "../util/index.js";
 import { log } from "../util/log.js";
@@ -102,7 +103,7 @@ function exitCodeForState(runState: RunState, pauseReason?: PauseReason): number
   }
 }
 
-function buildSummary(runId: RunId, state: EngineState): RunSummary {
+function buildSummary(runId: RunId, state: EngineState, repoRoot: string): RunSummary {
   const summaryTasks: Record<
     TaskId,
     { state: string; generation: number; failure_class?: FailureClass }
@@ -131,7 +132,8 @@ function buildSummary(runId: RunId, state: EngineState): RunSummary {
     ...(state.pause_reason ? { pause_reason: state.pause_reason } : {}),
     tasks: summaryTasks,
     usage: state.usage,
-    branch: getRunBranch(runId),
+    // Named only when the branch exists, so the summary never points at a branch that is not there (R7.9).
+    ...(runBranchExists(repoRoot, runId) ? { branch: getRunBranch(runId) } : {}),
     exit_code: exitCode,
   };
 }
@@ -233,7 +235,7 @@ export class EngineImpl implements Engine {
       state = await runEffectsLoop(ctx, state);
       log.debug("[DEBUG] engine.run: exited runEffectsLoop, state:", state.state);
 
-      return buildSummary(runId, state);
+      return buildSummary(runId, state, repoRoot);
     } finally {
       clearInterval(heartbeatTimer);
       await lock.release();
@@ -345,7 +347,7 @@ export class EngineImpl implements Engine {
 
       state = await runEffectsLoop(ctx, state);
 
-      return buildSummary(runId, state);
+      return buildSummary(runId, state, repoRoot);
     } finally {
       clearInterval(heartbeatTimer);
       await lock.release();

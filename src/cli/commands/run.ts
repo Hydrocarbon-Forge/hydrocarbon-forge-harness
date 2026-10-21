@@ -164,7 +164,8 @@ async function landRun(
 ): Promise<LandResult> {
   const runFailed = summary.exit_code !== 0;
   const base_branch = currentBranchName(ctx.cwd);
-  const files = changedFilesOnRun(ctx.cwd, summary.branch);
+  // No branch, no files: a run that never created its branch changed nothing to land (R7.9).
+  const files = summary.branch === undefined ? [] : changedFilesOnRun(ctx.cwd, summary.branch);
   let exitCode = summary.exit_code;
   if (!runFailed && opts.mergeRequested) {
     const { mergeRun } = await import(`./merge.js`);
@@ -174,7 +175,7 @@ async function landRun(
     }
   }
   // A failed run never lands, even when its branch has no commits of its own.
-  const merged = !runFailed && runLandedInHead(ctx.cwd, summary.branch);
+  const merged = !runFailed && summary.branch !== undefined && runLandedInHead(ctx.cwd, summary.branch);
   const failure = runFailed ? failureOf(opts.events) : undefined;
   const landed = withLanding(
     { ...summary, exit_code: exitCode },

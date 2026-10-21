@@ -518,7 +518,8 @@ export const RunSummary = z.object({
     total_usd: z.number(),
     by_role: z.record(z.string(), z.number()),
   }).strict(),
-  branch: z.string(),
+  // Absent when the run never created its branch (a planning failure) (R7.9).
+  branch: z.string().optional(),
   exit_code: z.number(),
   // Where the work landed (R7.4), set by the run command. Optional: a resumed run's summary
   // does not carry them. files_changed is capped at 50; files_changed_total counts all.
