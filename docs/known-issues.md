@@ -428,3 +428,18 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - `test/integration/cli/commands.test.ts` "reverts the run branch to the last batch checkpoint ref" (1 in 3 runs with 8 in parallel). Cause: the two worker calls of the scenario were untagged, so each concurrent worker took whichever edit was next. A worker's edits outside its write scope are dropped at the merge, so both batches merged nothing: the batch checkpoints all equal the run tip, and `undo` (`src/cli/commands/undo.ts`) has no earlier checkpoint to revert to (exit 1). Fix: the calls carry `task: "T1"` and `task: "T2"`, so each worker takes its own edits. The test also gets a 60 s limit: its fixture is a real two-task run, and the default 5 s limit failed under load.
 - `test/integration/cli/output.test.ts` "text progress prints the tracked event lines": the failing assertion compared two offsets in stdout (`[task T1] started` before `[task T2] started`, `459 to be less than 386`). Two tasks run at once (the default is three workers), so which one starts first is not fixed. Fix: the calls are tagged by task, and the assertion now checks that the started lines follow the journal's `task.session.started` order, and that each task's started line precedes its merged line. There is no wall-clock threshold in this test.
+
+## 66. OPEN (cosmetic): the planner's cost shows as $0.0000 until its session ends
+
+- Seen (live run `r_JEKHABPOAS5N`, 2026-10-21): during the planning phase the progress line and `status` show `Cost $0.0000` (or pending) for the whole planner session. claude reports the session's cost only when the session ends, so the engine has no figure earlier. The true cost appears in the planner's usage row once the session finishes (`usage.recorded`, role `planner`).
+- Direction: none planned. A live estimate would need a cost source other than claude's end-of-session report.
+
+## 67. OPEN (cosmetic, fact recorded): two budget numbers for one run
+
+- Found (R11.3, from `src/`): the engine enforces `settings.budgets.run.max_usd`. The CLI flag `--max-budget-usd` writes that setting (`src/cli/request.ts` sets `budget.max_usd`, and `src/cli/request.ts` maps it to `overrides.budgets.run.max_usd`). The manifest's own `budget.max_usd` is not a run cap: the engine does not stop a run at it, and the only reader is lint rule L025 (`src/spec/rules.ts`), which warns when the manifest figure is above the run cap. A run can therefore show a manifest budget (for example $1.50) and a run budget (for example $3.00) that differ, and the run budget is the one that stops it.
+- Direction: none planned. The text output shows the run budget only.
+
+## 68. OPEN (cosmetic): `summary.txt` repeats the progress lines it follows
+
+- Found (R11.3): `summary.txt` starts with the last progress lines of the run (in run `r_JEKHABPOAS5N`: `merged into master` and `run ... finished: 3/3 passed`), the same lines `progress.log` ends with, then the `--- Run Summary ---` block. Both are written by the run; the text is correct, but a reader sees the lines twice when reading the two files one after the other.
+- Direction: none planned; drop the repeated lines from `summary.txt` if the owner wants it shorter.

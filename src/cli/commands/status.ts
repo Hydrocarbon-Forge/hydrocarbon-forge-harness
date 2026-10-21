@@ -387,25 +387,13 @@ export const statusCommand: CliCommand = {
       const files = [outcome.summary_path !== undefined ? "summary.txt" : undefined, outcome.result_path !== undefined ? "result.json" : undefined];
       ctx.stdout.write(`Outcome: ${files.filter((f) => f !== undefined).join(", ")} in .substrate/runs/${record.runId}/\n`);
     }
-    // R11.1: the run id, state, reason, task counts and cost are in the header above; this block keeps only
-    // what the header does not show: the pending questions and the task table.
-    ctx.stdout.write(`\n=== Run Status ===\n`);
-
+    // R11.3: the header and the task rows above show every fact; the only thing left to print is the
+    // pending questions, which the header does not carry. No second task table (its words were the raw journal states).
     if (pendingQuestions && pendingQuestions.length > 0) {
       ctx.stdout.write(`\nPending Questions:\n`);
       for (const q of pendingQuestions) {
         const defStr = q.default !== undefined ? ` (default: ${q.default})` : "";
         ctx.stdout.write(`  [${q.id}] ${q.text}${defStr}\n`);
-      }
-    }
-
-    if (taskCount > 0) {
-      ctx.stdout.write(`\nID\tState\tGen\tAtt\tFailure\n`);
-      ctx.stdout.write(`------------------------------------------------\n`);
-      for (const [id, t] of taskEntries) {
-        ctx.stdout.write(
-          `${id}\t${t.state}\t${t.generation}\t${t.attempt}\t${t.failure_class ?? "-"}\n`
-        );
       }
     }
 

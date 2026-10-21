@@ -370,7 +370,10 @@ describe("R10.2: a run's progress is visible from another process", () => {
       expect(text).toContain("Tasks: 0 passed, 2 running, 0 failed, 0 waiting");
       expect(text).toMatch(/^ {2}T1 /m);
       expect(text).toMatch(/^ {2}T3 /m);
-      expect(text).toContain("=== Run Status ===");
+      // R11.3: one task list, in the display words; the legacy table is gone.
+      expect(text).not.toContain("=== Run Status ===");
+      expect(text.match(/^ {2}T1 /gm)).toHaveLength(1);
+      expect(text).not.toMatch(/PENDING|MERGED/);
 
       writeFileSync(join(dir, "start-GATE.json"), "{}", "utf8");
       const runExit = await run.exit;

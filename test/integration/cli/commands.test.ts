@@ -202,9 +202,11 @@ describe("cli: inspection and lifecycle commands", () => {
         expect(output).toContain(runId);
         // R11.1: the header names the state in lower case (`finished`); the legacy block no longer repeats it.
         expect(output).toMatch(/Run \S+\s+finished/);
-        // Every task's real state appears in the table.
-        expect(output).toMatch(/T1\tMERGED/);
-        expect(output).toMatch(/T2\tMERGED/);
+        // R11.3: each task has one row, in the display words (`passed`), and no second task table.
+        expect(output).toMatch(/^ {2}T1 .*passed/m);
+        expect(output).toMatch(/^ {2}T2 .*passed/m);
+        expect(output).not.toContain("=== Run Status ===");
+        expect(output).not.toMatch(/T1\tMERGED/);
         // The status passed count equals the summary's passed count for the
         // same run (invariant).
         expect(output).toContain(`Tasks: ${passedInSummary} passed, 0 running`);
