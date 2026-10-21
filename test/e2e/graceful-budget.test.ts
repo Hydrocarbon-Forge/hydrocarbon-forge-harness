@@ -104,3 +104,108 @@ describe("R8.2 graceful: budget exhaustion mid-run", () => {
     }
   }, 120000);
 });
+
+// R11.1: the run budget a run records (run.created) is the one its resumes use, and a resume that is given
+// --max-budget-usd replaces it and records the new value on its resume event.
+function statusOf(repoDir: string, env: NodeJS.ProcessEnv, runId: string): string {
+  return spawnSync(process.execPath, [substrateMjs, "status", runId], { cwd: repoDir, encoding: "utf8", env, timeout: 120000 }).stdout;
+}
+
+/** Replaces a scenario's calls and forgets the calls the earlier round took (the harness keeps them in a state file). */
+function scenarioReset(scenarioPath: string, calls: unknown[]): void {
+  writeFileSync(scenarioPath, JSON.stringify({ calls }), "utf8");
+  rmSync(`${scenarioPath}.state.json`, { force: true });
+}
+
+function eventsOf(repoDir: string, runId: string): Array<{ type: string; data: any }> {
+  return readFileSync(join(repoDir, ".substrate", "runs", runId, "events.jsonl"), "utf8")
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l));
+}
+
+describe("R11.1: the run budget is recorded and reused by a resume", () => {
+  const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });
+  const t2 = taskSpec({ id: "T2", write: ["src/b.txt"], verify: "grep -q t2-done src/b.txt" });
+  const planC = planCall(contractFiles(manifestFor("Budget record", ["T1", "T2"]), { "tasks/T1.md": t1, "tasks/T2.md": t2 }));
+  const t1Edit = { edits: { "src/a.txt": "seed a\nt1-done\n" }, reply: "T1 done\nDONE", cost_usd: 0.3 };
+  const t2Edit = { edits: { "src/b.txt": "seed b\nt2-done\n" }, reply: "T2 done\nDONE", cost_usd: 0.2 };
+
+  it("status shows the recorded budget; a resume without the flag still stops at it; --max-budget-usd on the resume replaces it and is recorded", () => {
+    const repo = createE2ERepo(SEED);
+    const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-scenario-r111-"));
+    const scenarioPath = join(scenarioDir, "scenario.json");
+    const { env, homeDir } = setup(repo, scenarioPath, [planC, t1Edit, t2Edit]);
+    try {
+      const stopped = spawnSync(process.execPath, [substrateMjs, ...RUN_ARGS, "--max-budget-usd", "0.40", "Budget record"], {
+        cwd: repo.dir,
+        env,
+        encoding: "utf8",
+        timeout: 120000,
+      });
+      const runId = readdirSync(join(repo.dir, ".substrate", "runs")).sort().at(-1) as string;
+      expect(stopped.status, stopped.stdout.slice(-1500)).toBe(4);
+      expect(eventsOf(repo.dir, runId).find((e) => e.type === "run.created")?.data.max_budget_usd).toBe(0.4);
+      expect(statusOf(repo.dir, env, runId)).toMatch(/budget \$0\.40\)/);
+
+      // No flag: the recorded 0.40 caps the resume, not the 5.00 project setting. The run stops again.
+      scenarioReset(scenarioPath, [t2Edit]);
+      const plain = spawnSync(process.execPath, [substrateMjs, "resume", runId], { cwd: repo.dir, env, encoding: "utf8", timeout: 120000 });
+      expect(plain.status, plain.stdout.slice(-800)).toBe(4);
+      expect(plain.stdout).toMatch(/of the \$0\.40 run budget/);
+
+      // --max-budget-usd 1 replaces the recorded budget; the resume records 1 and finishes.
+      scenarioReset(scenarioPath, [t2Edit]);
+      const raised = spawnSync(process.execPath, [substrateMjs, "resume", runId, "--max-budget-usd", "1"], {
+        cwd: repo.dir,
+        env,
+        encoding: "utf8",
+        timeout: 120000,
+      });
+      expect(raised.status, `${raised.stdout.slice(-800)}\n${raised.stderr.slice(-400)}`).toBe(0);
+      const resumes = eventsOf(repo.dir, runId).filter((e) => e.type === "run.resumed");
+      expect(resumes.map((e) => e.data.max_budget_usd)).toEqual([0.4, 1]);
+      expect(statusOf(repo.dir, env, runId)).toMatch(/budget \$1\.00\)/);
+      expect(readFileSync(join(repo.dir, "src/b.txt"), "utf8")).toContain("t2-done");
+    } finally {
+      repo.cleanup();
+      rmSync(scenarioDir, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  }, 180000);
+
+  it("a run whose run.created has no max_budget_usd (an older log) shows and resumes with the project setting", () => {
+    const repo = createE2ERepo(SEED);
+    const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-scenario-r111-old-"));
+    const scenarioPath = join(scenarioDir, "scenario.json");
+    const { env, homeDir } = setup(repo, scenarioPath, [planC, t1Edit, t2Edit]);
+    try {
+      const stopped = spawnSync(process.execPath, [substrateMjs, ...RUN_ARGS, "--max-budget-usd", "0.40", "Budget old log"], {
+        cwd: repo.dir,
+        env,
+        encoding: "utf8",
+        timeout: 120000,
+      });
+      const runId = readdirSync(join(repo.dir, ".substrate", "runs")).sort().at(-1) as string;
+      expect(stopped.status).toBe(4);
+      // Strip the field the way an older log lacks it.
+      const eventsPath = join(repo.dir, ".substrate", "runs", runId, "events.jsonl");
+      const lines = readFileSync(eventsPath, "utf8").split("\n").filter((l) => l.trim());
+      const stripped = lines.map((l) => {
+        const ev = JSON.parse(l);
+        if (ev.type === "run.created") delete ev.data.max_budget_usd;
+        return JSON.stringify(ev);
+      });
+      writeFileSync(eventsPath, stripped.join("\n") + "\n", "utf8");
+      expect(statusOf(repo.dir, env, runId)).toMatch(/budget \$5\.00\)/);
+
+      scenarioReset(scenarioPath, [t2Edit]);
+      const resumed = spawnSync(process.execPath, [substrateMjs, "resume", runId], { cwd: repo.dir, env, encoding: "utf8", timeout: 120000 });
+      expect(resumed.status, `${resumed.stdout.slice(-800)}\n${resumed.stderr.slice(-400)}`).toBe(0);
+    } finally {
+      repo.cleanup();
+      rmSync(scenarioDir, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  }, 180000);
+});

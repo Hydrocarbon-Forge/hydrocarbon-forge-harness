@@ -184,7 +184,7 @@ export async function runSoloTask(
         return { stop: true };
       }
       if (res.killed_for === "budget") {
-        emit("run.budget.exceeded", {});
+        emit("run.budget.exceeded", { cost_usd: localTotal, max_usd: ctx.settings.budgets.run.max_usd });
         emit("run.paused", { reason: "budget_exhausted" });
         return { stop: true };
       }

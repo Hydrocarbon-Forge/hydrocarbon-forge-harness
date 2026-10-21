@@ -10,6 +10,7 @@ import { createSessionStore, type SessionRecord, type SessionStore } from "../..
 import { changedFilesOnRun, currentBranchName, runLandedInHead } from "../../git/landing.js";
 import { MERGE_TURNED_OFF_REASON, budgetResumeCommand, budgetStopMessage, failureOf, startBranchOf, withLanding } from "../../engine/landing.js";
 import { planHasIntegrationVerify } from "../../engine/failed-run.js";
+import { recordedRunOptions } from "../../engine/recorded-run.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -275,7 +276,13 @@ export async function landRun(
   if (summary.pause_reason === "budget_exhausted") {
     const exceeded = [...opts.events].reverse().find((e) => e.type === "run.budget.exceeded");
     const spent = Number((exceeded?.data as { cost_usd?: unknown } | undefined)?.cost_usd ?? summary.usage?.total_usd ?? 0);
-    const cap = Number((exceeded?.data as { max_usd?: unknown } | undefined)?.max_usd ?? ctx.flags.maxBudgetUsd ?? 0);
+    // R11.1: the cap the run recorded (its run.created, or the resume that replaced it), before the flag.
+    const cap = Number(
+      (exceeded?.data as { max_usd?: unknown } | undefined)?.max_usd ??
+        recordedRunOptions(opts.events).max_budget_usd ??
+        ctx.flags.maxBudgetUsd ??
+        0,
+    );
     failure = {
       failure_class: "budget_exhausted",
       message: budgetStopMessage(spent, cap, summary.tasks),

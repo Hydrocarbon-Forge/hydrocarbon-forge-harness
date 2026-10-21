@@ -5,6 +5,8 @@ import type { Effort, Engine, EngineEvent, PermissionMode, Question, RunId, RunO
 import { createEngine } from "../../engine/engine.js";
 import { loadSettings, sandboxProblem } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
+import { deepMerge } from "../../util/merge.js";
+import { recordedRunOptions, recordedSettingsOverrides } from "../../engine/recorded-run.js";
 import {
   createSessionStore,
   type SessionRecord,
@@ -236,7 +238,8 @@ export const resumeCommand: CliCommand = {
       } catch {}
     }
 
-    const createdEvt = runEvents.find((e) => e.type === "run.created");
+    // R11.1: the inputs the run was created with (request text, mode, landing, budget, lists, models).
+    const run = recordedRunOptions(runEvents as EngineEvent[]);
     const hasPendingQuestions =
       isCurrentlyPaused &&
       lastPaused?.data?.reason === "needs_human" &&
@@ -336,12 +339,10 @@ export const resumeCommand: CliCommand = {
     // R8.2 (known issue 18): a resume uses the models the run started with, recorded on its
     // run.created event. A role named again (--plan or --model for the planner, --work or
     // --worker-model for the worker) replaces the recorded model; --effort still applies.
-    const recorded = (createdEvt?.data?.requested_roles ?? {}) as Record<string, Record<string, unknown> | undefined>;
-    const overrides0 = buildSettingsOverrides(ctx.flags, ctx.flags.mode);
-    // R10.3: the worker count the run recorded, unless --concurrency is given again.
-    if (ctx.flags.concurrency === undefined && typeof createdEvt?.data?.concurrency === "number") {
-      overrides0.concurrency = { workers: createdEvt.data.concurrency };
-    }
+    const recorded = (run.requested_roles ?? {}) as Record<string, Record<string, unknown> | undefined>;
+    // R11.1: the budget, verify and context lists, tool lists, sandbox, history flag and worker count the run
+    // recorded sit under the flags given now (R10.3 kept the worker count the same way).
+    const overrides0 = deepMerge(recordedSettingsOverrides(run), buildSettingsOverrides(ctx.flags, ctx.flags.mode)) as ReturnType<typeof buildSettingsOverrides>;
     const roles: Record<string, Record<string, unknown> | undefined> = { ...((overrides0.roles ?? {}) as typeof roles) };
     if (ctx.flags.plan !== undefined) {
       roles.planner = { ...(roles.planner ?? {}), ...roleFromSpec(ctx.flags.plan) };
@@ -401,8 +402,8 @@ export const resumeCommand: CliCommand = {
       }
     }
 
-    const originalMode = createdEvt?.data?.mode;
-    const originalPermissionMode = createdEvt?.data?.permission_mode;
+    const originalMode = run.mode;
+    const originalPermissionMode = run.permission_mode;
 
     const resumeOpts: Partial<RunOptions> = {
       cwd: ctx.cwd,
@@ -434,7 +435,7 @@ export const resumeCommand: CliCommand = {
       const landSettings = await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings, flags: overrides });
       const landed = await landRun(ctx, resumed, {
         // R10.3: the landing the run recorded on run.created, unless --merge or --no-merge is given again (old logs: the setting).
-        mergeRequested: mergeChoiceOf(ctx.flags) ?? (typeof createdEvt?.data?.merge === "boolean" ? createdEvt.data.merge : landSettings.git?.auto_merge === true),
+        mergeRequested: mergeChoiceOf(ctx.flags) ?? (typeof run.merge === "boolean" ? run.merge : landSettings.git?.auto_merge === true),
         events: runEvents,
       });
       const summary = landed.summary;

@@ -28,6 +28,7 @@ import { RunLockImpl, RunLockError } from "../store/run-lock.js";
 import { ensureGitExclude, getRunBranch, restoreTaskBranch } from "../git/index.js";
 import { runBranchExists } from "../git/workspace.js";
 import { deepMerge } from "../util/merge.js";
+import { type RecordedRun, budgetRecord, recordedRunOptions, recordedSettingsOverrides, runInputsRecord } from "./recorded-run.js";
 import { currentBranchName } from "../git/landing.js";
 import { createRunId } from "../util/index.js";
 import { log } from "../util/log.js";
@@ -304,6 +305,8 @@ export class EngineImpl implements Engine {
             // R10.3: the landing and the worker count in effect, so a resume keeps them.
             merge: opts.merge ?? settings.git?.auto_merge === true,
             concurrency: settings.concurrency.workers,
+            // R11.1: the run budget and the run-level lists in effect, so a resume keeps them.
+            ...runInputsRecord(settings, opts.overrides),
           },
         };
 
@@ -329,23 +332,6 @@ export class EngineImpl implements Engine {
 
   async resume(runId: RunId, opts?: Partial<RunOptions>): Promise<RunSummary> {
     const repoRoot = opts?.cwd ?? process.cwd();
-    const settings: Settings = deepMerge(
-      deepMerge(DEFAULT_SETTINGS, this.options.settings ?? {}),
-      opts?.overrides ?? {},
-    );
-
-    const defaultAdapters = this.options.adapter
-      ? {
-          claude: this.options.adapter,
-          opencode: this.options.adapter,
-          agy: this.options.adapter,
-        }
-      : createAdapters(settings);
-
-    const adapters: AdapterMap = {
-      ...defaultAdapters,
-      ...this.options.adapters,
-    };
 
     const lock = new RunLockImpl(runId, { baseDir: repoRoot });
     const acquired = await lock.acquire();
@@ -365,23 +351,51 @@ export class EngineImpl implements Engine {
 
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
-    const ctx: EffectContext = {
-      runId,
-      repoRoot,
-      runDir,
-      settings,
-      adapters,
-      concurrency: settings.concurrency.workers,
-      signal: opts?.signal,
-      onEvent: opts?.onEvent,
-      prompt: opts?.prompt,
-      mode: opts?.mode,
-      permission_mode: opts?.permission_mode,
-      store,
-    };
-
     let state: EngineState | undefined;
     try {
+      // R11.1: the inputs the run was created with come from its own run.created event, so a resume does
+      // not rebuild the request, the budget or the lists from its options. An unreadable log is reported
+      // by the run's own error handling below.
+      let recorded: RecordedRun = {};
+      try {
+        store.repairTornTail();
+        recorded = recordedRunOptions(await store.readAll());
+      } catch {
+        recorded = {};
+      }
+      const settings: Settings = deepMerge(
+        deepMerge(deepMerge(DEFAULT_SETTINGS, this.options.settings ?? {}), recordedSettingsOverrides(recorded)),
+        opts?.overrides ?? {},
+      );
+
+      const defaultAdapters = this.options.adapter
+        ? {
+            claude: this.options.adapter,
+            opencode: this.options.adapter,
+            agy: this.options.adapter,
+          }
+        : createAdapters(settings);
+
+      const adapters: AdapterMap = {
+        ...defaultAdapters,
+        ...this.options.adapters,
+      };
+
+      const ctx: EffectContext = {
+        runId,
+        repoRoot,
+        runDir,
+        settings,
+        adapters,
+        concurrency: settings.concurrency.workers,
+        signal: opts?.signal,
+        onEvent: opts?.onEvent,
+        prompt: opts?.prompt ?? recorded.prompt,
+        mode: (opts?.mode ?? recorded.mode) as RunOptions["mode"],
+        permission_mode: (opts?.permission_mode ?? recorded.permission_mode) as RunOptions["permission_mode"],
+        store,
+      };
+
       try {
         // R10.5: a torn last line from a killed CLI is dropped before this resume appends anything.
         store.repairTornTail();
@@ -406,7 +420,8 @@ export class EngineImpl implements Engine {
             ts: new Date().toISOString(),
             run_id: runId,
             type: "run.resumed",
-            data: {},
+            // R11.1: the budget this resume uses, recorded again so a later resume keeps it.
+            data: { ...budgetRecord(settings) },
           };
           await store.append(resumedEvt);
           lastSeq = resumedEvt.seq;
@@ -458,6 +473,7 @@ export class EngineImpl implements Engine {
               await emit("run.reopened", {
                 reason: "planning",
                 ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
+                ...budgetRecord(settings),
               });
             }
           }
@@ -469,6 +485,7 @@ export class EngineImpl implements Engine {
           await emit("run.reopened", {
             ...reopenData([...existingEvents, ...appended], state),
             ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
+            ...budgetRecord(settings),
           });
         }
 
@@ -480,7 +497,7 @@ export class EngineImpl implements Engine {
           if (!reviewed.ok) {
             throw new Error(`the reviewed plan does not pass: ${reviewed.diagnostics.join("; ")}`);
           }
-          await emit("run.reopened", { reason: "plan_review" });
+          await emit("run.reopened", { reason: "plan_review", ...budgetRecord(settings) });
           const base = resolveBaseRef(repoRoot, reviewed.manifest.base_ref);
           const commitSha = await commitContractStubs(repoRoot, runId, base.sha, reviewed.manifest.contracts, runDir);
           await emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });

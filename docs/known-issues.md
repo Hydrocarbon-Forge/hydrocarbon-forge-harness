@@ -389,3 +389,25 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - A plan starts no workers. The flag is validated (1 to 16) and accepted so that one command line works for `run` and `plan`. Nothing records or uses the value.
 
+
+## 59. FIXED (R11.1): a resume rebuilt the request, the budget and the run lists from its options
+
+- Seen (live runs, 2026-10-21): `substrate stop` during planning, then `substrate resume`, planned again with `## Request` followed by `(none)`, asked three questions and paused (`substrate-hello-5`). The resume read `options.prompt`, which is absent on a resume (`src/engine/engine.ts` `resume`; `src/engine/actions/plan.ts`, `route.ts` and `solo.ts` read `ctx.prompt`). A resumed run also lost `--max-budget-usd` (`status` showed `budget $5.00` for a 0.40 run), and its verify, context, permission, sandbox and history flags.
+- Fixed: `run.created` records `max_budget_usd`, `verify`, `context`, `permissions`, `sandbox` and `history_all` (`src/engine/recorded-run.ts` `runInputsRecord`, `src/contracts/events.ts`). One helper, `recordedRunOptions`, reads them back, and the latest `run.resumed` or `run.reopened` that replaced the budget wins. `engine.resume` and `src/cli/commands/resume.ts` use it for the prompt, mode, permission mode, settings overrides, landing and worker count. `src/cli/commands/status.ts` shows the recorded budget. `run.budget.exceeded` from a finish or a solo stop carries its spend and cap, and the landing's budget stop reads the recorded cap before the flag.
+- Tests: `test/e2e/resume-planning.test.ts` (A strengthened, D: a real `substrate stop` during planning), `test/e2e/resume-any.test.ts` (planning failure strengthened, (e) repeated planning failure, the resumed replan), `test/e2e/graceful-budget.test.ts` (the R11.1 budget cases).
+
+## 60. OPEN: `--timeout` has no effect on a run
+
+- Found (R11.1): `--timeout <seconds>` sets `budgets.run.max_wall_min` (`src/cli/commands/run.ts`, `src/cli/request.ts`), and no code reads that setting. The flag is neither enforced nor recorded, so a resume has nothing to keep. Direction: an owner decision whether the run loop enforces it (item 10 lists the setting as an owner decision).
+
+## 61. OPEN: a resumed planning round after an answer relies on the planner session
+
+- Found (R11.1, not reproduced): the answers path (`src/engine/actions/plan.ts`, `hasAnswers`) sends only `planner/answers.md` to the planner, on the session the pause recorded (`session_id`). The request text is in that session, not re-sent. A pause that recorded no session id would plan without the request. Direction: include the recorded request in the answers prompt when the session cannot be resumed.
+
+## 62. OPEN: a worker-killed budget stop records the cap but not the spend
+
+- Found (R11.1): the budget kill of a worker in flight (`src/engine/actions/task.ts`) emits `run.budget.exceeded` with the cap only; the spend is not in scope there, so the progress line reads `spent $0.0000` for that event. The run summary has the true total.
+
+## 63. OPEN: `plan_review` is emitted as a `run.reopened` reason the catalog does not list
+
+- Found (R11.1): `src/engine/engine.ts` emits `run.reopened` with `reason: "plan_review"`, and `RunReopenedEvent` in `src/contracts/events.ts` lists only `planning`, `setup` and `tasks`. The CLI reads events through the catalog (`src/cli/commands/status.ts` `readCatalogEvents`), so such an event may be skipped there. Not checked at runtime yet. Direction: add the reason to the catalog after the owner confirms the name.

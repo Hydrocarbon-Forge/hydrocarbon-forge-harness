@@ -23,7 +23,8 @@ export function runFinishAction(
   emit: Emit
 ): void | Promise<void> {
   if (action.reason === "budget") {
-    emit("run.budget.exceeded", {});
+    // R11.1: the spend and the cap in effect, so the stop names them (landRun reads them).
+    emit("run.budget.exceeded", { cost_usd: state.usage.total_usd, max_usd: ctx.settings.budgets.run.max_usd });
     emit("run.paused", { reason: "budget_exhausted" });
   } else if (action.reason) {
     emit("run.paused", { reason: action.reason });

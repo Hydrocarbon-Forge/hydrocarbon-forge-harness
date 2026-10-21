@@ -79,6 +79,16 @@ function cliEnv(scenario: string): NodeJS.ProcessEnv {
   return env;
 }
 
+/** The argv of every invocation of the fake harness, from the record beside its scenario (R11.1); a prompt is one of its entries. */
+function promptsLogged(scenario: string): string[] {
+  const argvLog = `${scenario}.argv.jsonl`;
+  if (!existsSync(argvLog)) return [];
+  return readFileSync(argvLog, "utf8")
+    .split("\n")
+    .filter((l) => l.trim())
+    .flatMap((l) => JSON.parse(l).argv as string[]);
+}
+
 /** Starts the CLI and returns it; its output is collected in `out`. */
 function startCli(repoDir: string, args: string[], scenario: string): { child: ChildProcess; out: { stdout: string; stderr: string } } {
   const child = spawn(process.execPath, [substrateMjs, ...args], { cwd: repoDir, env: cliEnv(scenario), stdio: ["ignore", "pipe", "pipe"] });
@@ -90,14 +100,19 @@ function startCli(repoDir: string, args: string[], scenario: string): { child: C
 }
 
 /** Runs the CLI to its end, with the scripted calls for this round only. */
-function cliSync(repoDir: string, args: string[], calls: unknown[]): { status: number | null; stdout: string; stderr: string } {
+function cliSync(
+  repoDir: string,
+  args: string[],
+  calls: unknown[],
+): { status: number | null; stdout: string; stderr: string; scenario: string } {
+  const scenario = scenarioFile(calls);
   const out = spawnSync(process.execPath, [substrateMjs, ...args], {
     cwd: repoDir,
     encoding: "utf8",
-    env: cliEnv(scenarioFile(calls)),
+    env: cliEnv(scenario),
     timeout: 120000,
   });
-  return { status: out.status, stdout: out.stdout, stderr: out.stderr };
+  return { status: out.status, stdout: out.stdout, stderr: out.stderr, scenario };
 }
 
 function runDirs(repoDir: string): string[] {
@@ -174,6 +189,9 @@ describe("R10.5: a resume after a stop during planning", () => {
       const events = eventsIn(runDir);
       expect(events.filter((e) => e.type === "plan.started").length).toBe(2);
       expect(events.some((e) => e.type === "run.finished" && e.data.exit_code === 0)).toBe(true);
+      // R11.1: the planning again gets the run's request, from its run.created, not from the resume's options.
+      expect(readFileSync(join(runDir, "planner-request.md"), "utf8")).toContain("## Request\nPlan it\n");
+      expect(promptsLogged(out.scenario).some((p) => p.includes("## Request\nPlan it\n"))).toBe(true);
     } finally {
       repo.cleanup();
     }
@@ -286,6 +304,54 @@ describe("R10.5: a resume after a stop during planning", () => {
       expect(out.stdout).not.toContain("substrate merge");
     } finally {
       repo.cleanup();
+    }
+  }, 180000);
+});
+
+describe("R11.1: a stop during planning, then resume, plans again with the run's own request", () => {
+  it("(D) substrate stop ends a detached run whose planner is held; the resume's planner gets the original request", async () => {
+    const repo = createE2ERepo(SEED);
+    writeSettings(repo.dir);
+    const dir = mkdtempSync(join(tmpdir(), "resume-planning-d-"));
+    const scenario = join(dir, "scenario.json");
+    const request = "Plan it: stopped during planning";
+    try {
+      writeFileSync(scenario, JSON.stringify({ calls: [{ failure: "hang" }] }), "utf8");
+      const detached = spawnSync(process.execPath, [substrateMjs, ...RUN_ARGS, "--detach", request], {
+        cwd: repo.dir,
+        env: cliEnv(scenario),
+        encoding: "utf8",
+        timeout: 120000,
+      });
+      expect(detached.status, detached.stderr).toBe(0);
+      await waitFor(() => existsSync(`${scenario}.pid`), "the held planner's pid");
+      const plannerPid = Number(readFileSync(`${scenario}.pid`, "utf8"));
+      planners.push(plannerPid);
+      const runId = runDirs(repo.dir)[0];
+      const runDir = join(repo.dir, ".substrate", "runs", runId);
+
+      // A real stop: SIGTERM to the detached run's process, which pauses the run as the user's stop.
+      const stopped = spawnSync(process.execPath, [substrateMjs, "stop", runId], {
+        cwd: repo.dir,
+        env: cliEnv(scenarioFile([])),
+        encoding: "utf8",
+        timeout: 120000,
+      });
+      expect(stopped.status, stopped.stdout + stopped.stderr).toBe(0);
+      await waitFor(() => !alive(plannerPid), "the held planner to end after the stop");
+      expect(eventsIn(runDir).some((e) => e.type === "run.paused" && e.data.reason === "user_cancel")).toBe(true);
+
+      const out = cliSync(repo.dir, ["resume", runId], [planCall(oneTaskPlan()), edit("T1", "src/a.txt", "t1-done")]);
+      expect(out.status, out.stderr).toBe(0);
+      expect(out.stdout).toContain("no plan was accepted; planning again (planning costs again)");
+      expect(readFileSync(join(runDir, "planner-request.md"), "utf8")).toContain(`## Request\n${request}\n`);
+      expect(promptsLogged(out.scenario).some((p) => p.includes(`## Request\n${request}\n`))).toBe(true);
+      expect(eventsIn(runDir).find((e) => e.type === "run.created")?.data.prompt).toBe(request);
+      expect(eventsIn(runDir).some((e) => e.type === "run.finished" && e.data.exit_code === 0)).toBe(true);
+      expect(readFileSync(join(repo.dir, "src/a.txt"), "utf8")).toContain("t1-done");
+    } finally {
+      repo.cleanup();
+      rmSync(dir, { recursive: true, force: true });
     }
   }, 180000);
 });

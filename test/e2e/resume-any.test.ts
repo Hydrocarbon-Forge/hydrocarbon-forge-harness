@@ -21,6 +21,16 @@ function runIdOf(res: RunSubstrateResult): string {
   return res.runDir?.split("/").at(-1) as string;
 }
 
+/** The argv of every invocation of the fake harness, from the record beside its scenario (R11.1); a prompt is one of its entries. */
+function promptsLogged(scenario: string): string[] {
+  const argvLog = `${scenario}.argv.jsonl`;
+  if (!existsSync(argvLog)) return [];
+  return readFileSync(argvLog, "utf8")
+    .split("\n")
+    .filter((l) => l.trim())
+    .flatMap((l) => JSON.parse(l).argv as string[]);
+}
+
 function eventsIn(runDir: string): Ev[] {
   return readFileSync(join(runDir, "events.jsonl"), "utf8")
     .split("\n")
@@ -29,7 +39,11 @@ function eventsIn(runDir: string): Ev[] {
 }
 
 /** Runs the built CLI in the repo. `calls` gives the fake harness its scripted calls for this round only. */
-function cli(repoDir: string, args: string[], calls?: unknown[]): { status: number | null; stdout: string; stderr: string } {
+function cli(
+  repoDir: string,
+  args: string[],
+  calls?: unknown[],
+): { status: number | null; stdout: string; stderr: string; prompts: string[] } {
   const home = mkdtempSync(join(tmpdir(), "substrate-resume-any-home-"));
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
   delete env.FAKE_SCENARIO_FILE;
@@ -41,7 +55,9 @@ function cli(repoDir: string, args: string[], calls?: unknown[]): { status: numb
   }
   try {
     const out = spawnSync(process.execPath, [substrateMjs, ...args], { cwd: repoDir, encoding: "utf8", env, timeout: 120000 });
-    return { status: out.status, stdout: out.stdout, stderr: out.stderr };
+    // R11.1: the prompts the harness was given in this round, read before the scenario directory goes.
+    const prompts = calls === undefined || scenarioDir === undefined ? [] : promptsLogged(join(scenarioDir, "scenario.json"));
+    return { status: out.status, stdout: out.stdout, stderr: out.stderr, prompts };
   } finally {
     rmSync(home, { recursive: true, force: true });
     if (scenarioDir !== undefined) rmSync(scenarioDir, { recursive: true, force: true });
@@ -188,6 +204,40 @@ describe("R10.4: a run that failed in planning is planned again on resume", () =
       expect(out.stdout).toContain("finished: 1/1 passed");
       const plansAfter = eventsIn(res.runDir as string).filter((e) => e.type === "plan.started").length;
       expect(plansAfter).toBe(plansBefore + 1);
+      // R11.1: the planning again is given the request the run was created with (the resume gave none).
+      expect(readFileSync(join(res.runDir as string, "planner-request.md"), "utf8")).toContain("## Request\nPlan fails\n");
+      expect(out.prompts.some((p) => p.includes("## Request\nPlan fails\n"))).toBe(true);
+    } finally {
+      res.cleanup();
+    }
+  });
+
+  it("(e) a planning that fails again on resume keeps the request on every planner call, and the next resume plans with it", () => {
+    const badPlan = { plan: { files: { "manifest.yaml": "version: 1\nrun_id: r_X\n" } }, reply: "PLAN READY" };
+    const res = runSubstrate({
+      files: SEED,
+      scenario: { calls: [badPlan, badPlan, badPlan] },
+      args: [...RUN_ARGS, "Plan twice fails"],
+    });
+    try {
+      expect(res.exitCode).toBe(1);
+      const runId = runIdOf(res);
+      // The first resume's planner refuses every attempt again: the run fails again and stays resumable.
+      const again = cli(res.repoDir, ["resume", runId], [badPlan, badPlan, badPlan]);
+      expect(again.status).toBe(1);
+      expect(again.stdout).toContain(`Next:       substrate resume ${runId}  (plans again; planning costs again)`);
+      // The first attempt of each planning round carries the request; the correction attempts carry the diagnostics.
+      expect(again.prompts.some((p) => p.includes("## Request\nPlan twice fails\n"))).toBe(true);
+
+      const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });
+      const out = cli(res.repoDir, ["resume", runId], [
+        planCall(contractFiles(manifestFor("Plan third time", ["T1"]), { "tasks/T1.md": t1 })),
+        edit("T1", "src/a.txt", "t1-done"),
+      ]);
+      expect(out.prompts.some((p) => p.includes("## Request\nPlan twice fails\n"))).toBe(true);
+      expect(out.status, out.stderr).toBe(0);
+      expect(out.stdout).toContain("finished: 1/1 passed");
+      expect(readFileSync(join(res.runDir as string, "planner-request.md"), "utf8")).toContain("## Request\nPlan twice fails\n");
     } finally {
       res.cleanup();
     }
@@ -464,6 +514,57 @@ describe("R10.5: a SIGKILL during a resumed failed-run round, and the status wor
     } finally {
       res.cleanup();
       rmSync(dir, { recursive: true, force: true });
+    }
+  }, 180000);
+});
+
+describe("R11.1: a replan after a resume runs on the resumed run's recorded budget and request", () => {
+  it("a budget stop during T1's first attempt; a resume without the flag stays stopped; a resume with --max-budget-usd 5 replans T1 and finishes", () => {
+    const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q revised-marker src/a.txt" });
+    const revised = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q revised-marker src/a.txt" });
+    const noMarker = (reply: string, cost?: number) => ({ edits: { "src/a.txt": "seed a\n" }, reply, ...(cost !== undefined ? { cost_usd: cost } : {}) });
+    const res = runSubstrate({
+      files: SEED,
+      scenario: {
+        calls: [
+          planCall(contractFiles(manifestFor("Replan resume", ["T1"]), { "tasks/T1.md": t1 })),
+          noMarker("attempt 1: no marker\nDONE", 0.5),
+        ],
+      },
+      args: [...RUN_ARGS, "--max-budget-usd", "0.40", "Replan resume"],
+    });
+    try {
+      expect(res.exitCode).toBe(4);
+      const runId = runIdOf(res);
+      const runDir = res.runDir as string;
+      const spawned = () => eventsIn(runDir).filter((e) => e.type === "task.session.started").length;
+      const before = spawned();
+
+      // No flag: the recorded 0.40 still stops the run before any worker is paid again.
+      const plain = cli(res.repoDir, ["resume", runId], []);
+      expect(plain.status).toBe(4);
+      expect(spawned()).toBe(before);
+
+      // The replan: attempt 1 and the heal fail, the planner revises T1 (its prompt names T1), generation 2 passes.
+      const out = cli(res.repoDir, ["resume", runId, "--max-budget-usd", "5"], [
+        noMarker("attempt 1 again: no marker\nDONE"),
+        noMarker("heal: still no marker\nDONE"),
+        { plan: { files: { "tasks/T1.md": revised } }, reply: "the spec asked for the wrong marker\nREVISED T1" },
+        { edits: { "src/a.txt": "seed a\nrevised-marker\n" }, reply: "appended the revised marker\nDONE" },
+      ]);
+      expect(out.status, out.stdout.slice(-1200) + out.stderr.slice(-400)).toBe(0);
+      const events = eventsIn(runDir);
+      const replanAt = events.findIndex((e) => e.type === "replan.started" && e.data.task_id === "T1");
+      const resumedAt = events.map((e) => e.type).lastIndexOf("run.resumed");
+      expect(replanAt).toBeGreaterThan(-1);
+      expect(replanAt).toBeGreaterThan(resumedAt);
+      expect(out.prompts.some((p) => p.includes("A worker failed task T1"))).toBe(true);
+      expect(events.find((e) => e.type === "run.created")?.data.prompt).toBe("Replan resume");
+      expect(events.filter((e) => e.type === "run.resumed").map((e) => e.data.max_budget_usd)).toEqual([0.4, 5]);
+      expect(events.filter((e) => e.type === "run.finished").at(-1)?.data.exit_code).toBe(0);
+      expect(readFileSync(join(res.repoDir, "src/a.txt"), "utf8")).toContain("revised-marker");
+    } finally {
+      res.cleanup();
     }
   }, 180000);
 });

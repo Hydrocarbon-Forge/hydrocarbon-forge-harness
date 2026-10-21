@@ -129,6 +129,12 @@ export async function runDialect(argv, env) {
   const { call } = takeCall(scenarioFile, taskKeyFromCwd(process.cwd()));
   applyCall(call, process.cwd());
 
+  // R11.1: every invocation's argv (its prompt included) is kept beside the scenario file, so a test can read
+  // the prompt the harness was given. The adapter's environment allowlist does not carry test variables.
+  if (scenarioFile) {
+    fs.appendFileSync(`${scenarioFile}.argv.jsonl`, JSON.stringify({ argv }) + "\n", "utf8");
+  }
+
   if (call.probe) {
     await runProbe(call.probe);
   }

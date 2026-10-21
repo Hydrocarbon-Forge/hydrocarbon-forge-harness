@@ -47,6 +47,17 @@ export const RunCreatedEvent = member(
       merge: z.boolean().optional(),
       // The worker count in effect at creation (R10.3): a resume uses it unless --concurrency is given again.
       concurrency: z.number().int().optional(),
+      // R11.1: the run budget in effect at creation (the flag, the request or the setting). A resume uses it
+      // unless --max-budget-usd is given again; status and watch show it.
+      max_budget_usd: z.number().optional(),
+      // R11.1: the run-level lists the run was started with (flags or request), reused by a resume.
+      verify: z.array(z.string()).optional(),
+      context: z.array(z.string()).optional(),
+      permissions: z
+        .object({ allow: z.array(z.string()).optional(), deny: z.array(z.string()).optional() })
+        .optional(),
+      sandbox: z.boolean().optional(),
+      history_all: z.boolean().optional(),
     })
     .strict()
 );
@@ -94,6 +105,8 @@ export const RunResumedEvent = member(
             .strict()
         )
         .optional(),
+      // R11.1: the run budget the resume uses; a later resume without the flag keeps it.
+      max_budget_usd: z.number().optional(),
     })
     .strict()
 );
@@ -113,6 +126,8 @@ export const RunReopenedEvent = member(
       kept_tasks: z.array(z.string()).optional(),
       // R10.5: the run-directory name (drafts-<n>) an abandoned planning draft was moved to.
       draft_dir: z.string().optional(),
+      // R11.1: the run budget the resume uses; a later resume without the flag keeps it.
+      max_budget_usd: z.number().optional(),
     })
     .strict()
 );

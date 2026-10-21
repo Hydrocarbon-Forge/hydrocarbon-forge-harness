@@ -5,6 +5,7 @@ import type { Effort, Engine, PermissionMode, Question, RunId, Settings } from "
 import { parseEngineEvent } from "../../contracts/events.js";
 import type { EngineState } from "../../engine/reducer.js";
 import { applyJournalEvent } from "../../engine/journal.js";
+import { recordedRunOptions } from "../../engine/recorded-run.js";
 import type { SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -162,7 +163,8 @@ function liveHeader(
   const planner = settings !== undefined ? progressModelsFor(settings).planner : undefined;
   const worker = settings !== undefined ? progressModelsFor(settings).worker : undefined;
   const merge = settings?.git?.auto_merge === true ? "on" : "off";
-  const budget = settings?.budgets?.run?.max_usd;
+  // R11.1: the budget the run records (its run.created, or a resume that replaced it), else the setting.
+  const budget = recordedRunOptions(record.events).max_budget_usd ?? settings?.budgets?.run?.max_usd;
   const lastActivity = record.lastEventAt !== undefined ? Math.max(0, Math.floor((now - record.lastEventAt) / 1000)) : undefined;
   const processLine = record.process === undefined
     ? record.terminal ? "Process: none (the run has ended)" : `Process: not running (stopped; resume with: substrate resume ${id})`
@@ -283,7 +285,8 @@ export const statusCommand: CliCommand = {
     for (const ev of events) progress.feed(ev);
     const next = await nextOf(ctx.cwd, record, rows);
     const outcome = outcomeOf(runDir, record.lastEventAt);
-    const budget = settings?.budgets?.run?.max_usd ?? null;
+    // R11.1: the budget the run records, else the project setting (old logs).
+    const budget = recordedRunOptions(events).max_budget_usd ?? settings?.budgets?.run?.max_usd ?? null;
     // Elapsed runs to the run's last event once it has ended, else to now.
     const endAt = record.terminal && record.lastEventAt !== undefined ? record.lastEventAt : now;
     const elapsedS = Math.max(0, Math.floor((endAt - (record.createdAt ?? endAt)) / 1000));
