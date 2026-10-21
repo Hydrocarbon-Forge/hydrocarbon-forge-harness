@@ -474,3 +474,20 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - Found (owner, 2026-10-21): the summary of a run whose final integration check failed read `NOT merged: 0 of 2 tasks failed or were skipped; the 2 passed tasks stay on branch ...`, which says nothing failed, and `Reason:` gave the command with the last output line on the same line, so the cause was not visible.
 - Fixed: an integration failure reads `NOT merged: the integration check failed (see Reason); the <n> tasks passed their own checks and stay on branch <branch>`. `Reason:` is the command and its exit code (`<command> exited <n>`, or `timed out`). The text summary prints the last ten non-empty lines of the failing command's output under `Output:`, from `integration.failed.output_tail` (already redacted and path-stripped), and the json and `result.json` carry the same tail as `output_tail` (a new summary field). Planning and task failures keep their lines.
 - Tests: `test/e2e/integration-setup.test.ts` (the summary wording, one Reason line, the ten-line tail, `output_tail` in result.json), `test/unit/engine/integration-failure.test.ts` (the message is the command and exit code only).
+
+## 73. OPEN (R12.4): a WRONG final check is not handed back to the planner
+
+- Found (owner, 2026-10-21): a failed final check has three possible owners. An environment mismatch is Substrate's (R12.2: a could-not-run check is a warning). A CODE failure belongs to a worker (R12.4: up to `integration.repair_attempts` automatic repairs, see cli.md). A WRONG or uncheckable check (a command that tests the wrong thing, or one that cannot be satisfied by any code change) belongs to the planner.
+- Not done in R12.4, on purpose: the planner amendment. Nothing re-plans the check itself. A check that is wrong runs its repairs, which cannot make it pass, and the run fails with the repair outcomes listed. The `CHECK-UNFIXABLE` line is the worker's way to say the check cannot be fixed by code; the owner's decision on the planner amendment phase is still needed before it is built.
+
+## 74. OPEN (R12.4 known limit): a repair can edit a script the check invokes
+
+- The repair guard (`src/engine/repair-guard.ts`) reads the commit: it rejects an empty change, a deleted or renamed-away test file, an added skip marker, and a change under `.substrate/`. It does not know what a check runs. A worker that edits a script the check calls (for example a verify script that the check's command runs) can make the check pass without changing a test. The limit is documented in cli.md. Not solved; the merged change needs review.
+
+## 75. OPEN (R12.2 restated, still true in R12.4): a task's own verify that cannot run is still a failed task
+
+- The final check's could-not-run rule (R12.2) does not reach a task's own verify. A task whose verify command is not installed (exit 127, a tool-missing marker) still fails `verify_failed`, heals, and replans, as before R12.2. A repair does not change this. Left as it was; the owner's rule ("a check that cannot run is a warning") would apply here too, and needs a decision on the verify path.
+
+## 76. OPEN (R12.4): the culprit search ignores repair commits
+
+- The bisect (R9.1) tests the merged task branches in merge order, on the base. A repair commit that the run branch holds (a merged repair that the re-run rejected, or the commits of an earlier round) is not in those prefixes. A culprit named after exhausted repairs may therefore be a task whose prefix only fails because the repair is missing. The bisect runs only when the repairs are exhausted, so this is at the end of a failed run; the failed run's output still shows the last check's output.

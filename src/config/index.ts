@@ -115,6 +115,7 @@ export const DEFAULT_SETTINGS: Contracts.Settings & { pricing: Contracts.Pricing
   permissions: { allow: [], deny: [] },
   sandbox: { enabled: false },
   git: { on_scope_violation: "revert", auto_merge: true },
+  integration: { repair_attempts: Contracts.REPAIR_ATTEMPTS_DEFAULT },
   instructions: { workers: "none" },
   usage: { global: true },
   execution: { strategy: "direct" },

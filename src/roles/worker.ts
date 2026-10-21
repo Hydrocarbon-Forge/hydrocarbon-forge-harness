@@ -39,7 +39,7 @@ import { withRepoLock } from "../git/repo-lock.js";
 export type WorkerEmit = <T extends EventType>(
   type: T,
   data: EventData<T>
-) => EngineEvent;
+) => EngineEvent | void;
 
 export type WorkerKillReason = "budget" | "timeout" | "cancel";
 
@@ -734,4 +734,111 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
     failure_class: "verify_failed",
   });
   return first.report;
+}
+
+/** The write set of a repair attempt: the whole repository (the run's own records are never committed, R12.4). */
+const REPAIR_WRITE_SET = ["**", ".*", "**/.*"];
+
+/**
+ * The spec a repair attempt runs under (R12.4): the whole repository is its write set, and it has no verify
+ * of its own (the caller runs the integration command). The empty verify list is the one field that differs
+ * from a plan task's spec, which the schema would not accept as empty; the cast stays here.
+ */
+export function repairSpecOf(taskId: TaskId, taskClass: string): TaskSpecFrontmatter {
+  return {
+    id: taskId,
+    title: `Repair the integration check (${taskId})`,
+    class: taskClass,
+    depends_on: [],
+    read: [],
+    write: REPAIR_WRITE_SET,
+    create: REPAIR_WRITE_SET,
+    protected: [],
+    verify: [],
+  } as unknown as TaskSpecFrontmatter;
+}
+
+/** What a repair worker needs: its worktree (created and set up by the caller), its prompt, and its policy. */
+export interface RepairWorkerOptions {
+  runId: RunId;
+  repoRoot: string;
+  settings: Settings;
+  adapter: HarnessAdapter;
+  /** The repair's task id, REPAIR-<attempt>. */
+  taskId: TaskId;
+  /** The generation of the repair's worktree (the repair round), not the attempt. */
+  generation: number;
+  /** The attempt number: it picks the route, so attempt 2 gets the ladder's escalation (R3.4). */
+  attempt: number;
+  taskClass: string;
+  worktreePath: string;
+  /** The integration HEAD the worktree was created from. */
+  baseRef: string;
+  rawDir: string;
+  promptText: string;
+  signal?: AbortSignal;
+  runPolicy?: WorkerRunPolicy;
+  onEvent?: WorkerEmit;
+}
+
+/**
+ * One repair attempt's worker (R12.4): a single session in the repair worktree, with the same spawn, pid,
+ * usage, scope and commit path as a task attempt. It runs no verify of its own and never heals: the
+ * caller checks the result. `stopped` is true when the run's policy or an interrupt ended the session.
+ */
+export async function runRepairWorker(opts: RepairWorkerOptions): Promise<{ report: WorkerReport; stopped: boolean }> {
+  const route = resolveTaskRoute(opts.taskClass, opts.attempt, opts.settings);
+  const startTime = Date.now();
+  // The repair has no verify of its own: the caller runs the integration command. The empty list is the
+  // only spec field the attempt reads that differs from a task's, so the cast stays local.
+  const spec = repairSpecOf(opts.taskId, opts.taskClass);
+
+  const specPath = await workspaceManager.materializeSpec(opts.worktreePath, opts.promptText);
+  const baseline: AttemptBaseline = {
+    worktreePath: opts.worktreePath,
+    specPath,
+    initialHashes: new Map<string, string>(),
+    head: gitRef(opts.worktreePath, ["rev-parse", "HEAD"]),
+    branch: gitRef(opts.worktreePath, ["symbolic-ref", "-q", "--short", "HEAD"]),
+  };
+  const usage: UsageRecord = {
+    backend: route.backend,
+    model: route.model,
+    input_tokens: 0,
+    output_tokens: 0,
+    cost_usd: 0,
+    cost_source: "computed",
+    at: new Date().toISOString(),
+  };
+  const workerOpts: WorkerRunOptions = {
+    runId: opts.runId,
+    taskId: opts.taskId,
+    spec,
+    specContent: opts.promptText,
+    specAbsPath: specPath,
+    generation: opts.generation,
+    repoRoot: opts.repoRoot,
+    settings: opts.settings,
+    adapter: opts.adapter,
+    baseRef: opts.baseRef,
+    rawDir: opts.rawDir,
+    attempt: opts.attempt,
+    session: { id: crypto.randomUUID() },
+    signal: opts.signal,
+    runPolicy: opts.runPolicy,
+    onEvent: opts.onEvent,
+  };
+  const outcome = await runAttempt(
+    workerOpts,
+    route,
+    opts.attempt,
+    opts.promptText,
+    workerOpts.session ?? {},
+    baseline,
+    startTime,
+    new Map<string, UsageTotals>(),
+    usage,
+    { cost_usd: 0, tokens: 0, turns: 0 },
+  );
+  return { report: outcome.report, stopped: outcome.stopped };
 }

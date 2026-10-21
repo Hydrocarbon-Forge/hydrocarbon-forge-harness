@@ -116,6 +116,12 @@ export interface EngineState {
    */
   l2_count?: number;
   l2_done?: boolean;
+  /**
+   * R12.4: the repair attempts of a failed final check, keyed by REPAIR-<attempt>. They are kept apart from
+   * `tasks`, so the scheduler, the replan ladder and the merge bookkeeping never see them; status shows them
+   * as rows. Their state is RUNNING, MERGED (the attempt passed) or FAILED. The run state never changes for them.
+   */
+  repairs?: Record<string, TaskRuntimeState>;
 }
 
 export function reduce(state: EngineState, event: EngineEvent): EngineState {
@@ -512,6 +518,25 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
           state: "FAILED",
         };
       }
+    }
+
+    case "integration.repair.started": {
+      const id = data.task_id;
+      if (typeof id !== "string") return state;
+      const row: TaskRuntimeState = { id, state: "RUNNING", generation: 1, attempt: data.attempt ?? 1 };
+      return { ...state, repairs: { ...(state.repairs ?? {}), [id]: row } };
+    }
+
+    case "integration.repair.finished": {
+      const id = data.task_id;
+      const current = typeof id === "string" ? state.repairs?.[id] : undefined;
+      if (typeof id !== "string" || current === undefined) return state;
+      const updated: TaskRuntimeState = {
+        ...current,
+        state: data.passed === true ? "MERGED" : "FAILED",
+        ...(typeof data.reason === "string" ? { failure_message: data.reason } : {}),
+      };
+      return { ...state, repairs: { ...state.repairs, [id]: updated } };
     }
 
     case "run.paused": {

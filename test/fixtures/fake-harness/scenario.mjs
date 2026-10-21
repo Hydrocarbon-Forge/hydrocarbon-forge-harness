@@ -198,4 +198,12 @@ export function applyCall(call, cwd = process.cwd()) {
       fs.appendFileSync(full, String(content), "utf8");
     }
   }
+
+  // 4. remove: the listed files are deleted (a repair that deletes a test file, R12.4)
+  if (call.remove) {
+    for (const relPath of call.remove) {
+      checkSafePath(relPath);
+      fs.rmSync(path.resolve(cwd, relPath), { force: true });
+    }
+  }
 }

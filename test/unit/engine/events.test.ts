@@ -70,6 +70,8 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "integration.skipped": { reason: "single_task" },
   "integration.could_not_run": { command: "npx tsc -p tsconfig.json", reason: "tsc is not installed" },
   "integration.finished": { passed: true },
+  "integration.repair.started": { task_id: "REPAIR-1", attempt: 1, max: 2 },
+  "integration.repair.finished": { task_id: "REPAIR-1", attempt: 1, passed: false, reason: "it deletes test file test/a.test.ts" },
   "integration.failed": {},
   "bisect.started": {},
   "bisect.culprit": { culprit_task_id: "T1" },

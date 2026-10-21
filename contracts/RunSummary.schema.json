@@ -159,6 +159,35 @@
     },
     "verification_note": {
       "type": "string"
+    },
+    "repaired": {
+      "type": "number"
+    },
+    "repair": {
+      "type": "object",
+      "properties": {
+        "attempts": {
+          "type": "number"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "attempts",
+        "passed",
+        "outcomes"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

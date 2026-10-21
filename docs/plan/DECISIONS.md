@@ -135,3 +135,14 @@ The owner's policy (2026-10-21): plan-lint false positives rejected valid plans 
 - L022 (the estimate above the approval threshold) stays a `gate`. It was never a blocker and does not refuse or retry; the approval pause is decided by the run's estimate.
 
 Code and tests: `src/spec/rules.ts`, `src/roles/planner.ts` (`ingestPlanDraft`), `test/unit/spec/lint-severity.test.ts`, `test/e2e/planner-retry-post-contract.test.ts`; known issue 24.
+
+## Note 2026-10-21 (R12.4): a failed final check gets up to two code repairs; the check is never loosened
+
+The owner's policy (2026-10-21): Substrate's own checks must not stop good work, and a run that ends on a failed check must not come back to the owner for a CODE failure. Ownership of a failed final check: an environment mismatch is Substrate's (R12.2, a warning); a WRONG or uncheckable check goes to the planner (not implemented in R12.4, known issue 73); a CODE failure is a worker's job. The rule now:
+- A failed final `integration_verify` for a real reason (the commands ran and one exited non-zero) gets up to `integration.repair_attempts` repair attempts (default 2, range 0 to 5; 0 turns it off). A check that could not run, a one-task plan and a run with repair off are not repaired.
+- A repair worker runs in a worktree off the integration HEAD and may not loosen the check: an attempt that changes nothing, deletes or renames away a test file, adds a skip marker, or touches `.substrate/` is rejected and counts as a failed attempt. The worker may end with `CHECK-UNFIXABLE: <reason>` when only a change outside the code can fix the check; that stops the attempts at once.
+- A passing repair is merged into the integration branch, the run branch advances to it, and the check runs again on the merged result. A repair that is merged and then fails the re-run stays on the run branch, as a merged task's work does.
+- The repair never pauses the run for an answer. The run's budget, its time limit and `substrate stop` apply to the repair worker as to any worker.
+- Exhausted repairs fail the run as a failed check did before, with the repair outcomes listed. The culprit search runs only then.
+
+Code and tests: `src/engine/actions/repair.ts`, `src/engine/repair-guard.ts`, `assets/prompts/worker/repair.md`, `src/engine/actions/integrate.ts`, `test/e2e/integration-repair.test.ts`, `test/unit/engine/repair-guard.test.ts`; known issues 73 to 76.

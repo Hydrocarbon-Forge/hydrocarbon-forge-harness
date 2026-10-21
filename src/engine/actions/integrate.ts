@@ -25,6 +25,7 @@ import {
   type SetupOutcome,
 } from "../../git/index.js";
 import { EventStoreImpl } from "../../store/event-store.js";
+import { repairAttemptsOf, repairIntegration } from "./repair.js";
 
 /**
  * The MERGED tasks in the order they merged: each task's last task.merged event in the run's log.
@@ -231,9 +232,32 @@ export async function runIntegrateAction(
     return;
   }
 
+  // R12.4: a failed check for a real reason gets up to `integration.repair_attempts` code repairs before the
+  // run is judged. The culprit search and the failure report run only once the repairs are exhausted.
+  let failure = verify.failure;
+  if (repairAttemptsOf(ctx.settings) > 0) {
+    const repair = await repairIntegration({
+      ctx,
+      state,
+      emit,
+      checks,
+      integrationWorktree,
+      failure,
+      manifest,
+      roots,
+    });
+    if (repair.status === "stopped") return;
+    if (repair.status === "passed") {
+      emit("integration.finished", { passed: true, repaired: repair.attempts });
+      emit("run.finished", { exit_code: 0 });
+      return;
+    }
+    failure = repair.failure;
+  }
+
   const culprit = await isolateCulprit(ctx, state, manifest, checks);
   if (culprit !== undefined) {
-    const detail = integrationFailureDetail(verify.failure, [integrationWorktree, ctx.repoRoot]);
+    const detail = integrationFailureDetail(failure, [integrationWorktree, ctx.repoRoot]);
     emit("bisect.started", {});
     emit("bisect.culprit", { culprit_task_id: culprit });
     emit("task.failed", {
@@ -244,7 +268,7 @@ export async function runIntegrateAction(
     return;
   }
 
-  const detail = integrationFailureDetail(verify.failure, [integrationWorktree, ctx.repoRoot]);
+  const detail = integrationFailureDetail(failure, [integrationWorktree, ctx.repoRoot]);
   emit("integration.failed", {
     failure_class: "integration_failed",
     message: detail.message,

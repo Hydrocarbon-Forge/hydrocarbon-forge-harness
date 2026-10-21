@@ -542,6 +542,18 @@
       ],
       "additionalProperties": false
     },
+    "integration": {
+      "type": "object",
+      "properties": {
+        "repair_attempts": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "repair_attempts"
+      ],
+      "additionalProperties": false
+    },
     "instructions": {
       "type": "object",
       "properties": {

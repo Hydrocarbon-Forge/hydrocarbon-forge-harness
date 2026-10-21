@@ -554,9 +554,31 @@ export const IntegrationCouldNotRunEvent = member(
   z.object({ command: z.string().max(500), reason: z.string().max(500) }).strict()
 );
 
+// R12.4: a passed final check says how many repair attempts it took (absent when the check passed first time).
 export const IntegrationFinishedEvent = member(
   "integration.finished",
-  z.object({ passed: z.boolean() }).strict()
+  z.object({ passed: z.boolean(), repaired: z.number().int().min(1).max(5).optional() }).strict()
+);
+
+// R12.4: one repair attempt of a failed final check starts. task_id is REPAIR-<attempt>; the repair
+// worker is its session, and its rows show in status like a task's.
+export const IntegrationRepairStartedEvent = member(
+  "integration.repair.started",
+  z.object({ task_id: z.string(), attempt: z.number().int().min(1), max: z.number().int().min(1).max(5) }).strict()
+);
+
+// R12.4: the attempt is over. passed: the check passes after the repair was merged. reason says why an
+// attempt did not pass (a guard rejection, a check that still fails, CHECK-UNFIXABLE).
+export const IntegrationRepairFinishedEvent = member(
+  "integration.repair.finished",
+  z
+    .object({
+      task_id: z.string(),
+      attempt: z.number().int().min(1),
+      passed: z.boolean(),
+      reason: z.string().max(500).optional(),
+    })
+    .strict()
 );
 
 export const IntegrationFailedEvent = member(
@@ -656,6 +678,8 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   IntegrationSkippedEvent,
   IntegrationCouldNotRunEvent,
   IntegrationFinishedEvent,
+  IntegrationRepairStartedEvent,
+  IntegrationRepairFinishedEvent,
   IntegrationFailedEvent,
   BisectStartedEvent,
   BisectCulpritEvent,
@@ -709,6 +733,8 @@ export const EVENT_TYPES = [
   "integration.skipped",
   "integration.could_not_run",
   "integration.finished",
+  "integration.repair.started",
+  "integration.repair.finished",
   "integration.failed",
   "bisect.started",
   "bisect.culprit",

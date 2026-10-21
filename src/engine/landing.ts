@@ -43,6 +43,69 @@ export interface LandingFacts {
   partialLandable?: boolean;
   /** The final check's outcome (R12.2), from verificationOf; absent when the run recorded none. */
   verification?: Verification;
+  /** R12.4: the repair attempts of the final check's last round, from repairOf; absent when none ran. */
+  repair?: RepairFacts;
+  /** R12.4: the attempt that passed the final check, when a repair did (from integration.finished). */
+  repaired?: number;
+}
+
+/** The repair attempts of a failed final check (R12.4): how many ran, whether one passed, and each one's outcome. */
+export interface RepairFacts {
+  attempts: number;
+  passed: boolean;
+  /** The reason the last attempt did not pass; absent when one passed. */
+  reason?: string;
+  /** One line per attempt: `attempt <n>: passed` or `attempt <n>: rejected: <reason>`. */
+  outcomes: string[];
+}
+
+/**
+ * The repair attempts of the run's last final check (R12.4), read from its events: from the last round's first
+ * attempt to the end of the log. Undefined when no repair ran.
+ */
+export function repairOf(events: readonly EventLike[]): RepairFacts | undefined {
+  let start = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const data = events[i].data as Record<string, unknown> | null;
+    if (events[i].type === "integration.repair.started" && data?.attempt === 1) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return undefined;
+  let attempts = 0;
+  let passed = false;
+  let reason: string | undefined;
+  const outcomes: string[] = [];
+  for (let i = start; i < events.length; i++) {
+    const { type, data: raw } = events[i];
+    const data = (raw !== null && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    if (type === "integration.repair.started" && typeof data.attempt === "number") {
+      attempts = Math.max(attempts, data.attempt);
+    }
+    if (type === "integration.repair.finished") {
+      const n = typeof data.attempt === "number" ? data.attempt : 0;
+      if (data.passed === true) {
+        passed = true;
+        reason = undefined;
+        outcomes.push(`attempt ${n}: passed`);
+      } else {
+        reason = typeof data.reason === "string" ? data.reason : "no reason recorded";
+        outcomes.push(`attempt ${n}: rejected: ${reason}`);
+      }
+    }
+  }
+  return { attempts, passed, ...(reason !== undefined ? { reason } : {}), outcomes };
+}
+
+/** The attempt that passed the final check, from the run's last integration.finished (R12.4); undefined when none was repaired. */
+export function repairedOf(events: readonly EventLike[]): number | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].type !== "integration.finished") continue;
+    const repaired = (events[i].data as { repaired?: unknown } | null)?.repaired;
+    return typeof repaired === "number" ? repaired : undefined;
+  }
+  return undefined;
 }
 
 /** The final check's outcome (R12.2): a verdict, and for a check that could not run, why. */
@@ -183,6 +246,8 @@ export function withLanding(summary: RunSummary, facts: LandingFacts): RunSummar
           ...(facts.verification.note !== undefined ? { verification_note: facts.verification.note } : {}),
         }
       : {}),
+    ...(facts.repair !== undefined ? { repair: facts.repair } : {}),
+    ...(facts.repaired !== undefined ? { repaired: facts.repaired } : {}),
     base_branch: facts.base_branch,
     files_changed: facts.files.slice(0, JSON_FILES_LIMIT),
     files_changed_total: facts.files.length,

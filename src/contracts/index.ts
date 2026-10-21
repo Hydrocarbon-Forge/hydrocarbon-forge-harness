@@ -466,6 +466,11 @@ export const Settings = z.object({
     on_scope_violation: z.enum(["revert", "fail"]),
     auto_merge: z.boolean(),
   }).strict(),
+  // R12.4: how many code repairs a failed final integration check gets (0 turns them off). Optional so a
+  // settings object written before R12.4 still parses; the loaded defaults (src/config) always set it.
+  integration: z.object({
+    repair_attempts: z.number().int().min(0).max(5),
+  }).strict().optional(),
   instructions: z.object({
     workers: z.enum(["none", "project"]),
   }).strict(),
@@ -477,6 +482,9 @@ export const Settings = z.object({
   }).strict(),
 }).strict();
 export type Settings = z.infer<typeof Settings>;
+
+/** The repair attempts a failed final check gets when the settings do not set `integration.repair_attempts` (R12.4). */
+export const REPAIR_ATTEMPTS_DEFAULT = 2;
 
 // ===== engine API =====
 const QuestionSchema = z.object({
@@ -546,6 +554,15 @@ export const RunSummary = z.object({
   // (one task); not_run (the check could not run, and verification_note says why).
   verification: z.enum(["passed", "failed", "skipped", "not_run"]).optional(),
   verification_note: z.string().optional(),
+  // R12.4: a passed final check that needed repairs: the attempt that passed it.
+  repaired: z.number().int().min(1).optional(),
+  // R12.4: the repair attempts of the final check's last round, one outcome line each, and whether one passed.
+  repair: z.object({
+    attempts: z.number().int().min(1),
+    passed: z.boolean(),
+    reason: z.string().optional(),
+    outcomes: z.array(z.string()),
+  }).strict().optional(),
 }).strict();
 export type RunSummary = z.infer<typeof RunSummary>;
 

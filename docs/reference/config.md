@@ -95,6 +95,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `defaults.worker_provider` | string | Provider whose profile routes worker tasks and the escalation chain. |
 | `git.on_scope_violation` | `revert` or `fail` | What happens when a worker changes files outside its allowed paths. Default `revert`. |
 | `git.auto_merge` | boolean | When `true` (default), a run that finishes with every task passed and integration verify passed is merged into the branch it started on, if that branch is still checked out. When `false`, a finished run stays on its run branch for `substrate merge`. The `--merge` and `--no-merge` flags and the request's `merge` field override it for one run (see cli.md). |
+| `integration.repair_attempts` | integer | How many automatic code repairs a failed final integration check gets, from 0 to 5. Default 2. `0` turns repair off, and the run fails on the first failed check as it did before R12.4. See "Automatic repair of a failed integration check" in cli.md. |
 | `instructions.workers` | `none` or `project` | When `project`, the planner request lists the project instruction files that exist (`CLAUDE.md`, `AGENTS.md`, `SUBSTRATE.md`). Default `none`. |
 | `pricing.asOf` | string | Date the price table was last refreshed. |
 | `pricing.sources` | array of strings | URLs that document the rates. |
@@ -261,6 +262,12 @@ Default: `on_scope_violation` `revert`, `auto_merge` `true`.
 - `on_scope_violation`: `revert` or `fail`. It is read when a worker changes files outside its allowed paths.
 - `auto_merge`: when `true` (the default), a run that finishes with every task passed and integration verify passed is merged into the branch it started on, while that branch is checked out. A caller keeps one run on its branch with `--no-merge` or `merge: false` in the request, or turns the setting off for the project with `false`; `--merge` or `merge: true` lands one run anyway.
 - `branch_prefix` was removed in R6.7 (see [Removed keys](#removed-keys)). Branch names are fixed in code (`substrate/tasks/...` and `substrate/runs/...`, DECISIONS).
+
+### `integration`
+
+Default: `repair_attempts` `2`.
+
+- `repair_attempts`: an integer from 0 to 5. The number of automatic code repairs a failed final `integration_verify` gets before the run is judged (R12.4). A check that could not run is not repaired, and neither is a one-task plan. `0` turns the repair off. The rules are in cli.md, under "Automatic repair of a failed integration check".
 
 ### `instructions`
 

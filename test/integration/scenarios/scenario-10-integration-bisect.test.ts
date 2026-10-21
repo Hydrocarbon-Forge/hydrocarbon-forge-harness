@@ -109,8 +109,10 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
       "tasks/T2.md": t2Spec,
     }, { "contracts/types.ts": sampleValidContractStub() });
 
+    // R12.4: repairs run before the culprit search. This test is about the bisect, so repairs are off here;
+    // the repair path has its own e2e test (test/e2e/integration-repair.test.ts).
     const engine = engineMod.createEngine({
-      settings: env.settings,
+      settings: { ...env.settings, integration: { repair_attempts: 0 } },
       adapter: fakeClaude.adapter,
     });
 
