@@ -1,6 +1,6 @@
 import type { EngineEvent, Question, RunId, RunSummary } from "../contracts/index.js";
 import { MERGE_TURNED_OFF_REASON, TEXT_FILES_LIMIT } from "../engine/landing.js";
-import { failedRunAdvice } from "../engine/failed-run.js";
+import { failedRunNext } from "../engine/failed-run.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
 const { Heartbeat, RunProgress, followLines, followStderrLine, formatCost, heartbeatMsFromEnv, progressLine } =
@@ -250,13 +250,15 @@ class TextFormatter implements OutputFormatter {
       this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
       if (!needsInput) {
         if (summary.status === "failed") {
-          // Known issue 41: a failed run is not resumable. Its Next line names what it can do instead:
-          // the partial landing of a passed task, a new run for a planning failure, or a narrower request.
-          const partialLandable = summary.next?.some((c) => c.endsWith(" --partial")) === true;
+          // R10.4: a failed run is resumed: its Next lines lead with the resume, then the partial landing of a
+          // passed task (when the plan has integration verify), then a new request. Continuation lines align.
+          const partialLandable = summary.next?.some((c) => c.includes(" --partial")) === true;
           const planningFailed = Object.keys(summary.tasks ?? {}).length === 0;
           const internalError = summary.failure_class === "internal_error";
-          const advice = failedRunAdvice(summary.run_id, { partialLandable, planningFailed, internalError });
-          this.out.write(`Next:       ${advice.next}\n`);
+          const verifyOnly = summary.failure_class === "integration_failed" && Object.values(summary.tasks ?? {}).every((t) => t.state === "PASSED");
+          const lines = failedRunNext(summary.run_id, { partialLandable, planningFailed, verifyOnly, internalError });
+          this.out.write(`Next:       ${lines[0]}\n`);
+          for (const line of lines.slice(1)) this.out.write(`            ${line}\n`);
         } else {
           // Without a branch the run failed in planning, and resuming plans again (R7.9).
           const replan = summary.branch === undefined ? "  (re-runs planning; costs again)" : "";

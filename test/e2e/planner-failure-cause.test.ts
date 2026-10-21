@@ -60,8 +60,8 @@ describe("R7.9: planner failures name their cause", () => {
         // The run never created its branch, so the summary names none.
         expect(res.stdout).toContain("Branch:     (none, planning failed)");
         expect(res.stdout).not.toMatch(/Branch:\s+substrate\/runs\//);
-        // Known issue 41: a failed planning run is not resumed; the Next line says to run again.
-        expect(res.stdout).toContain("Next:       Run substrate run again (planning costs again)");
+        // R10.4: a failed planning run is resumed, and resume plans again (the cost is named).
+        expect(res.stdout).toMatch(/Next:       substrate resume r_\w+  \(plans again; planning costs again\)/);
       } finally {
         res.cleanup();
       }

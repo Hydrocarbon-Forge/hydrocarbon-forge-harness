@@ -98,6 +98,23 @@ export const RunResumedEvent = member(
     .strict()
 );
 
+/**
+ * R10.4 (known issue 41, reversed): a run that did not finish is reopened by `substrate resume`. `planning`
+ * runs plan again; `setup` runs setup again; `tasks` retries the failed tasks (`failed_tasks`, a new
+ * generation), returns the skipped dependents to the queue (`skipped_tasks`), and keeps the merged ones (`kept_tasks`).
+ */
+export const RunReopenedEvent = member(
+  "run.reopened",
+  z
+    .object({
+      reason: z.enum(["planning", "setup", "tasks"]),
+      failed_tasks: z.array(z.string()).optional(),
+      skipped_tasks: z.array(z.string()).optional(),
+      kept_tasks: z.array(z.string()).optional(),
+    })
+    .strict()
+);
+
 export const RunFinishedEvent = member(
   "run.finished",
   z
@@ -525,6 +542,7 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   RunRoutedEvent,
   RunPausedEvent,
   RunResumedEvent,
+  RunReopenedEvent,
   RunFinishedEvent,
   RunBudgetWarningEvent,
   RunBudgetExceededEvent,
@@ -573,6 +591,7 @@ export const EVENT_TYPES = [
   "run.routed",
   "run.paused",
   "run.resumed",
+  "run.reopened",
   "run.finished",
   "run.budget.warning",
   "run.budget.exceeded",

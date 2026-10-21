@@ -181,8 +181,11 @@ describe("R7.4: where the work lands", () => {
       expect(summary.failure_class, diag(res)).toBe("verify_failed");
       expect(typeof summary.message).toBe("string");
       expect(summary.drafts_dir).toBe(`.substrate/runs/${summary.run_id}`);
-      // Known issue 41: a failed run names no resume command; with no passed task it names none at all.
-      expect(summary.next).toEqual([]);
+      // R10.4 (known issue 41, reversed): a failed run is resumed; its next lists the resume, then a new request.
+      expect(summary.next).toEqual([
+        `substrate resume ${summary.run_id}  (retries the failed tasks; passed tasks are kept)`,
+        "Start a new run with a narrower request",
+      ]);
     } finally {
       rmSync(s.root, { recursive: true, force: true });
     }

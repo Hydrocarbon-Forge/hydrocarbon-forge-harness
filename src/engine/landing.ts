@@ -1,4 +1,5 @@
 import type { RunSummary } from "../contracts/index.js";
+import { failedRunNext } from "./failed-run.js";
 
 // Where a run's work landed, reported in the summary of every format (R7.4). The git facts
 // come from src/git/landing.ts; this file only shapes them.
@@ -104,9 +105,16 @@ export function withLanding(summary: RunSummary, facts: LandingFacts): RunSummar
     next.push(`substrate merge ${runId}`);
   }
   if (facts.runFailed && !facts.needsInput) {
-    // A failed run is not resumable (known issue 41): its only next command is the partial landing.
+    // R10.4: a failed run is resumed; its next commands are the resume, the partial landing and a new request.
     if (summary.status === "failed") {
-      if (facts.partialLandable === true) next.push(`substrate merge ${runId} --partial`);
+      next.push(
+        ...failedRunNext(runId, {
+          partialLandable: facts.partialLandable === true,
+          planningFailed: Object.keys(summary.tasks ?? {}).length === 0,
+          verifyOnly: summary.failure_class === "integration_failed" && Object.values(summary.tasks ?? {}).every((t) => t.state === "PASSED"),
+          internalError: summary.failure_class === "internal_error",
+        }),
+      );
     } else {
       next.push(facts.resumeCommand ?? `substrate resume ${runId}`);
     }

@@ -214,13 +214,13 @@ async function nextOf(cwd: string, record: RunRecord, rows: TaskRow[]): Promise<
     case "finished":
       return mergedOf(cwd, record) ? [] : [`substrate merge ${id}`];
     case "failed": {
-      const { failedRunAdvice } = await import("../../engine/failed-run.js");
-      const advice = failedRunAdvice(id, {
+      const { failedRunNext } = await import("../../engine/failed-run.js");
+      return failedRunNext(id, {
         partialLandable: record.events.some((e) => e.type === "task.merged"),
         planningFailed: rows.length === 0,
+        verifyOnly: rows.length > 0 && rows.every((r) => isPassedState(r.state)) && record.events.some((e) => e.type === "integration.failed"),
         internalError: record.events.some((e) => (e.data as { failure_class?: unknown } | undefined)?.failure_class === "internal_error"),
       });
-      return [advice.next];
     }
     default:
       return [];

@@ -9,6 +9,7 @@ export const STREAM_TYPE: Record<EventType, string> = {
   "run.routed": "run.routed",
   "run.paused": "run.paused",
   "run.resumed": "run.resumed",
+  "run.reopened": "run.reopened",
   "run.finished": "run.finished",
   "run.budget.warning": "run.budget.warning",
   "run.budget.exceeded": "run.budget.exceeded",

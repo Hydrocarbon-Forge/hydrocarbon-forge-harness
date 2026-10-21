@@ -80,3 +80,16 @@ The rule now:
 
 The R10.1 precedence (the flag or the request field, then the project setting, then the default) applies to a new run. A resume now reads the landing its run recorded on `run.created` (`merge`) before the setting, so a `--no-merge` run stays on its branch when resumed without flags. `--merge` or `--no-merge` on the resume still wins. The worker count is recorded the same way (`concurrency`), and `--concurrency` on a resume wins. Runs logged before R10.3 have neither field and use the setting, as before. Code: `src/cli/commands/resume.ts`, `src/engine/engine.ts`.
 
+
+## Note 2026-10-21 (R10.4): a run that did not finish is resumable; reverses the R8.3 rule (known issue 41)
+
+The owner reversed the R8.3 rule that a failed run is not resumable (`failure_class: not_resumable`). The owner's reason: any stopped run should be continuable, "make it be able to be resumed if stopped for whatever reason, so I guess it should write completed jobs somewhere", and "allow more control".
+
+The rule now:
+- Any run that did not end `finished` is resumable: paused, interrupted, budget-stopped, stopped uncleanly, internal error, and failed. A finished run still says it is finished, and prints the merge hint when it is not merged.
+- Passed work is already durable: it is on the run branch and in the event log. A resume keeps it and does not plan again when a plan was accepted.
+- Failed tasks are retried instead of dropped for good: they return to the queue as a new generation with a fresh attempt counter and a fresh replan ladder, on a worktree and branch made from the run branch's current HEAD. Their skipped dependents return to the queue. The run spend counts against the run budget.
+- The user-visible guarantee stays: failed work never lands in the user's branch. A run lands only when it finishes with every task passed and integration verify passed.
+- The reopening is recorded as one journal event, `run.reopened` (reason `planning`, `setup` or `tasks`, with `failed_tasks`, `skipped_tasks`, `kept_tasks`). The reducer is the only place that changes the states, so a replay of the log gives the same state.
+
+Code: `src/engine/engine.ts` (`endedFailed`, `reopenData`), `src/engine/reducer.ts` (`run.reopened`, `ladder_base`), `src/engine/ladder.ts`, `src/engine/actions/integrate.ts`, `src/engine/failed-run.ts`, `src/cli/commands/resume.ts`.

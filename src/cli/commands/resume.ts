@@ -3,8 +3,6 @@ import path from "node:path";
 
 import type { Effort, Engine, EngineEvent, PermissionMode, Question, RunId, RunOptions } from "../../contracts/index.js";
 import { createEngine } from "../../engine/engine.js";
-import { reduce, type EngineState } from "../../engine/reducer.js";
-import { failedRunAdvice, planHasIntegrationVerify } from "../../engine/failed-run.js";
 import { loadSettings, sandboxProblem } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
 import {
@@ -75,18 +73,11 @@ const { buildSettingsOverrides, concurrencyFlagProblem, landRun, mergeChoiceOf, 
 const { withRequestedRoles } = await import(`../../config/index.js`);
 
 /**
- * How a run ended, from its event log (known issue 41): "finished" when its last run.finished has exit
- * 0, "failed" when it has any other exit. undefined for a run that has not ended (paused, interrupted,
- * or never finished), which resume continues. For a failed run it also says what the run can do
- * instead: whether a passed task can land with `merge --partial`, and whether it never planned.
+ * R10.4 (known issue 41, reversed): a run is finished when its last run.finished has exit 0 and no
+ * run.reopened follows it. Every other run is resumable: a failed run is reopened by the engine, and a
+ * paused, interrupted or unfinished run continues. Returns undefined for a run with no log.
  */
-interface RunEnding {
-  outcome: "finished" | "failed";
-  partialLandable: boolean;
-  planningFailed: boolean;
-}
-
-function runEndingOf(eventsPath: string, runId: string, runDir: string): RunEnding | undefined {
+function finishedRun(eventsPath: string): boolean | undefined {
   if (!fs.existsSync(eventsPath)) return undefined;
   const events: EngineEvent[] = [];
   try {
@@ -101,23 +92,24 @@ function runEndingOf(eventsPath: string, runId: string, runDir: string): RunEndi
   } catch {
     return undefined;
   }
-  const finished = [...events].reverse().find((e) => e.type === "run.finished");
-  if (finished === undefined) {
-    return events.some((e) => (e.data as { status?: unknown } | undefined)?.status === "finished")
-      ? { outcome: "finished", partialLandable: false, planningFailed: false }
-      : undefined;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].type === "run.reopened") return false;
+    if (events[i].type === "run.finished") {
+      const data = (events[i].data ?? {}) as { exit_code?: unknown; status?: unknown };
+      return data.exit_code === 0 || data.status === "finished";
+    }
   }
-  const data = (finished.data ?? {}) as { exit_code?: unknown; status?: unknown };
-  if (data.exit_code === 0 || data.status === "finished") {
-    return { outcome: "finished", partialLandable: false, planningFailed: false };
+  return events.some((e) => (e.data as { status?: unknown } | undefined)?.status === "finished");
+}
+
+/** True when the run's result.json says whether its work was merged to the user's branch equals `merged`. */
+function resultMergedIs(runDir: string, merged: boolean): boolean {
+  try {
+    const result = JSON.parse(fs.readFileSync(path.join(runDir, "result.json"), "utf8")) as { merged?: unknown };
+    return result.merged === merged;
+  } catch {
+    return false;
   }
-  let state: EngineState = { run_id: runId as RunId, state: "CREATED", tasks: {}, usage: { total_usd: 0, by_role: {} }, checkpoints: [] };
-  for (const evt of events) state = reduce(state, evt);
-  return {
-    outcome: "failed",
-    partialLandable: events.some((e) => e.type === "task.merged") && planHasIntegrationVerify(runDir),
-    planningFailed: Object.keys(state.tasks).length === 0,
-  };
 }
 
 /** A role spec as --plan and --work take it, as a role entry: provider[:model[:effort]] becomes backend, model, effort. */
@@ -132,7 +124,7 @@ function roleFromSpec(spec: string): Record<string, string> {
 
 export const resumeCommand: CliCommand = {
   name: "resume",
-  description: "Resume a paused or interrupted Substrate run",
+  description: "Resume a run that did not finish (paused, interrupted, stopped or failed)",
   async execute(ctx: CommandContext): Promise<number> {
     const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
     if (concurrencyProblem !== undefined) {
@@ -163,7 +155,9 @@ export const resumeCommand: CliCommand = {
     let forked: SessionRecord | undefined;
 
     if (target && fs.existsSync(path.join(ctx.cwd, ".substrate", "runs", target))) {
-      resolved = { runId: target as RunId, sessionId: undefined };
+      // R10.4: a run named by its id reports the session that started it, so the summary's Session ID is never empty.
+      const owner = (await sessionStore.list()).find((s) => s.runs.includes(target));
+      resolved = { runId: target as RunId, sessionId: owner?.sessionId };
     } else {
       const session = await sessionStore.get(target);
       if (session) {
@@ -196,28 +190,13 @@ export const resumeCommand: CliCommand = {
     const runDir = path.join(runsDir, resolved.runId);
     const eventsPath = path.join(runDir, "events.jsonl");
 
-    const ending = runEndingOf(eventsPath, resolved.runId, runDir);
-    if (ending?.outcome === "finished") {
-      ctx.stdout.write(
-        `Run ${resolved.runId} is already finished. Nothing to resume.\n`,
-      );
-      return 0;
-    }
-    if (ending?.outcome === "failed") {
-      // Known issue 41: the engine drops a failed run's tasks by design, so it is not resumed.
-      const advice = failedRunAdvice(resolved.runId, {
-        partialLandable: ending.partialLandable,
-        planningFailed: ending.planningFailed,
-      });
-      const message = `Run ${resolved.runId} failed and cannot be resumed. ${advice.whatToDo}`;
-      if (ctx.flags.outputFormat === "json") {
-        ctx.stdout.write(JSON.stringify({ error: message, failure_class: "not_resumable", run_id: resolved.runId }) + "\n");
-      } else if (ctx.flags.outputFormat === "stream-json") {
-        ctx.stdout.write(JSON.stringify({ type: "result", subtype: "error_failed", is_error: true, error: message, failure_class: "not_resumable" }) + "\n");
-      } else {
-        ctx.stdout.write(message + "\n");
+    // R10.4: a finished run is not resumed; a run that is not merged says how to land it.
+    if (finishedRun(eventsPath) === true) {
+      ctx.stdout.write(`Run ${resolved.runId} is already finished. Nothing to resume.\n`);
+      if (resultMergedIs(runDir, false)) {
+        ctx.stdout.write(`not merged yet: substrate merge ${resolved.runId}\n`);
       }
-      return 1;
+      return 0;
     }
 
     // R10.2: the resume appends to the run's progress log, under a `# resumed` line.

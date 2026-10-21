@@ -107,7 +107,9 @@ describe("R8.2 graceful: a refused landing is a finished run", () => {
     try {
       const runId = res.runDir?.split("/").at(-1) as string;
       expect(res.exitCode).toBe(1);
-      expect(res.stdout).toContain(`Next:       substrate merge ${runId} --partial  (lands the passed tasks after integration verify passes)`);
+      // R10.4: the resume leads the Next lines; the partial landing is the second one.
+      expect(res.stdout).toContain(`Next:       substrate resume ${runId}  (retries the failed tasks; passed tasks are kept)`);
+      expect(res.stdout).toContain(`            substrate merge ${runId} --partial  (lands the passed tasks after integration verify passes)`);
       const plain = spawnSync(process.execPath, [substrateMjs, "merge", runId], { cwd: res.repoDir, encoding: "utf8" });
       expect(plain.status).toBe(1);
 

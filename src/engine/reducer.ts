@@ -46,6 +46,11 @@ export interface TaskRuntimeState {
   failure_class?: FailureClass;
   /** The message or detail of the last task.failed: the reason a caller reads (R8.1). */
   failure_message?: string;
+  /**
+   * R10.4: the generation a reopened run started this task at. The replan ladder counts its L1 replans
+   * from there, so a reopened task gets a fresh ladder. Unset means the ladder counts from generation 1.
+   */
+  ladder_base?: number;
   depends_on?: TaskId[];
   write?: string[];
   create?: string[];
@@ -400,7 +405,9 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         nextState = "REPLANNING";
       } else {
         const maxReplans = data.max_replans ?? 2;
-        nextState = (current.generation ?? 1) <= maxReplans ? "REPLANNING" : "BLOCKED";
+        // R10.4: the ladder counts from the generation a reopened run started the task at (ladder_base).
+        const ladderGeneration = (current.generation ?? 1) - (current.ladder_base ?? 1) + 1;
+        nextState = ladderGeneration <= maxReplans ? "REPLANNING" : "BLOCKED";
       }
       const updated: TaskRuntimeState = {
         ...current,
@@ -509,6 +516,37 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         pause_reason: undefined,
         prior_state: undefined,
       };
+    }
+
+    case "run.reopened": {
+      // R10.4: a run that did not finish is reopened by resume. The reducer is the only place that
+      // changes the states, so a replay of the log gives the same state as the live run did.
+      const reason = data.reason;
+      const cleared = { prior_state: undefined, pause_reason: undefined };
+      if (reason === "planning") {
+        // No plan was accepted: the run goes back to CREATED, and routing plans again.
+        return { ...state, ...cleared, state: "CREATED", tasks: {} };
+      }
+      if (reason === "setup") {
+        return { ...state, ...cleared, state: "SETUP" };
+      }
+      const failed = new Set<string>(Array.isArray(data.failed_tasks) ? data.failed_tasks : []);
+      const skipped = new Set<string>(Array.isArray(data.skipped_tasks) ? data.skipped_tasks : []);
+      const nextTasks = Object.fromEntries(
+        Object.entries(state.tasks).map(([id, t]) => {
+          if (t.state === "MERGED") return [id, t];
+          if (failed.has(id)) {
+            // A failed task retries as a new generation: its old worktree and branch were swept.
+            const generation = (t.generation ?? 1) + 1;
+            return [id, { ...t, state: "PENDING", generation, attempt: 1, ladder_base: generation, failure_class: undefined, failure_message: undefined }];
+          }
+          if (skipped.has(id)) {
+            return [id, { ...t, state: "PENDING", attempt: 1, failure_class: undefined, failure_message: undefined }];
+          }
+          return [id, { ...t, state: "PENDING", attempt: 1 }];
+        })
+      ) as typeof state.tasks;
+      return { ...state, ...cleared, state: "EXECUTING", tasks: nextTasks };
     }
 
     case "usage.recorded": {

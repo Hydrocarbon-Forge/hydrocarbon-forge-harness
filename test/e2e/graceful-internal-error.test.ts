@@ -55,7 +55,9 @@ describe("R9.1: an unexpected engine error ends the run cleanly", () => {
       // The normal failed-run summary, with the reason and the next step.
       expect(res.stdout, diagnostics(res)).toContain("Status:     failed");
       expect(res.stdout, diagnostics(res)).toContain("Reason:     internal error: missing template variable: unknown_variable");
-      expect(res.stdout, diagnostics(res)).toMatch(/Next: +This is a Substrate bug; the run directory keeps the event log: \.substrate\/runs\/r_\w+\/\n/);
+      // R10.4: the resume leads the Next lines; the Substrate-bug line comes last, under them.
+      expect(res.stdout, diagnostics(res)).toMatch(/Next: +substrate resume r_\w+ {2}\(retries the failed tasks; passed tasks are kept\)\n/);
+      expect(res.stdout, diagnostics(res)).toMatch(/\n {12}This is a Substrate bug; the run directory keeps the event log: \.substrate\/runs\/r_\w+\/\n/);
       expect(res.stdout, diagnostics(res)).toContain("Exit Code:  1");
       // The stack trace is in the run directory.
       expect(res.runDir, diagnostics(res)).not.toBeNull();

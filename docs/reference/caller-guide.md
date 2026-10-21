@@ -125,10 +125,19 @@ The output has `rows`, one per model, and `totals`. Each row has `group` (the mo
 ## Exit codes
 
 - `0`: success.
-- `1`: run failed. Some tasks may have merged: the run branch keeps them, and a run that failed never lands. Dependents of a failed task are skipped and listed as `skipped`. Read `Reason` and `failed_tasks`; the failed work is under `.substrate/runs/<run>/packets/`. If `next` lists `substrate merge <run_id> --partial`, the run branch holds passed tasks that you can land on purpose: that command runs the plan's integration verify on the run branch first and lands only if it passes. A failed run cannot be resumed: `substrate resume <run_id>` exits `1` with `failure_class: not_resumable` and says what to do instead. Start a new run with a narrower request, or land the passed tasks as above. An unexpected internal error also exits `1`, with `failure_class: internal_error` and its message; the `next` line says it is a Substrate bug and names the run directory, which keeps the event log and `error.txt`.
+- `1`: run failed. Some tasks may have merged: the run branch keeps them, and a run that failed never lands. Dependents of a failed task are skipped and listed as `skipped`. Read `Reason` and `failed_tasks`; the failed work is under `.substrate/runs/<run>/packets/`. If `next` lists `substrate merge <run_id> --partial`, the run branch holds passed tasks that you can land on purpose: that command runs the plan's integration verify on the run branch first and lands only if it passes. A failed run is resumed, not refused (R10.4): `substrate resume <run_id>` retries the failed tasks, keeps the passed ones and finishes the run; see "If a run stops or fails" below. An unexpected internal error also exits `1`, with `failure_class: internal_error` and its message; the `next` line says it is a Substrate bug and names the run directory, which keeps the event log and `error.txt`.
 - `1` with `status` `finished`: the run passed, but the landing was refused. `merged` is `false` and `not_merged_reason` says why. Read `not_merged_reason`: uncommitted tracked changes (commit or stash them), a switched branch (check out the branch the run started on), a conflict (resolve it), or a `--no-merge` run (nothing is wrong). Then run the command in `next` (`substrate merge <run_id>`). The work stays on the run branch until then.
 - `2`: usage or config error.
 - `3`: needs human: the planner left questions (`needs_input`), or a run paused for approval at Substrate's permission gate, a permission denial or a rate limit. Exit `3` for approval depends on the gate, not on a harness denial. A task the engine cannot finish without an answer that does not exist is failed, not paused: that is exit `1`.
 - `4`: budget exhausted. The run stopped between or during tasks. `message` says what was spent against the run budget and what each task was doing (passed, interrupted, not started). Passed work stays on the run branch. `next` names `substrate resume <run_id> --max-budget-usd <n>`, a budget above what was spent; run it to continue.
 - `130`: interrupted (SIGINT).
 - `143`: terminated (SIGTERM).
+
+## If a run stops or fails
+
+- **Stopped** (paused, interrupted, stopped with `substrate stop`, or budget-stopped): run `substrate resume <run_id>`. Tasks that passed are not run again. A budget stop needs a higher `--max-budget-usd` on the resume, or the same budget will stop it again.
+- **Failed** (exit `1`): run `substrate resume <run_id>`. The failed tasks retry as a new generation, the passed tasks stay, and the skipped dependents run. The progress says what is retried and what is kept.
+- **Failed at the final integration verify with every task merged:** the resume runs only the verify again. If it fails again, fix the run branch (`git switch substrate/runs/<run_id>` in a worktree, commit, then resume), and resume again.
+- **Failed in planning:** `substrate resume <run_id>` plans again, which costs again.
+- **Finished but not merged:** `substrate merge <run_id>` lands it. A resume only says so.
+- A resume that lands the work exits `0`; a run that fails again exits `1` and prints the same `Next:` lines.

@@ -25,6 +25,7 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "run.routed": { mode: "solo" },
   "run.paused": { reason: "user_cancel" },
   "run.resumed": {},
+  "run.reopened": { reason: "tasks", failed_tasks: ["T2"], skipped_tasks: ["T3"], kept_tasks: ["T1"] },
   "run.finished": { exit_code: 0 },
   "run.budget.warning": { cost_usd: 0.8, max_usd: 1 },
   "run.budget.exceeded": {},

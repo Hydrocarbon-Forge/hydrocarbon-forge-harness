@@ -37,6 +37,19 @@ function mergeOrder(ctx: EffectContext, state: EngineState): TaskId[] {
   return order;
 }
 
+/** True when the task's branch of that generation exists (a swept branch cannot be merged again). */
+function taskBranchExists(ctx: EffectContext, taskId: TaskId, generation: number): boolean {
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", getTaskBranch(ctx.runId, taskId, generation)], {
+      cwd: ctx.repoRoot,
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A prefix of the merge order can be blamed only when no task outside it depends on a task inside
  * it. Otherwise a failure may exist only because the absent dependent is missing (a test-first
@@ -82,6 +95,9 @@ async function isolateCulprit(
   verifyCommands: Manifest["integration_verify"]
 ): Promise<TaskId | undefined> {
   const order = mergeOrder(ctx, state);
+  // R10.4: a run that failed and was reopened has had its task branches swept, so a prefix cannot be
+  // merged again. Without them no task can be blamed; the run fails with the verify output instead.
+  if (!order.every((id) => taskBranchExists(ctx, id, state.tasks[id]?.generation ?? 1))) return undefined;
   const baseSha = resolveBaseRef(ctx.repoRoot, manifest?.base_ref).sha;
   // The last blameable prefix known to pass. The empty prefix (the base) counts only when the base
   // check passed. A base that fails is expected when the run adds code, so the search cannot blame a

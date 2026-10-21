@@ -143,6 +143,44 @@ export function buildSummary(runId: RunId, state: EngineState, repoRoot: string)
   };
 }
 
+/**
+ * R10.4: the run ended failed when its last run.finished has a non-zero exit and no run.reopened follows
+ * it. A reopen after the failure means the run is open again.
+ */
+export function endedFailed(events: EngineEvent[]): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const type = events[i].type;
+    if (type === "run.reopened") return false;
+    if (type === "run.finished") {
+      return ((events[i].data as { exit_code?: unknown } | undefined)?.exit_code ?? 1) !== 0;
+    }
+  }
+  return false;
+}
+
+/**
+ * R10.4: what a reopen does, from the log and the replayed state. No accepted plan means planning again;
+ * a plan with no setup.done means setup again; otherwise the failed and skipped tasks go back to the queue.
+ */
+export function reopenData(
+  events: EngineEvent[],
+  state: EngineState,
+): { reason: "planning" | "setup" | "tasks"; failed_tasks?: string[]; skipped_tasks?: string[]; kept_tasks?: string[] } {
+  if (!events.some((e) => e.type === "plan.produced")) return { reason: "planning" };
+  if (!events.some((e) => e.type === "setup.done")) return { reason: "setup" };
+  const byState = (...states: string[]): string[] =>
+    Object.values(state.tasks)
+      .filter((t) => states.includes(t.state))
+      .map((t) => t.id)
+      .sort((a, b) => a.localeCompare(b));
+  return {
+    reason: "tasks",
+    failed_tasks: byState("BLOCKED", "FAILED", "REPLANNING", "HEALING", "VERIFYING", "RUNNING", "SCOPE_CHECK"),
+    skipped_tasks: byState("ABANDONED"),
+    kept_tasks: byState("MERGED"),
+  };
+}
+
 export class EngineImpl implements Engine {
   private readonly options: EngineOptions;
 
@@ -345,6 +383,23 @@ export class EngineImpl implements Engine {
           lastSeq = resumedEvt.seq;
           notifyObserver(ctx, resumedEvt);
           state = reduce(state, resumedEvt);
+        }
+
+        // R10.4 (known issue 41, reversed): a run that ended failed is reopened, not refused. Planning
+        // is not repeated when a plan was accepted; the failed tasks retry as a new generation.
+        if (endedFailed(existingEvents)) {
+          const reopenedEvt: EngineEvent = {
+            v: 1,
+            seq: lastSeq + 1,
+            ts: new Date().toISOString(),
+            run_id: runId,
+            type: "run.reopened",
+            data: reopenData(existingEvents, state),
+          };
+          await store.append(reopenedEvt);
+          lastSeq = reopenedEvt.seq;
+          notifyObserver(ctx, reopenedEvt);
+          state = reduce(state, reopenedEvt);
         }
 
         // A task killed between task.session.started and task.session.ended is put

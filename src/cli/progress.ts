@@ -139,6 +139,24 @@ export class RunProgress {
       case "run.resumed":
         this.setPhase("resuming", at);
         return [`run ${event.run_id} resumed`];
+      case "run.reopened": {
+        // R10.4: a run that did not finish says what the resume runs again, and what it keeps.
+        this.setPhase("resuming", at);
+        if (data.reason === "planning") return ["no plan was accepted; planning again (planning costs again)"];
+        if (data.reason === "setup") return ["setup did not finish; running setup again"];
+        const failed: string[] = Array.isArray(data.failed_tasks) ? data.failed_tasks : [];
+        const kept: string[] = Array.isArray(data.kept_tasks) ? data.kept_tasks : [];
+        const skipped: string[] = Array.isArray(data.skipped_tasks) ? data.skipped_tasks : [];
+        const lines: string[] = [];
+        if (failed.length === 0) {
+          lines.push(`resuming failed run ${event.run_id}: every task merged; integration verify runs again`);
+        } else {
+          const keeping = kept.length > 0 ? `; keeping ${kept.join(", ")} (passed)` : "";
+          lines.push(`resuming failed run ${event.run_id}: retrying ${failed.join(", ")}${keeping}`);
+        }
+        if (skipped.length > 0) lines.push(`skipped dependents return to the queue: ${skipped.join(", ")}`);
+        return lines;
+      }
       case "run.routed": {
         const why = typeof data.rationale === "string" && data.rationale !== "" ? ` (${data.rationale})` : "";
         return [`routed to ${data.mode === "solo" ? "solo" : "plan"}${why}`];

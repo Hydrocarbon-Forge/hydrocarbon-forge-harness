@@ -3,9 +3,8 @@ import path from "node:path";
 
 import { safeParseManifest } from "../engine/actions/shared.js";
 
-// Known issue 41: a run that ended failed is not resumable, because the engine drops failed tasks
-// by design. The summary's Next line, the json `next` and the refusal of `substrate resume` all say
-// what the caller can do instead, and they say it the same way.
+// R10.4 (known issue 41, reversed): a run that ended failed is resumable. `substrate resume` reopens it
+// (failed tasks retry, passed tasks stay). The summary's Next lines and the json `next` say the same.
 
 /** True when the run's plan has integration_verify commands (read from its manifest). */
 export function planHasIntegrationVerify(runDir: string): boolean {
@@ -18,42 +17,31 @@ export function planHasIntegrationVerify(runDir: string): boolean {
   }
 }
 
-export interface FailedRunAdvice {
-  /** The text after `Next:` in the summary. */
-  next: string;
-  /** What `substrate resume` says after `Run <id> failed and cannot be resumed.` */
-  whatToDo: string;
-}
-
 /**
- * What a failed run can do instead of resuming. `partialLandable` is a run whose branch holds a
- * passed task and whose plan has integration verify: `merge --partial` lands that work. A run
- * that never planned (no tasks) must run again, and a run with tasks but nothing to land needs a
- * new request.
+ * The `Next:` lines of a failed run, in order: resume first, then the partial landing when a task
+ * passed and the plan has integration verify, then a new request. A run that never planned is planned
+ * again by resume (and costs again). An internal error adds the Substrate-bug line last.
  */
-export function failedRunAdvice(
+export function failedRunNext(
   runId: string,
-  facts: { partialLandable: boolean; planningFailed: boolean; internalError?: boolean }
-): FailedRunAdvice {
+  facts: { partialLandable: boolean; planningFailed: boolean; verifyOnly?: boolean; internalError?: boolean },
+): string[] {
+  // verifyOnly: every task merged and the final integration verify failed, so resume only runs that verify
+  // again. The person fixes the run branch first (git switch substrate/runs/<id>, commit, then resume).
+  const lines = [
+    facts.planningFailed
+      ? `substrate resume ${runId}  (plans again; planning costs again)`
+      : facts.verifyOnly
+        ? `substrate resume ${runId}  (runs integration verify again; fix the run branch first, then resume)`
+        : `substrate resume ${runId}  (retries the failed tasks; passed tasks are kept)`,
+  ];
+  if (facts.partialLandable) {
+    lines.push(`substrate merge ${runId} --partial  (lands the passed tasks after integration verify passes)`);
+  }
+  lines.push("Start a new run with a narrower request");
   // R9.1 (known issue 45): an unexpected exception is a Substrate bug, and the run directory keeps the evidence.
   if (facts.internalError) {
-    const bug = `This is a Substrate bug; the run directory keeps the event log: .substrate/runs/${runId}/`;
-    return { next: bug, whatToDo: bug };
+    lines.push(`This is a Substrate bug; the run directory keeps the event log: .substrate/runs/${runId}/`);
   }
-  if (facts.partialLandable) {
-    return {
-      next: `substrate merge ${runId} --partial  (lands the passed tasks after integration verify passes)`,
-      whatToDo: `Land the passed tasks with: substrate merge ${runId} --partial`,
-    };
-  }
-  if (facts.planningFailed) {
-    return {
-      next: "Run substrate run again (planning costs again)",
-      whatToDo: "Run substrate run again (planning costs again).",
-    };
-  }
-  return {
-    next: "Start a new run with a narrower request",
-    whatToDo: "Start a new run with a narrower request.",
-  };
+  return lines;
 }

@@ -7,9 +7,10 @@ import { tmpdir } from "node:os";
 import { runSubstrate, type RunSubstrateResult } from "./helpers/run-substrate.js";
 import { CONTRACT_STUB, contractFiles, manifestFor, planCall, taskSpec } from "./helpers/plan-scenario.js";
 
-// Known issue 41: a run that ended failed is not resumable, because the engine drops failed tasks by
-// design. `substrate resume` refuses it (exit 1, failure_class not_resumable) and the summary names what
-// to do instead. A finished run still says it is finished (exit 0).
+// R10.4 (known issue 41, reversed): a run that ended failed is resumed, not refused. `substrate resume`
+// reopens it: the failed tasks retry as a new generation, the passed tasks are kept, and the skipped
+// dependents return to the queue. A finished run still says it is finished (exit 0).
+// These tests replace the R8.3 assertions that pinned `failure_class: not_resumable`.
 
 const RUN_ARGS = ["run", "--permission-mode", "bypassPermissions"];
 const SEED = { "src/a.txt": "seed a\n", "src/b.txt": "seed b\n", "contracts/types.ts": CONTRACT_STUB };
@@ -37,8 +38,11 @@ function resume(res: RunSubstrateResult, args: string[]): { status: number | nul
   }
 }
 
-function eventCount(res: RunSubstrateResult): number {
-  return readFileSync(join(res.runDir as string, "events.jsonl"), "utf8").split("\n").filter((l) => l.trim()).length;
+function eventsOf(res: RunSubstrateResult): Array<{ type: string; data: any }> {
+  return readFileSync(join(res.runDir as string, "events.jsonl"), "utf8")
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l));
 }
 
 /** T1 passes and T2 never does: the run fails with T1 on its branch and an integration verify in the plan. */
@@ -58,43 +62,43 @@ function partialFailure(args: string[]): RunSubstrateResult {
   });
 }
 
-describe("known issue 41: a failed run is not resumable, and says what to do instead", () => {
-  it("resume refuses a failed run with exit 1 and names the partial landing; the log is not touched", () => {
+describe("R10.4: a failed run is resumed; the failed tasks retry and the passed ones are kept", () => {
+  it("resume reopens a failed run: T1 is kept, T2 is retried as a new generation, and the progress names both", () => {
     const res = partialFailure(["Partial failure"]);
     try {
       expect(res.exitCode).toBe(1);
-      expect(res.stdout).toContain("Next:       substrate merge " + runIdOf(res) + " --partial  (lands the passed tasks after integration verify passes)");
-      const before = eventCount(res);
+      expect(res.stdout).toContain(`Next:       substrate resume ${runIdOf(res)}  (retries the failed tasks; passed tasks are kept)`);
+      const before = eventsOf(res).length;
+      // No scripted worker calls remain, so the retried T2 fails again; the resume itself is what is tested.
       const out = resume(res, [runIdOf(res)]);
-      expect(out.status, out.stderr).toBe(1);
-      expect(out.stdout).toContain(
-        `Run ${runIdOf(res)} failed and cannot be resumed. Land the passed tasks with: substrate merge ${runIdOf(res)} --partial`,
-      );
+      expect(out.stdout).toContain(`resuming failed run ${runIdOf(res)}: retrying T2; keeping T1 (passed)`);
+      expect(out.stdout).not.toContain("cannot be resumed");
       expect(out.stdout).not.toContain("already finished");
-      expect(eventCount(res)).toBe(before);
+      const after = eventsOf(res).slice(before);
+      expect(after.some((e) => e.type === "run.reopened" && e.data.reason === "tasks")).toBe(true);
+      // T1 was merged in the first run and is not spawned again.
+      expect(eventsOf(res).filter((e) => e.type === "task.session.started" && e.data.task_id === "T1")).toHaveLength(1);
     } finally {
       res.cleanup();
     }
   });
 
-  it("json: the refusal is an error object with failure_class not_resumable, and the json summary's next names only the partial landing", () => {
+  it("json: the failed run's next lists the resume first, and a resume prints no failure_class", () => {
     const res = partialFailure(["--output-format", "json", "Partial failure json"]);
     try {
       expect(res.exitCode).toBe(1);
       const summary = JSON.parse(res.stdout.trim());
-      expect(summary.next).toEqual([`substrate merge ${summary.run_id} --partial`]);
-      expect(summary.next.some((c: string) => c.startsWith("substrate resume"))).toBe(false);
+      expect(summary.next[0]).toBe(`substrate resume ${summary.run_id}  (retries the failed tasks; passed tasks are kept)`);
+      expect(summary.next).toContain(`substrate merge ${summary.run_id} --partial  (lands the passed tasks after integration verify passes)`);
       const out = resume(res, [summary.run_id, "--output-format", "json"]);
-      expect(out.status, out.stderr).toBe(1);
-      const refusal = JSON.parse(out.stdout.trim());
-      expect(refusal.failure_class).toBe("not_resumable");
-      expect(refusal.error).toContain(`Run ${summary.run_id} failed and cannot be resumed.`);
+      expect(out.stdout).not.toContain("not_resumable");
+      expect(out.stderr).not.toContain("not_resumable");
     } finally {
       res.cleanup();
     }
   });
 
-  it("a failed run with no passed task says to start a new run with a narrower request; resume refuses it too", () => {
+  it("a failed run with no passed task is reopened too: the task retries and the resume says so", () => {
     const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q never-there src/a.txt" });
     const res = runSubstrate({
       files: SEED,
@@ -109,16 +113,18 @@ describe("known issue 41: a failed run is not resumable, and says what to do ins
     try {
       expect(res.exitCode).toBe(1);
       const summary = JSON.parse(res.stdout.trim());
-      expect(summary.next).toEqual([]);
+      expect(summary.next[0]).toBe(`substrate resume ${summary.run_id}  (retries the failed tasks; passed tasks are kept)`);
+      expect(summary.next).toContain("Start a new run with a narrower request");
       const out = resume(res, [summary.run_id]);
-      expect(out.status).toBe(1);
-      expect(out.stdout).toContain(`Run ${summary.run_id} failed and cannot be resumed. Start a new run with a narrower request.`);
+      expect(out.stdout).toContain(`resuming failed run ${summary.run_id}: retrying T1`);
+      expect(out.stdout).not.toContain("keeping");
+      expect(out.stdout).not.toContain("cannot be resumed");
     } finally {
       res.cleanup();
     }
   });
 
-  it("a failed planning run says to run substrate again (planning costs again); resume refuses it", () => {
+  it("a failed planning run is planned again on resume, with the cost named", () => {
     const res = runSubstrate({
       files: { "src/a.txt": "seed\n", "contracts/types.ts": CONTRACT_STUB },
       scenario: { calls: [BUDGET_STOPPED_PLANNER] },
@@ -126,11 +132,11 @@ describe("known issue 41: a failed run is not resumable, and says what to do ins
     });
     try {
       expect(res.exitCode).toBe(1);
-      expect(res.stdout).toContain("Next:       Run substrate run again (planning costs again)");
-      expect(res.stdout).not.toContain("substrate resume");
+      expect(res.stdout).toContain(`Next:       substrate resume ${runIdOf(res)}  (plans again; planning costs again)`);
+      expect(res.stdout).not.toContain("Run substrate run again");
       const out = resume(res, [runIdOf(res)]);
-      expect(out.status).toBe(1);
-      expect(out.stdout).toContain(`Run ${runIdOf(res)} failed and cannot be resumed. Run substrate run again (planning costs again).`);
+      expect(out.stdout).toContain("no plan was accepted; planning again (planning costs again)");
+      expect(out.stdout).not.toContain("cannot be resumed");
     } finally {
       res.cleanup();
     }
