@@ -6,8 +6,7 @@ import type { Manifest } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { safeParseManifest } from "./shared.js";
-import { resolveBaseRef } from "../../git/base-ref.js";
+import { checkBaseVerify, safeParseManifest } from "./shared.js";
 import {
   advanceRunRef,
   createIntegrationWorktree,
@@ -63,18 +62,8 @@ export async function runMergeAction(
   }
   const verifyCommands = manifest?.integration_verify ?? [];
 
-  // Behavior 8: base-ref check before first batch
-  if (verifyCommands.length > 0 && !ctx.baseChecked) {
-    ctx.baseChecked = true;
-    const baseSha = resolveBaseRef(ctx.repoRoot, manifest?.base_ref).sha;
-    const baseWt = await createIntegrationWorktree(ctx.repoRoot, ctx.runId, baseSha);
-    const baseVerified = await verifyIn(baseWt, verifyCommands, ctx.settings);
-    if (!baseVerified) {
-      emit("integration.failed", { base: true });
-      emit("run.finished", { exit_code: 1, status: "failed" });
-      return;
-    }
-  }
+  // Behavior 8: base check before the first batch (advisory; see checkBaseVerify)
+  await checkBaseVerify(ctx, manifest);
 
   const runBranch = getRunBranch(ctx.runId);
   const preBatchSha = execFileSync("git", ["rev-parse", runBranch], {

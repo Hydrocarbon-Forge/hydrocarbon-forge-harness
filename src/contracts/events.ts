@@ -431,7 +431,9 @@ export const ReplanFinishedEvent = member(
 
 export const IntegrationStartedEvent = member(
   "integration.started",
-  z.object({}).strict()
+  // base_verify_passed: false when integration_verify did not pass on the base commit (R3.6
+  // behaviour 8, advisory). Absent when it passed there or the base was not checked.
+  z.object({ base_verify_passed: z.boolean().optional() }).strict()
 );
 
 export const IntegrationFinishedEvent = member(

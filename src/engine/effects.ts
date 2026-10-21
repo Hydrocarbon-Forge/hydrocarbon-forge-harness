@@ -75,6 +75,8 @@ export interface EffectContext {
   permission_mode?: PermissionMode;
   preBatchCheckpoint?: string;
   baseChecked?: boolean;
+  /** Whether integration_verify passed on the base commit (set once, by the base check). */
+  baseVerifyPassed?: boolean;
   store?: EventStoreImpl;
 }
 

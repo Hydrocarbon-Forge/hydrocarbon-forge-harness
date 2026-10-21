@@ -145,6 +145,20 @@ describe("progress line shapes (text mode, stdout)", () => {
     ]);
   });
 
+  it("notes, once, that integration verify does not pass at the base commit (R7.11), and prints nothing extra when it does", () => {
+    const failed = sink();
+    const f1 = createFormatter("text", failed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
+    f1.onEvent(ev("integration.started", { base_verify_passed: false }));
+    expect(failed.lines()).toEqual([
+      "[00:00] integration verify started",
+      "[00:00] note: integration verify does not pass at the base commit (expected when the run adds new code)",
+    ]);
+    const passed = sink();
+    const f2 = createFormatter("text", passed, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
+    f2.onEvent(ev("integration.started", {}));
+    expect(passed.lines()).toEqual(["[00:00] integration verify started"]);
+  });
+
   it("prints a run pause on stdout, not stderr", () => {
     const out = sink();
     const err = sink();

@@ -210,7 +210,12 @@ export class RunProgress {
         return [];
       case "integration.started":
         this.setPhase("integration verify", at);
-        return ["integration verify started"];
+        return data.base_verify_passed === false
+          ? [
+              "integration verify started",
+              "note: integration verify does not pass at the base commit (expected when the run adds new code)",
+            ]
+          : ["integration verify started"];
       case "integration.finished":
         return [`integration verify ${data.passed ? "passed" : "failed"}`];
       case "integration.failed":

@@ -26,7 +26,7 @@ contracts:
   typecheck:                  # commands that prove the stubs compile
     - run: npx tsc --noEmit
       timeout_s: 120
-integration_verify:           # run after each merged batch
+integration_verify:           # run on the merged result after each batch; the engine also runs it once on the base commit, where it may fail when the run creates the code it checks
   - run: npm test
     timeout_s: 600
 tasks:

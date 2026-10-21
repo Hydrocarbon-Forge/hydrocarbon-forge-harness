@@ -6,8 +6,7 @@ import type { Manifest } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { safeParseManifest } from "./shared.js";
-import { resolveBaseRef } from "../../git/base-ref.js";
+import { checkBaseVerify, safeParseManifest } from "./shared.js";
 import {
   createIntegrationWorktree,
   getRunBranch,
@@ -29,18 +28,8 @@ export async function runIntegrateAction(
   }
   const verifyCommands = manifest?.integration_verify ?? [];
 
-  // Behavior 8: base-ref check before any batch (e.g. 0 tasks planned)
-  if (verifyCommands.length > 0 && !ctx.baseChecked) {
-    ctx.baseChecked = true;
-    const baseSha = resolveBaseRef(ctx.repoRoot, manifest?.base_ref).sha;
-    const baseWt = await createIntegrationWorktree(ctx.repoRoot, ctx.runId, baseSha);
-    const baseVerified = await verifyIn(baseWt, verifyCommands, ctx.settings);
-    if (!baseVerified) {
-      emit("integration.failed", { base: true });
-      emit("run.finished", { exit_code: 1, status: "failed" });
-      return;
-    }
-  }
+  // Behavior 8: base check when no batch ran (e.g. 0 tasks planned); advisory (see checkBaseVerify)
+  await checkBaseVerify(ctx, manifest);
 
   const runBranch = getRunBranch(ctx.runId);
   const runBranchSha = execFileSync("git", ["rev-parse", runBranch], {
@@ -54,7 +43,10 @@ export async function runIntegrateAction(
     runBranchSha
   );
 
-  emit("integration.started", {});
+  emit(
+    "integration.started",
+    ctx.baseVerifyPassed === false ? { base_verify_passed: false } : {}
+  );
   const verified = await verifyIn(
     integrationWorktree,
     verifyCommands,

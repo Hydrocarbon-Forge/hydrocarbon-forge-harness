@@ -134,14 +134,27 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     expect(summary.tasks.T2?.generation).toBeGreaterThanOrEqual(2);
   });
 
-  it("flags configuration failure when base integration verify fails before merging any task (edge case)", async () => {
+  it("a base integration verify that fails does not stop the run (R7.11): the verify on the merged result decides", async () => {
     const runId: RunId = "r_JJJJJJBASE22";
+
+    fakeClaude = fakeClaudeAdapter([
+      { reply: "PLAN READY" },
+      {
+        edits: { "src/t1.ts": "// t1\n" },
+        reply: "Worker passed verify",
+      },
+    ]);
 
     const manifest: Manifest = {
       ...sampleValidManifest(runId),
       tasks: [{ id: "T1", spec: "tasks/T1.md" }],
-      // Base integration verify always fails
-      integration_verify: [{ run: "node -e 'process.exit(1)'", timeout_s: 30 }],
+      // Fails on the base commit (src/t1.ts is created by T1), passes once T1 is merged
+      integration_verify: [
+        {
+          run: "node -e 'process.exit(require(\"fs\").existsSync(\"src/t1.ts\") ? 0 : 1)'",
+          timeout_s: 30,
+        },
+      ],
     };
 
     const t1Spec = sampleValidTaskSpecMarkdown({
@@ -149,29 +162,34 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
         id: "T1",
         title: "Task T1",
         depends_on: [],
-        write: ["src/t1.ts"],
+        write: [],
+        create: ["src/t1.ts"],
         verify: [{ run: "echo verify T1", timeout_s: 30 }],
       },
     });
 
-    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec });
+    writePlanFiles(env.repoRoot, runId, manifest, { "tasks/T1.md": t1Spec }, { "contracts/types.ts": sampleValidContractStub() });
 
     const engine = engineMod.createEngine({
       settings: env.settings,
-      adapter: env.adapter,
+      adapter: fakeClaude.adapter,
     });
 
     const summary = await engine.run({
-      prompt: "Execute with broken base integration verify",
+      prompt: "Execute with a base integration verify that fails",
       cwd: env.repoRoot,
       mode: "plan",
       permission_mode: "bypassPermissions",
     });
 
-    // Base integration verify failure cannot attribute fault to task culprit
-    expect(summary.status).toBe("failed");
+    expect(summary.status).toBe("finished");
     const events = readEventLog(env.runDir, runId);
     const eventTypes = events.map((e) => e.type);
+    expect(eventTypes).not.toContain("bisect.started");
     expect(eventTypes).not.toContain("bisect.culprit");
+    expect(eventTypes).not.toContain("integration.failed");
+    expect(eventTypes).toContain("integration.finished");
+    const started = events.find((e) => e.type === "integration.started");
+    expect(started?.data).toEqual({ base_verify_passed: false });
   });
 });
