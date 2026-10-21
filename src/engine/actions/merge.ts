@@ -6,7 +6,7 @@ import type { Manifest } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { checkBaseVerify, safeParseManifest } from "./shared.js";
+import { checkBaseVerify, integrationFailureDetail, safeParseManifest } from "./shared.js";
 import {
   advanceRunRef,
   createIntegrationWorktree,
@@ -109,12 +109,12 @@ export async function runMergeAction(
     );
   }
 
-  const verified = await verifyIn(
+  const batchVerify = await verifyIn(
     integrationWorktree,
     verifyCommands,
     ctx.settings
   );
-  if (verified) {
+  if (batchVerify.passed) {
     await advanceRunRef(ctx.repoRoot, ctx.runId, integrationHead, preBatchSha);
     for (const taskId of batch) {
       emit("task.merged", { task_id: taskId });
@@ -139,6 +139,8 @@ export async function runMergeAction(
 
   let culprit = batch[batch.length - 1];
   let lastGoodSha = preBatchSha;
+  // The failure the culprit's task carries: the batch's own, unless bisect pins one on a task.
+  let culpritFailure = batchVerify.failure;
 
   for (const taskId of batch) {
     const taskState = state.tasks[taskId];
@@ -151,13 +153,14 @@ export async function runMergeAction(
       `bisect: ${taskId}`
     );
 
-    const passed = await verifyIn(
+    const outcome = await verifyIn(
       integrationWorktree,
       verifyCommands,
       ctx.settings
     );
-    if (!passed) {
+    if (!outcome.passed) {
       culprit = taskId;
+      culpritFailure = outcome.failure;
       execFileSync("git", ["reset", "--hard", lastGoodSha], {
         cwd: integrationWorktree,
         encoding: "utf8",
@@ -174,8 +177,12 @@ export async function runMergeAction(
   }
 
   emit("bisect.culprit", { culprit_task_id: culprit });
+  const detail = culpritFailure
+    ? integrationFailureDetail(culpritFailure, [integrationWorktree, ctx.repoRoot])
+    : undefined;
   emit("task.failed", {
     task_id: culprit,
     failure_class: "integration_failed",
+    ...(detail ? { message: detail.message } : {}),
   });
 }

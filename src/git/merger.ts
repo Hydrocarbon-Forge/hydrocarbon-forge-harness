@@ -124,13 +124,24 @@ export async function advanceRunRef(
   );
 }
 
+/** The first verify command that did not pass: its text, exit code (null when it timed out) and raw output. */
+export interface VerifyFailure {
+  command: string;
+  exit_code: number | null;
+  timed_out: boolean;
+  /** stderr then stdout, each the tail VerifyRunner kept. Not redacted and not path-stripped. */
+  output: string;
+}
+
+export type VerifyOutcome = { passed: true } | { passed: false; failure: VerifyFailure };
+
 export async function verifyIn(
   worktreePath: string,
   commands: Command[],
   settings: Settings
-): Promise<boolean> {
+): Promise<VerifyOutcome> {
   if (!commands || commands.length === 0) {
-    return true;
+    return { passed: true };
   }
   const runner = new VerifyRunner();
   const results = await runner.runVerify({
@@ -139,7 +150,19 @@ export async function verifyIn(
     sandbox: settings.sandbox?.enabled ?? false,
     network: "allow",
   });
-  return runner.isAllPassed(results);
+  if (runner.isAllPassed(results)) {
+    return { passed: true };
+  }
+  const failed = results.find((r) => r.exit_code !== 0 || r.timed_out) ?? results[0];
+  return {
+    passed: false,
+    failure: {
+      command: failed.cmd,
+      exit_code: failed.timed_out ? null : failed.exit_code,
+      timed_out: failed.timed_out,
+      output: [failed.stderr_tail, failed.stdout_tail].filter((t) => t !== "").join("\n"),
+    },
+  };
 }
 
 export async function preflight(

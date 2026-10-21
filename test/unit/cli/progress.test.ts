@@ -159,6 +159,17 @@ describe("progress line shapes (text mode, stdout)", () => {
     expect(passed.lines()).toEqual(["[00:00] integration verify started"]);
   });
 
+  it("names the failing integration command and its exit code (R7.11); older logs print the plain line", () => {
+    const out = sink();
+    const f = createFormatter("text", out, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
+    f.onEvent(ev("integration.failed", { failure_class: "integration_failed", command: "test -f src/never.txt", exit_code: 1 }));
+    f.onEvent(ev("integration.failed", { base: true }));
+    expect(out.lines()).toEqual([
+      "[00:00] integration verify failed: test -f src/never.txt (exit 1)",
+      "[00:00] integration verify failed",
+    ]);
+  });
+
   it("prints a run pause on stdout, not stderr", () => {
     const out = sink();
     const err = sink();

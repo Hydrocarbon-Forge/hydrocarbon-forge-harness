@@ -6,7 +6,7 @@ import type { Manifest } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
-import { checkBaseVerify, safeParseManifest } from "./shared.js";
+import { checkBaseVerify, integrationFailureDetail, safeParseManifest } from "./shared.js";
 import {
   createIntegrationWorktree,
   getRunBranch,
@@ -47,17 +47,24 @@ export async function runIntegrateAction(
     "integration.started",
     ctx.baseVerifyPassed === false ? { base_verify_passed: false } : {}
   );
-  const verified = await verifyIn(
+  const verify = await verifyIn(
     integrationWorktree,
     verifyCommands,
     ctx.settings
   );
 
-  if (verified) {
+  if (verify.passed) {
     emit("integration.finished", { passed: true });
     emit("run.finished", { exit_code: 0 });
   } else {
-    emit("integration.failed", { base: false });
+    const detail = integrationFailureDetail(verify.failure, [integrationWorktree, ctx.repoRoot]);
+    emit("integration.failed", {
+      failure_class: "integration_failed",
+      message: detail.message,
+      command: detail.command,
+      ...(detail.exit_code !== null ? { exit_code: detail.exit_code } : {}),
+      output_tail: detail.output_tail,
+    });
     emit("run.finished", { exit_code: 1, status: "failed" });
   }
 }

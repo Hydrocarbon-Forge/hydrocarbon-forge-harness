@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -87,7 +87,7 @@ function runEvents(s: Scratch, runId: string): { type: string; data: any }[] {
 const BASE_NOTE =
   "note: integration verify does not pass at the base commit (expected when the run adds new code)";
 
-describe("R7.11: a base integration verify that fails does not fail the run", () => {
+describe("R7.11: integration verify on the base commit and on the merged result", () => {
   it("the run lands with --merge, the file is in the working tree, and the base note is printed", () => {
     const s = scratch(helloCalls(INTEGRATION));
     try {
@@ -109,6 +109,53 @@ describe("R7.11: a base integration verify that fails does not fail the run", ()
       const started = runEvents(s, runId!).find((e) => e.type === "integration.started");
       expect(started?.data).toEqual({ base_verify_passed: false });
       expect(runEvents(s, runId!).map((e) => e.type)).not.toContain("integration.failed");
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+
+  it("a verify that fails on the merged result still stops the run, and says which command failed, with its exit code", () => {
+    const failing = "sh -c 'test -f src/never.txt'";
+    const s = scratch(helloCalls(failing));
+    try {
+      const res = cli(s, [
+        "run",
+        "--plan", "claude:claude-sonnet-5-5",
+        "--work", "claude:haiku",
+        "--merge",
+        "--permission-mode", "bypassPermissions",
+        "Create the hello file",
+      ]);
+      // The batch verify and the culprit bisect run the same command on the same tree, so the
+      // culprit (T1) carries the failure; the run pauses for needs_human (exit 3) as any
+      // integration failure does here.
+      expect(res.status, diag(res)).toBe(3);
+      expect(res.stdout, diag(res)).toContain(`[task T1] failed: integration_failed: ${failing} exited 1\n`);
+      expect(res.stdout, diag(res)).toContain(`Reason:     integration_failed: ${failing} exited 1\n`);
+      expect(res.stdout, diag(res)).not.toContain("Merged:     yes");
+      expect(existsSync(join(s.project, "src", "hello.txt"))).toBe(false);
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+
+  it("the json result of that run names the failure class and the command in its message", () => {
+    const failing = "sh -c 'test -f src/never.txt'";
+    const s = scratch(helloCalls(failing));
+    try {
+      const res = cli(s, [
+        "run",
+        "--plan", "claude:claude-sonnet-5-5",
+        "--work", "claude:haiku",
+        "--merge",
+        "--output-format", "json",
+        "--permission-mode", "bypassPermissions",
+        "Create the hello file",
+      ]);
+      const summary = JSON.parse(res.stdout.trim());
+      expect(summary.failure_class, diag(res)).toBe("integration_failed");
+      expect(summary.message, diag(res)).toBe(`${failing} exited 1`);
+      expect(summary.merged, diag(res)).toBe(false);
     } finally {
       rmSync(s.root, { recursive: true, force: true });
     }

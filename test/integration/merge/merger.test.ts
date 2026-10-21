@@ -6,6 +6,7 @@ import type { Command, Settings } from "../../../src/contracts/index.js";
 import { VerifyRunner } from "../../../src/verify/runner.js";
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
 import * as MergerModule from "../../../src/git/merger.js";
+import type { VerifyOutcome } from "../../../src/git/merger.js";
 
 // The R3.6 interface (docs/archive/2026-10-20-r-series/wp/R3.6.md): src/git/merger.ts exports the integration
 // worktree primitives plus TaskMerger.preflight. The primitives are read through the
@@ -34,7 +35,7 @@ type VerifyInFn = (
   worktreePath: string,
   commands: Command[],
   settings: Settings
-) => Promise<boolean>;
+) => Promise<VerifyOutcome>;
 
 interface TaskMergerR36 {
   preflight(
@@ -197,7 +198,7 @@ describe("merge: integration worktree primitives (R3.6)", () => {
 
     // Empty commands pass without running anything. VerifyRunner itself does not pass an
     // empty result set, so the trivial pass must come from verifyIn before it calls the runner.
-    expect(await verifyIn(worktreePath, [], testSettings())).toBe(true);
+    expect(await verifyIn(worktreePath, [], testSettings())).toEqual({ passed: true });
     expect(new VerifyRunner().isAllPassed([])).toBe(false);
 
     const writeCommand: Command[] = [
@@ -206,12 +207,33 @@ describe("merge: integration worktree primitives (R3.6)", () => {
         timeout_s: 30,
       },
     ];
-    expect(await verifyIn(worktreePath, writeCommand, testSettings())).toBe(true);
+    expect(await verifyIn(worktreePath, writeCommand, testSettings())).toEqual({ passed: true });
     expect(readFileSync(join(worktreePath, "marker.txt"), "utf8")).toBe("x");
     expect(existsSync(join(repo.dir, "marker.txt"))).toBe(false);
 
     const failingCommand: Command[] = [{ run: "node -e \"process.exit(1)\"", timeout_s: 30 }];
-    expect(await verifyIn(worktreePath, failingCommand, testSettings())).toBe(false);
+    // R7.11: a failing verify names the command that failed, its exit code and its output.
+    expect(await verifyIn(worktreePath, failingCommand, testSettings())).toEqual({
+      passed: false,
+      failure: {
+        command: "node -e \"process.exit(1)\"",
+        exit_code: 1,
+        timed_out: false,
+        output: "",
+      },
+    });
+    const secondFails: Command[] = [
+      { run: "node -e \"console.log('first ok')\"", timeout_s: 30 },
+      { run: "node -e \"console.error('boom line'); process.exit(3)\"", timeout_s: 30 },
+    ];
+    const outcome = await verifyIn(worktreePath, secondFails, testSettings());
+    expect(outcome.passed).toBe(false);
+    if (!outcome.passed) {
+      expect(outcome.failure.command).toBe(secondFails[1].run);
+      expect(outcome.failure.exit_code).toBe(3);
+      expect(outcome.failure.output).toContain("boom line");
+      expect(outcome.failure.output).not.toContain("first ok");
+    }
   });
 
   it("TaskMerger keeps preflight only: mergeTask and rollbackCheckpoint are removed", async () => {

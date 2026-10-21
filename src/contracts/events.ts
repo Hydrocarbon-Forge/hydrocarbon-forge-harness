@@ -443,7 +443,18 @@ export const IntegrationFinishedEvent = member(
 
 export const IntegrationFailedEvent = member(
   "integration.failed",
-  z.object({ base: z.boolean().optional() }).strict()
+  // base is written by runs before R7.11 (the base check failed the run); R7.11 writes the rest:
+  // the failing command, its exit code (absent when it timed out) and a capped output tail.
+  z
+    .object({
+      base: z.boolean().optional(),
+      failure_class: FailureClass.optional(),
+      message: z.string().max(2000).optional(),
+      command: z.string().max(500).optional(),
+      exit_code: z.number().int().optional(),
+      output_tail: z.string().max(2000).optional(),
+    })
+    .strict()
 );
 
 export const BisectStartedEvent = member("bisect.started", z.object({}).strict());

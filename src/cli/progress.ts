@@ -218,8 +218,12 @@ export class RunProgress {
           : ["integration verify started"];
       case "integration.finished":
         return [`integration verify ${data.passed ? "passed" : "failed"}`];
-      case "integration.failed":
-        return ["integration verify failed"];
+      case "integration.failed": {
+        // R7.11: the failing command and its exit code; older logs carry neither.
+        if (typeof data.command !== "string" || data.command === "") return ["integration verify failed"];
+        const status = typeof data.exit_code === "number" ? `exit ${data.exit_code}` : "timed out";
+        return [`integration verify failed: ${data.command.slice(0, 160)} (${status})`];
+      }
       case "merge.conflict": {
         const n = Array.isArray(data.conflict_files) ? data.conflict_files.length : 0;
         return [`${taskLabel} merge conflict in ${n} file${n === 1 ? "" : "s"}`];
