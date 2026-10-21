@@ -35,8 +35,8 @@ describe("R8.2 graceful: a merge conflict leaves no markers, MERGE_HEAD or unmer
       scenario: {
         calls: [
           planCall(contractFiles(manifestFor("Conflict", ["T1", "T2"]), { "tasks/T1.md": t1, "tasks/T2.md": t2 })),
-          { edits: { "src/shared.txt": "t1-marker\n" }, reply: "T1 done\nDONE" },
-          { edits: { "src/shared.txt": "t2-marker\n" }, reply: "T2 done\nDONE" },
+          { task: "T1", edits: { "src/shared.txt": "t1-marker\n" }, reply: "T1 done\nDONE" },
+          { task: "T2", edits: { "src/shared.txt": "t2-marker\n" }, reply: "T2 done\nDONE" },
         ],
       },
       settings: { concurrency: { workers: 2 } },
@@ -58,10 +58,9 @@ describe("R8.2 graceful: a merge conflict leaves no markers, MERGE_HEAD or unmer
   });
 });
 
-// Scenario 9. The engine runs the actions of a scheduling step one after another (effects.ts,
-// runEffectsLoop), so two independent workers do not overlap today even with concurrency.workers
-// 2 (known issue 39). The isolation is still checked: a sibling's worker starts from the run
-// base, sees none of its sibling's files, and sees none of the user's uncommitted changes.
+// Scenario 9. Two independent workers run side by side (R8.3, known issue 40), so the isolation is
+// checked while they overlap: a sibling's worker starts from the run base, sees none of its
+// sibling's files, and sees none of the user's uncommitted changes. The barrier shows they overlap.
 describe("R8.2 graceful: scenario 9, a task cannot see its sibling's edits or the user's changes", () => {
   it("each worker sees only its own file and none of the user's uncommitted changes", () => {
     const barrier = mkdtempSync(join(tmpdir(), "substrate-probe-"));
@@ -78,13 +77,17 @@ describe("R8.2 graceful: scenario 9, a task cannot see its sibling's edits or th
         calls: [
           planCall(contractFiles(manifestFor("Isolation", ["T1", "T2"]), { "tasks/T1.md": t1, "tasks/T2.md": t2 })),
           {
+            task: "T1",
             edits: { "src/a.txt": "seed a\nt1-done\n" },
             probe: { dir: barrier, name: "T1" },
+            trace: { dir: barrier, name: "T1", wait_for: ["T2"], timeout_ms: 5000 },
             reply: "T1 done\nDONE",
           },
           {
+            task: "T2",
             edits: { "src/b.txt": "seed b\nt2-done\n" },
             probe: { dir: barrier, name: "T2" },
+            trace: { dir: barrier, name: "T2", wait_for: ["T1"], timeout_ms: 5000 },
             reply: "T2 done\nDONE",
           },
         ],
@@ -122,6 +125,10 @@ describe("R8.2 graceful: scenario 9, a task cannot see its sibling's edits or th
       expect(git(res.repoDir, ["show", `${runRef}:src/a.txt`])).toContain("t1-done");
       expect(git(res.repoDir, ["show", `${runRef}:src/b.txt`])).toContain("t2-done");
       expect(readdirSync(barrier).filter((f) => f.startsWith("seen-")).length).toBe(2);
+      // R8.3: the two workers were alive at the same time (each barrier waits for the other's session).
+      for (const name of ["T1", "T2"]) {
+        expect(JSON.parse(readFileSync(join(barrier, `barrier-${name}.json`), "utf8")).met, `${name} overlapped its sibling`).toBe(true);
+      }
     } finally {
       res.cleanup();
     }

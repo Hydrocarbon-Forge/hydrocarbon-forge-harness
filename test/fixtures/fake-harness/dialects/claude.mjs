@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { takeCall, applyCall } from "../scenario.mjs";
+import { takeCall, applyCall, taskKeyFromCwd } from "../scenario.mjs";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,6 +27,49 @@ async function runProbe(probe) {
     readme: fs.readFileSync(`${cwd}/README.md`, "utf8"),
   };
   fs.writeFileSync(`${probe.dir}/seen-${probe.name}.json`, JSON.stringify(record, null, 2), "utf8");
+}
+
+/**
+ * R8.3 trace (a concurrency probe). Writes <dir>/start-<name>.json when the session starts and
+ * <dir>/end-<name>.json when the process exits (a killed process leaves no end record). With
+ * wait_for, the session waits until every named session overlapped it in time, or timeout_ms passes,
+ * and writes <dir>/barrier-<name>.json saying whether the wait was met. A named session overlaps when
+ * it started and had not ended before this session started (sessions that run one after another
+ * never meet each other's barrier). The check is by interval, so a short session is not missed.
+ *
+ * @param {{ dir: string, name: string, wait_for?: string[], timeout_ms?: number }} trace
+ */
+async function runTrace(trace) {
+  fs.mkdirSync(trace.dir, { recursive: true });
+  const myStart = Date.now();
+  fs.writeFileSync(`${trace.dir}/start-${trace.name}.json`, JSON.stringify({ pid: process.pid, at: myStart }), "utf8");
+  process.on("exit", () => {
+    try {
+      fs.writeFileSync(`${trace.dir}/end-${trace.name}.json`, JSON.stringify({ pid: process.pid, at: Date.now() }), "utf8");
+    } catch {}
+  });
+  if (Array.isArray(trace.wait_for) && trace.wait_for.length > 0) {
+    const deadline = Date.now() + (trace.timeout_ms ?? 5000);
+    let met = false;
+    for (;;) {
+      // A named session that has started overlaps this one if it has not ended, or ended after
+      // this session started. It is seen while this session is still running, so it started before
+      // this session ended.
+      const overlapped = (name) => {
+        if (!fs.existsSync(`${trace.dir}/start-${name}.json`)) return false;
+        const endFile = `${trace.dir}/end-${name}.json`;
+        if (!fs.existsSync(endFile)) return true;
+        return JSON.parse(fs.readFileSync(endFile, "utf8")).at > myStart;
+      };
+      if (trace.wait_for.every(overlapped)) {
+        met = true;
+        break;
+      }
+      if (Date.now() > deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    fs.writeFileSync(`${trace.dir}/barrier-${trace.name}.json`, JSON.stringify({ met, at: Date.now() }), "utf8");
+  }
 }
 
 /**
@@ -83,11 +126,15 @@ export async function runDialect(argv, env) {
     } catch {}
   }
 
-  const { call } = takeCall(scenarioFile);
+  const { call } = takeCall(scenarioFile, taskKeyFromCwd(process.cwd()));
   applyCall(call, process.cwd());
 
   if (call.probe) {
     await runProbe(call.probe);
+  }
+
+  if (call.trace) {
+    await runTrace(call.trace);
   }
 
   if (call.delay_ms && call.delay_ms > 0) {

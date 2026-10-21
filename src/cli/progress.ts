@@ -66,6 +66,11 @@ export class RunProgress {
   readonly startedAt: number;
   runId: string | undefined;
   phase = "starting";
+  // R8.3: the tasks whose worker session is running, being verified, or being merged. The heartbeat
+  // phase names them, so concurrent workers read as "running T1, T2" rather than one task.
+  private readonly runningTasks = new Set<string>();
+  private readonly verifyingTasks = new Set<string>();
+  private readonly mergingTasks = new Set<string>();
   private phaseStartedAt: number;
   private costUsd = 0;
   // Set by the first usage record. Until then no cost has been reported, so a heartbeat
@@ -91,6 +96,19 @@ export class RunProgress {
   /** Tasks whose task.merged event was seen: their branches are in the run branch. */
   get merged(): number {
     return this.mergedTasks.size;
+  }
+
+  /**
+   * The phase the task events imply: the workers running (one task reads `task T1 running`, several
+   * read `running T1, T2`), else the tasks being verified or merged, else `scheduling`.
+   */
+  private taskPhase(at: number): void {
+    const list = (ids: Set<string>): string => [...ids].sort().join(", ");
+    if (this.runningTasks.size === 1) this.setPhase(`task ${list(this.runningTasks)} running`, at);
+    else if (this.runningTasks.size > 1) this.setPhase(`running ${list(this.runningTasks)}`, at);
+    else if (this.verifyingTasks.size > 0) this.setPhase(`verifying ${list(this.verifyingTasks)}`, at);
+    else if (this.mergingTasks.size > 0) this.setPhase(`merging ${list(this.mergingTasks)}`, at);
+    else this.setPhase("scheduling", at);
   }
 
   private setPhase(phase: string, at: number): void {
@@ -178,16 +196,21 @@ export class RunProgress {
         return [`budget exceeded: spent ${formatCost(Number(data.cost_usd ?? 0))}` +
           (typeof data.max_usd === "number" ? ` of $${data.max_usd.toFixed(2)}` : "")];
       case "task.session.started": {
-        this.setPhase(`task ${tid} running`, at);
+        this.runningTasks.add(tid);
+        this.taskPhase(at);
         const route = data.backend && data.model ? ` on ${data.backend}:${data.model}` : "";
         return [`${taskLabel} started (gen ${data.generation ?? 1}, attempt ${data.attempt ?? 1})${route}`];
       }
       case "task.session.ended":
+        this.runningTasks.delete(tid);
         return [`${taskLabel} worker finished, ${formatCost(this.taskCostUsd.get(tid) ?? 0)}`];
       case "task.verify.started":
-        this.setPhase(`verifying ${tid}`, at);
+        this.runningTasks.delete(tid);
+        this.verifyingTasks.add(tid);
+        this.taskPhase(at);
         return [];
       case "task.verify.finished": {
+        this.verifyingTasks.delete(tid);
         if (data.passed) return [`${taskLabel} verify passed`];
         const cmd = typeof data.failed_command === "string" && data.failed_command !== ""
           ? `: ${oneLine(data.failed_command, 200)}`
@@ -198,13 +221,19 @@ export class RunProgress {
         return [`${taskLabel} verify failed${cmd}${out}`];
       }
       case "task.passed":
-        this.setPhase(`merging ${tid}`, at);
+        this.verifyingTasks.delete(tid);
+        this.mergingTasks.add(tid);
+        this.taskPhase(at);
         return [];
       case "task.merged":
         if (tid !== "") this.mergedTasks.add(tid);
-        this.setPhase("scheduling", at);
+        this.mergingTasks.delete(tid);
+        this.taskPhase(at);
         return [`${taskLabel} merged, ${formatCost(this.taskCostUsd.get(tid) ?? 0)}`];
       case "task.failed": {
+        this.runningTasks.delete(tid);
+        this.verifyingTasks.delete(tid);
+        this.mergingTasks.delete(tid);
         // R8.2: an attempt's own failure is followed by the replan ladder, which prints its own
         // line and, when the task is given up, the one `failed` line for it. The attempt's line
         // is not printed, so a task that fails for good shows `failed` once.

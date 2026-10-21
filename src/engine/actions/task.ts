@@ -99,10 +99,15 @@ export async function runTaskAction(
 
       // Run-level policy is decided here, not by the role (R1.4, R1.5). The worker
       // reports what it observed and this answers whether the attempt must stop.
-      let localTotal = state.usage.total_usd;
-      // The reducer accumulates cost only, so the run token total is what this action
-      // has seen for the run.
-      let localTokens = 0;
+      // R8.3: the run totals are the live journal's. Every worker of the run commits its usage
+      // there as it happens, so a budget check sees the spend of the workers running beside this one.
+      const runSpend = (): number => ctx.journal?.state.usage.total_usd ?? state.usage.total_usd;
+      const runTokens = (): number => ctx.journal?.tokens ?? 0;
+      // The signal that stops this worker: the user's interrupt, or a stop of the whole run.
+      const workerSignal =
+        ctx.signal && ctx.runStop
+          ? AbortSignal.any([ctx.signal, ctx.runStop.signal])
+          : (ctx.signal ?? ctx.runStop?.signal);
       let rateLimits = 0;
 
       const taskBudget = {
@@ -165,12 +170,8 @@ export async function runTaskAction(
         const contributed =
           (delta?.cost_usd ?? 0) + (delta?.input_tokens ?? 0) + (delta?.output_tokens ?? 0);
 
-        if (delta && contributed > 0) {
-          localTotal += delta.cost_usd ?? 0;
-          localTokens += (delta.input_tokens ?? 0) + (delta.output_tokens ?? 0);
-        }
-
-        if (checkRunBudget(ctx, emit, localTotal, localTokens)) {
+        // The delta is already in the journal (recordUsage committed it), so the check reads the total.
+        if (checkRunBudget(ctx, emit, runSpend(), runTokens())) {
           return { stop: true, kill: "budget" };
         }
 
@@ -191,7 +192,7 @@ export async function runTaskAction(
 
         const res = obs.result;
         if (res) {
-          if (ctx.signal?.aborted || res.killed_for === "cancel") {
+          if (workerSignal?.aborted || res.killed_for === "cancel") {
             return { stop: true };
           }
           if (res.killed_for === "budget") {
@@ -226,7 +227,7 @@ export async function runTaskAction(
           isHeal || resumeExistingSession
             ? { resume: taskState.session_id ?? sessionId }
             : { id: sessionId },
-        signal: ctx.signal,
+        signal: workerSignal,
         runPolicy,
         onEvent: emit,
         onReport: (report) => writeAttemptReport(ctx, report),

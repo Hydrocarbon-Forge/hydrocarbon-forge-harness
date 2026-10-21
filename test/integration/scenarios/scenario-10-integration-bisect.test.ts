@@ -48,10 +48,12 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
     fakeClaude = fakeClaudeAdapter([
       { reply: "PLAN READY" },
       {
+        task: "T1",
         edits: { "src/t1.ts": "// t1\n" },
         reply: "Worker passed verify",
       },
       {
+        task: "T2",
         edits: { "src/t2.ts": "// t2\n" },
         reply: "Worker passed verify",
       },
@@ -59,6 +61,7 @@ describe("Scenario 10: Integration Failure -> Bisect Culprit (§14.5 #10)", () =
         reply: "Planner replanned culprit task T2\nREVISED T2",
       },
       {
+        task: "T2",
         edits: { "src/t2.ts": "// t2 fixed\n" },
         reply: "Worker passed verify",
       },

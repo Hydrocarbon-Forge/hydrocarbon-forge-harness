@@ -8,6 +8,7 @@ import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { checkBaseVerify, integrationFailureDetail, safeParseManifest } from "./shared.js";
+import { withRepoLock } from "../../git/repo-lock.js";
 import {
   advanceRunRef,
   createIntegrationWorktree,
@@ -73,10 +74,9 @@ export async function runMergeAction(
     encoding: "utf8",
   }).trim();
 
-  const integrationWorktree = await createIntegrationWorktree(
-    ctx.repoRoot,
-    ctx.runId,
-    preBatchSha
+  // R8.3: the git steps of a merge run under the repo lock; the verify commands do not.
+  const integrationWorktree = await withRepoLock(ctx.repoRoot, () =>
+    createIntegrationWorktree(ctx.repoRoot, ctx.runId, preBatchSha)
   );
   let integrationHead = preBatchSha;
 
@@ -87,7 +87,7 @@ export async function runMergeAction(
 
     let pf;
     try {
-      pf = await preflight(ctx.repoRoot, integrationHead, taskBranch);
+      pf = await withRepoLock(ctx.repoRoot, () => preflight(ctx.repoRoot, integrationHead, taskBranch));
     } catch (err: any) {
       pf = { clean: false, conflictFiles: [err?.message ?? "preflight failed"] };
     }
@@ -110,10 +110,8 @@ export async function runMergeAction(
       return;
     }
 
-    integrationHead = await mergeInto(
-      integrationWorktree,
-      taskBranch,
-      `merge: task ${taskId}`
+    integrationHead = await withRepoLock(ctx.repoRoot, () =>
+      mergeInto(integrationWorktree, taskBranch, `merge: task ${taskId}`)
     );
   }
 
@@ -123,7 +121,9 @@ export async function runMergeAction(
     ctx.settings
   );
   if (batchVerify.passed) {
-    await advanceRunRef(ctx.repoRoot, ctx.runId, integrationHead, preBatchSha);
+    await withRepoLock(ctx.repoRoot, () =>
+      advanceRunRef(ctx.repoRoot, ctx.runId, integrationHead, preBatchSha)
+    );
     for (const taskId of batch) {
       emit("task.merged", { task_id: taskId });
     }
@@ -155,10 +155,8 @@ export async function runMergeAction(
     const gen = taskState?.generation ?? 1;
     const taskBranch = getTaskBranch(ctx.runId, taskId, gen);
 
-    const newHead = await mergeInto(
-      integrationWorktree,
-      taskBranch,
-      `bisect: ${taskId}`
+    const newHead = await withRepoLock(ctx.repoRoot, () =>
+      mergeInto(integrationWorktree, taskBranch, `bisect: ${taskId}`)
     );
 
     const outcome = await verifyIn(

@@ -33,6 +33,7 @@ import { resolveTaskRoute } from "./router.js";
 import { bindAbort } from "../backends/process.js";
 import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { capBytes, HEAL_TAIL_MAX_BYTES } from "../util/index.js";
+import { withRepoLock } from "../git/repo-lock.js";
 
 /** The action's typed emit (R1.2): every event is checked against the catalog. */
 export type WorkerEmit = <T extends EventType>(
@@ -497,10 +498,9 @@ async function runAttempt(
     // Rule 9: the engine commits. An empty diff with a passing verify is a pass.
     if (scopeChanges.length > 0) {
       try {
-        await gitCommitter.commitAllowed(
-          baseline.worktreePath,
-          opts.spec,
-          `feat(task): ${opts.taskId}`
+        // R8.3: the commit writes the shared object store and refs, so it takes the repo lock.
+        await withRepoLock(opts.repoRoot, () =>
+          gitCommitter.commitAllowed(baseline.worktreePath, opts.spec, `feat(task): ${opts.taskId}`)
         );
       } catch {
         return fail("worker_crashed", "commit failed");
@@ -548,12 +548,9 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
 
   // Rule 1: the worktree path carries the run id. An existing worktree is returned,
   // never removed, so resume and heal reuse it.
-  const worktree = await workspaceManager.createTaskWorktree(
-    opts.repoRoot,
-    opts.runId,
-    opts.spec,
-    opts.generation,
-    opts.baseRef
+  // R8.3: creating the worktree and its task branch changes shared repo metadata: one at a time.
+  const worktree = await withRepoLock(opts.repoRoot, () =>
+    workspaceManager.createTaskWorktree(opts.repoRoot, opts.runId, opts.spec, opts.generation, opts.baseRef)
   );
 
   opts.onEvent?.("task.worktree.created", {

@@ -115,10 +115,17 @@ function workerBackend(settings: Settings): string | undefined {
   return settings.roles?.worker?.backend;
 }
 
+/**
+ * The READY tasks that may start now. `activeCount` is the number of workers in flight, and
+ * `reserved` names the tasks whose worker the engine has already started (R8.3): they are not
+ * offered again, and they count for overlap and the backend cap even before their state shows
+ * RUNNING.
+ */
 export function scheduleNextTasks(
   state: EngineState,
   settings: Settings,
-  activeCount: number
+  activeCount: number,
+  reserved: TaskId[] = []
 ): TaskId[] {
   if (
     state.state === "PAUSED" ||
@@ -139,8 +146,9 @@ export function scheduleNextTasks(
     return [];
   }
 
+  const reservedSet = new Set(reserved);
   const readyTasks = Object.values(state.tasks)
-    .filter((t) => t.state === "READY")
+    .filter((t) => t.state === "READY" && !reservedSet.has(t.id))
     .map((t) => t.id)
     .sort();
 
@@ -148,7 +156,14 @@ export function scheduleNextTasks(
     return [];
   }
 
-  const inFlight = inFlightTasks(state);
+  const inFlightState = inFlightTasks(state);
+  const inFlightIds = new Set(inFlightState.map((t) => t.id));
+  const inFlight = [
+    ...inFlightState,
+    ...reserved
+      .filter((id) => !inFlightIds.has(id) && state.tasks[id] !== undefined)
+      .map((id) => state.tasks[id]),
+  ];
   const overlaps = detectOverlap([
     ...inFlight.map((t) => ({ id: t.id, write: t.write ?? [], create: t.create ?? [] })),
     ...readyTasks.map((id) => {

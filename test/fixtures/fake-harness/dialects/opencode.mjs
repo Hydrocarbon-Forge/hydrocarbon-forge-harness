@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { takeCall, applyCall } from "../scenario.mjs";
+import { takeCall, applyCall, taskKeyFromCwd } from "../scenario.mjs";
 
 /**
  * OpenCode fake dialect event emitter.
@@ -257,7 +257,7 @@ export async function runDialect(argv, env) {
     sessionId = "ses_" + Math.random().toString(36).slice(2, 14);
   }
 
-  const { call } = takeCall(env.FAKE_SCENARIO_FILE);
+  const { call } = takeCall(env.FAKE_SCENARIO_FILE, taskKeyFromCwd(process.cwd()));
   applyCall(call, process.cwd());
 
   if (call.delay_ms && call.delay_ms > 0) {

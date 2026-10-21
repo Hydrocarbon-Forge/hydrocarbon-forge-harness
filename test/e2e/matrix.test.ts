@@ -478,8 +478,8 @@ const row09: MatrixRow = {
       files: { "src/shared.txt": "initial shared content\n", "contracts/types.ts": CONTRACT_STUB },
       calls: [
         planCall(contractFiles(manifestFor("Conflict", ["T1", "T2"]), { "tasks/T1.md": t1, "tasks/T2.md": t2 })),
-        { edits: { "src/shared.txt": "t1-marker\n" }, reply: "T1 done\nDONE" },
-        { edits: { "src/shared.txt": "t2-marker\n" }, reply: "T2 done\nDONE" },
+        { task: "T1", edits: { "src/shared.txt": "t1-marker\n" }, reply: "T1 done\nDONE" },
+        { task: "T2", edits: { "src/shared.txt": "t2-marker\n" }, reply: "T2 done\nDONE" },
       ],
       settings: { concurrency: { workers: 2 } },
       args: [...RUN_ARGS, "Run the conflict case"],

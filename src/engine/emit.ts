@@ -1,7 +1,8 @@
 import { parseEngineEvent } from "../contracts/events.js";
 import type { EngineEvent } from "../contracts/index.js";
-import { appendRunEvent, type EffectContext } from "./effects.js";
+import { commitEvent, type EffectContext } from "./effects.js";
 import type { EngineState } from "./reducer.js";
+import type { RunJournal } from "./journal.js";
 import { EVENT_TYPES, type EventData, type EventType } from "../contracts/events.js";
 
 /**
@@ -73,22 +74,24 @@ export function makeEmitter(
   state: EngineState
 ): { events: EngineEvent[]; emit: TypedEmit } {
   const events: EngineEvent[] = [];
-  let seq = (state as any)._seq ?? 0;
+  // R8.3: the sequence number is the run journal's, not this action's, so two actions running at
+  // once cannot number their events the same. The event is numbered, checked against the catalog,
+  // and committed (appended and reduced) in one synchronous step.
+  // A context without a journal (an action run outside the loop) gets one from the state it is given.
+  ctx.journal ??= { state, seq: (state as any)._seq ?? 0, tokens: 0 };
+  const journal: RunJournal = ctx.journal;
 
   const emit = <T extends EventType>(
     type: T,
     data: EventData<T>
   ): EngineEvent => {
-    seq++;
-    const getSeq = () => seq;
     const crashed = Boolean((ctx as any)._observabilityCrashed);
     return typedEmit(
       {
         events,
-        getSeq,
+        getSeq: () => journal.seq + 1,
         write: (evt) => {
-          if (crashed) return;
-          appendRunEvent(ctx, evt);
+          commitEvent(ctx, journal, evt, !crashed);
         },
         onEvent: ctx.onEvent && !crashed
           ? (evt) => {

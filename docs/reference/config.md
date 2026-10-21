@@ -89,7 +89,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `budgets.l2_per_run` | integer | Maximum L2 full re-plans for one run. Default 2. |
 | `budgets.planner_format_retries` | integer | Planner retries after an invalid plan: a format, contract typecheck or approval lint refusal (see the events in `cli.md`). Default 2. |
 | `budgets.approval_threshold_usd` | number | Estimated cost above which approval is required. Default 2. |
-| `concurrency.workers` | integer | Maximum number of tasks running at once. Default 3. |
+| `concurrency.workers` | integer | Maximum number of worker tasks running at once, each in its own worktree. Default 3. |
 | `defaults.planner_provider` | string | Provider whose `plan` profile slot routes the planner. |
 | `defaults.worker_provider` | string | Provider whose profile routes worker tasks and the escalation chain. |
 | `git.on_scope_violation` | `revert` or `fail` | What happens when a worker changes files outside its allowed paths. Default `revert`. |
@@ -238,7 +238,7 @@ Default: `run.max_usd` 5, `task.max_usd` 0.5, `l1_replans_per_task` 2, `l2_per_r
 
 ### `concurrency`
 
-- `workers`: the maximum number of tasks running at once. Default 3.
+- `workers`: the maximum number of worker tasks running at once, each in its own git worktree. Default 3. A task waits when the limit is reached, and a task that depends on another starts only after that task is merged. `backends.<name>.max_concurrency` also caps the processes of the worker backend (`roles.worker.backend`). A rate limit halves the number running (floor 1).
 
 ### `permissions`
 

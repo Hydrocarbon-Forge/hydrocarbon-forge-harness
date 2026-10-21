@@ -7,6 +7,7 @@ import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { checkBaseVerify, integrationFailureDetail, safeParseManifest } from "./shared.js";
+import { withRepoLock } from "../../git/repo-lock.js";
 import {
   createIntegrationWorktree,
   getRunBranch,
@@ -37,10 +38,8 @@ export async function runIntegrateAction(
     encoding: "utf8",
   }).trim();
 
-  const integrationWorktree = await createIntegrationWorktree(
-    ctx.repoRoot,
-    ctx.runId,
-    runBranchSha
+  const integrationWorktree = await withRepoLock(ctx.repoRoot, () =>
+    createIntegrationWorktree(ctx.repoRoot, ctx.runId, runBranchSha)
   );
 
   emit(

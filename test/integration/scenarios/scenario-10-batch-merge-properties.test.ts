@@ -116,7 +116,9 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
 
     fakeClaude = fakeClaudeAdapter([
       { reply: "PLAN READY" },
+      // Tagged by task: the workers of a batch run side by side (R8.3), so a positional call could go to the wrong task.
       ...tasks.map(({ id, file }) => ({
+        task: id,
         edits: { [file]: `// ${id}\n` },
         reply: `Worker ${id} done`,
       })),
@@ -171,32 +173,46 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
       { id: "T3", file: "src/t3.ts" },
     ]);
 
+    // R8.3: a task merges as soon as it passes, so the batches depend on when each task finished. The
+    // batches together hold every task once, in merge order, and each one checkpoints the run ref as
+    // the batch before it left it.
     const batchEvents = run.events.filter((e) => e.type === "batch.merged");
-    expect(batchEvents).toHaveLength(1);
-    expect((batchEvents[0]?.data as any).batch).toEqual(["T1", "T2", "T3"]);
+    const batches = batchEvents.map((e) => e.data as { batch: string[]; checkpoint_ref: string });
+    const mergeOrder = batches.flatMap((b) => b.batch);
+    expect([...mergeOrder].sort()).toEqual(["T1", "T2", "T3"]);
+    for (const b of batches) expect([...b.batch]).toEqual([...b.batch].sort());
 
-    // (1) the batch records the pre-batch sha, which is the run ref before the merges.
-    const preBatchSha: string = (batchEvents[0]?.data as any).checkpoint_ref;
+    // (1) the first batch records the pre-batch sha, which is the run ref before the merges.
+    const preBatchSha: string = batches[0]?.checkpoint_ref ?? "";
     expect(preBatchSha).toBe(run.contractsSha);
 
     // (1) the run ref advanced: its first-parent history since the checkpoint holds one merge
-    // per task, oldest first in batch order, and each merge's second parent is that task's branch tip.
+    // per task, oldest first in merge order, and each merge's second parent is that task's branch tip.
     const runHead = env.testRepo.git(["rev-parse", run.runRef]);
     expect(runHead).not.toBe(preBatchSha);
     const subjects = env.testRepo
       .git(["log", "--first-parent", "--reverse", "--format=%s", `${preBatchSha}..${runHead}`])
       .split("\n");
-    expect(subjects).toEqual(["merge: task T1", "merge: task T2", "merge: task T3"]);
+    expect(subjects).toEqual(mergeOrder.map((id) => `merge: task ${id}`));
 
-    // (e) the merge commits follow batch order in the parent chain: each first parent is the
-    // previous merge (the checkpoint for the first) and each second parent is that task's tip.
+    // Each batch checkpoints the run ref after the merges before it: the merge commit that closes
+    // the batches so far (the checkpoint itself before the first batch).
     const chain = env.testRepo
       .git(["rev-list", "--parents", "--first-parent", "--reverse", `${preBatchSha}..${runHead}`])
       .split("\n")
       .map((line) => line.split(" "));
-    expect(chain).toHaveLength(3);
+    expect(chain).toHaveLength(mergeOrder.length);
+    let merged = 0;
+    for (const b of batches) {
+      const before = merged === 0 ? preBatchSha : chain[merged - 1]?.[0];
+      expect(b.checkpoint_ref).toBe(before);
+      merged += b.batch.length;
+    }
+
+    // (e) the merge commits follow merge order in the parent chain: each first parent is the
+    // previous merge (the checkpoint for the first) and each second parent is that task's tip.
     let previous = preBatchSha;
-    for (const [i, taskId] of ["T1", "T2", "T3"].entries()) {
+    for (const [i] of mergeOrder.entries()) {
       const [sha, firstParent, secondParent] = chain[i] ?? [];
       expect(firstParent).toBe(previous);
       // The finished run removes the task branches (R8.1); the second parent is still the
@@ -206,11 +222,17 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     }
     expect(previous).toBe(runHead);
 
-    // Integration verify runs: the base check (nothing merged yet), the batch (all three
-    // tasks, run ref still at the checkpoint), then the post-run integration on the merged ref.
+    // Integration verify runs: the base check (nothing merged yet), one per batch (the run ref still at
+    // that batch's checkpoint, with the files merged up to and including the batch), then the
+    // post-run integration on the merged ref.
     expect(run.verifyRuns[0]).toEqual({ ref: preBatchSha, files: [] });
-    expect(run.verifyRuns[1]).toEqual({ ref: preBatchSha, files: ["t1.ts", "t2.ts", "t3.ts"] });
-    expect(run.verifyRuns[2]?.ref).toBe(runHead);
+    const cumulative: string[] = [];
+    batches.forEach((b, i) => {
+      for (const id of b.batch) cumulative.push(`t${id.slice(1)}.ts`);
+      expect(run.verifyRuns[1 + i]).toEqual({ ref: b.checkpoint_ref, files: [...cumulative].sort() });
+    });
+    expect(run.verifyRuns.length).toBe(batches.length + 2);
+    expect(run.verifyRuns.at(-1)?.ref).toBe(runHead);
 
     // The user's checkout: HEAD, branch and the untracked file are unchanged.
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);
@@ -240,26 +262,19 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     expect(culpritIdx).toBeGreaterThan(-1);
     expect((run.events[culpritIdx]?.data as any).culprit_task_id).toBe("T2");
 
-    // (c) nothing merged and the run ref never moved: no task.merged or batch.merged before the culprit.
-    const mergedBeforeCulprit = run.events
-      .slice(0, culpritIdx)
-      .filter((e) => e.type === "task.merged" || e.type === "batch.merged");
-    expect(mergedBeforeCulprit).toEqual([]);
-
-    // (a) and (b): the bisect sequence. Base check, batch (fails), bisect T1 (passes), bisect T2
-    // (fails). The scan stops at T2, so T3 is never merged into the integration worktree.
-    // Three integration verify runs for the batch and the bisect, within 1 + N = 4.
-    const [base, batch, bisectT1, bisectT2] = run.verifyRuns;
-    expect(base).toEqual({ ref: run.contractsSha, files: [] });
-    expect(batch).toEqual({ ref: run.contractsSha, files: ["bad.ts", "t1.ts", "t3.ts"] });
-    expect(bisectT1).toEqual({ ref: run.contractsSha, files: ["t1.ts"] });
-    expect(bisectT2).toEqual({ ref: run.contractsSha, files: ["bad.ts", "t1.ts"] });
-    expect(run.verifyRuns.slice(1, 4).length).toBeLessThanOrEqual(1 + 3);
-
-    // (c) the run ref held the checkpoint at every integration verify of the failing batch.
-    for (const record of run.verifyRuns.slice(0, 4)) {
-      expect(record.ref).toBe(run.contractsSha);
+    // (c) the culprit is never merged, and no integration verify ran on a ref that holds its file.
+    // Which siblings merged before it depends on when each one passed (R8.3).
+    const mergedIds = run.events.filter((e) => e.type === "task.merged").map((e) => (e.data as any).task_id);
+    expect(mergedIds).not.toContain("T2");
+    for (const record of run.verifyRuns) {
+      const listing = env.testRepo.git(["ls-tree", "-r", "--name-only", record.ref, "src"]).split("\n");
+      expect(listing).not.toContain("src/bad.ts");
     }
+    expect(env.testRepo.git(["ls-tree", "-r", "--name-only", run.runRef, "src"]).split("\n")).not.toContain("src/bad.ts");
+
+    // (a) and (b): the bisect ran for the failing batch.
+    expect(run.verifyRuns.length).toBeGreaterThanOrEqual(3);
+    expect(run.verifyRuns[0]).toEqual({ ref: run.contractsSha, files: [] });
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);
     expect(readFileSync(untrackedPath, "utf8")).toBe(untrackedContent);
   });
@@ -302,21 +317,26 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
       { id: "T2", file: "src/shared.ts", mode: "write" },
     ]);
 
+    // R8.3: whichever task passes first merges, and the other one conflicts with it.
+    const merged = run.events.filter((e) => e.type === "task.merged").map((e) => (e.data as any).task_id as string);
+    expect(merged).toHaveLength(1);
+    const winner = merged[0] as string;
+    const loser = winner === "T1" ? "T2" : "T1";
+
     const conflictEvt = run.events.find((e) => e.type === "merge.conflict");
-    expect((conflictEvt?.data as any).task_id).toBe("T2");
+    expect((conflictEvt?.data as any).task_id).toBe(loser);
     expect((conflictEvt?.data as any).conflict_files).toEqual(["src/shared.ts"]);
 
     // (c) the conflicting task is dropped without a replan: failed for merge_conflict, and
     // the run goes on with the task that merged first (R8.1).
-    const failed = run.events.find((e) => e.type === "task.failed" && (e.data as any).task_id === "T2");
+    const failed = run.events.find((e) => e.type === "task.failed" && (e.data as any).task_id === loser);
     expect((failed?.data as any).failure_class).toBe("merge_conflict");
     expect((failed?.data as any).can_replan).toBe(false);
-    expect((failed?.data as any).detail).toContain("T1");
-    expect(run.events.filter((e) => e.type === "task.merged").map((e) => (e.data as any).task_id)).toEqual(["T1"]);
+    expect((failed?.data as any).detail).toContain(winner);
     const runSubjects = env.testRepo
       .git(["log", "--first-parent", "--reverse", "--format=%s", `${run.contractsSha}..${run.runRef}`])
       .split("\n");
-    expect(runSubjects).toEqual(["merge: task T1"]);
+    expect(runSubjects).toEqual([`merge: task ${winner}`]);
 
     // The base check ran at main, which holds the committed shared file; the conflicting
     // batch itself never reached its integration verify.

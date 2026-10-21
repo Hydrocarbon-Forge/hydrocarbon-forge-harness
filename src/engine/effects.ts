@@ -9,7 +9,7 @@ import type {
 } from "../contracts/index.js";
 import { type EventType, type EventData, parseEngineEvent } from "../contracts/events.js";
 import type { AdapterMap } from "../backends/registry.js";
-import { type EngineState, reduce, type TaskRuntimeState } from "./reducer.js";
+import { type EngineState, type TaskRuntimeState } from "./reducer.js";
 import { log } from "../util/log.js";
 import { makeEmitter } from "./emit.js";
 import type { Emit } from "./actions/shared.js";
@@ -32,6 +32,8 @@ import { runIntegrateAction } from "./actions/integrate.js";
 import { runApproveAction } from "./actions/approve.js";
 import { runFinishAction, finishAction } from "./actions/finish.js";
 import { getTaskBranch, sweepRunWorkspaces } from "../git/index.js";
+import { withRepoLock } from "../git/repo-lock.js";
+import { applyJournalEvent, usageTokensOf, type RunJournal } from "./journal.js";
 
 export { safeParseManifest, safeLoadPlan } from "./actions/shared.js";
 
@@ -70,6 +72,11 @@ export interface EffectContext {
   /** Which run budget warnings have fired, so the 80 percent warning is emitted once. */
   budgetWarned?: { cost: boolean; tokens: boolean };
   signal?: AbortSignal;
+  /**
+   * Stops every in-flight worker of the run at once (R8.3): a run budget stop, a run pause or
+   * a finished run aborts it. Workers listen to it together with `signal`.
+   */
+  runStop?: AbortController;
   onEvent?: (event: EngineEvent) => void;
   prompt?: string;
   mode?: "auto" | "solo" | "plan";
@@ -79,6 +86,8 @@ export interface EffectContext {
   /** Whether integration_verify passed on the base commit (set once, by the base check). */
   baseVerifyPassed?: boolean;
   store?: EventStoreImpl;
+  /** The live journal of the run (R8.3), set by runEffectsLoop. */
+  journal?: RunJournal;
 }
 
 function isTerminal(state: EngineState): boolean {
@@ -122,10 +131,18 @@ function topologicalOrder(tasks: TaskRuntimeState[]): TaskId[] {
     .map((t) => t.id);
 }
 
+/** What the effects loop knows about the work already in flight (R8.3). */
+export interface NextActionLimits {
+  /** Effective worker concurrency for this run. */
+  concurrency: number;
+  /** Tasks whose worker (or heal) action the loop has already started and not yet finished. */
+  running?: TaskId[];
+}
+
 export function nextActions(
   state: EngineState,
   settings: Settings,
-  limits?: { concurrency: number }
+  limits?: NextActionLimits
 ): EngineAction[] {
   if (isTerminal(state)) {
     return [];
@@ -164,10 +181,8 @@ export function nextActions(
         return [{ type: "integration" }];
       }
 
+      const running = limits?.running ?? [];
       const healingTasks = tasks.filter((t) => t.state === "HEALING");
-      if (healingTasks.length > 0) {
-        return healingTasks.map((t) => ({ type: "heal", taskId: t.id }));
-      }
 
       const replanTasks = tasks.filter(
         (t) =>
@@ -177,7 +192,9 @@ export function nextActions(
               t.failure_class !== "permission_denied" &&
               t.failure_class !== "rate_limited"))
       );
-      if (replanTasks.length > 0) {
+      // A pending replan changes the plan, so it runs alone: the loop starts nothing else
+      // until the in-flight actions have settled. Heals go first, as before.
+      if (healingTasks.length === 0 && replanTasks.length > 0) {
         return replanTasks.map((t) => ({ type: "replan", taskId: t.id }));
       }
 
@@ -187,30 +204,38 @@ export function nextActions(
           t.state === "SCOPE_CHECK" ||
           t.state === "VERIFYING"
       );
-
-      // Dependents move as soon as a passed task is merged, without waiting for
-      // every task to pass.
-      if (inFlightTasks.length === 0) {
-        const passedTasks = tasks.filter((t) => t.state === "PASSED" || t.state === "MERGING");
-        if (passedTasks.length > 0) {
-          return [{ type: "merge", batch: topologicalOrder(passedTasks) }];
-        }
-      }
+      const busy = inFlightTasks.length > 0 || running.length > 0;
+      const passedTasks = tasks.filter((t) => t.state === "PASSED" || t.state === "MERGING");
 
       // The effective limit comes from the run copy, never from a mutated settings
       // object. The copy keeps every other field so the scheduler's own budget rules
-      // still see them.
+      // still see them. Tasks the loop already runs are not offered again, and they take
+      // their slots from the limit.
       const effectiveConcurrency = limits?.concurrency ?? settings.concurrency.workers;
       const scheduled = scheduleNextTasks(
         state,
         { ...settings, concurrency: { workers: effectiveConcurrency } },
-        inFlightTasks.length
-      );
-      if (scheduled.length > 0) {
-        return scheduled.map((taskId) => ({ type: "worker", taskId }));
+        Math.max(inFlightTasks.length, running.length),
+        running
+      ).map((taskId) => ({ type: "worker", taskId }) as EngineAction);
+
+      const healActions = healingTasks.map((t) => ({ type: "heal", taskId: t.id }) as EngineAction);
+
+      // Dependents move as soon as a passed task is merged. A merge may run while workers are
+      // still in flight (R8.3): the loop runs at most one merge at a time.
+      if (passedTasks.length > 0) {
+        const merge: EngineAction = { type: "merge", batch: topologicalOrder(passedTasks) };
+        if (!busy && healActions.length === 0) {
+          return [merge];
+        }
+        return [...healActions, merge, ...scheduled];
       }
 
-      if (inFlightTasks.length > 0) {
+      if (healActions.length > 0 || scheduled.length > 0) {
+        return [...healActions, ...scheduled];
+      }
+
+      if (busy) {
         return [];
       }
 
@@ -285,6 +310,29 @@ export function appendRunEvent(ctx: EffectContext, event: EngineEvent): void {
   storeFor(ctx).appendSync(event);
 }
 
+/**
+ * Commits one event to the run (R8.3): it is appended to the log (unless the observer has crashed,
+ * then it is not persisted), its usage is written to the ledger, and it is reduced into the live
+ * journal. The whole step is synchronous, so events from concurrent workers are committed one at a
+ * time, in emission order, and the reduced state is always the replay of the log.
+ */
+export function commitEvent(
+  ctx: EffectContext,
+  journal: RunJournal,
+  evt: EngineEvent,
+  persist: boolean
+): void {
+  if (persist) {
+    appendRunEvent(ctx, evt);
+    if (evt.type === "usage.recorded") {
+      appendUsageForEvent(ctx, evt);
+    }
+  }
+  journal.seq = evt.seq;
+  journal.tokens += usageTokensOf(evt);
+  journal.state = applyJournalEvent(journal.state, evt);
+}
+
 // Budget check per R1.4 and R3.4: after each usage.recorded the action compares the
 // running total with settings.budgets.run.max_usd and budgets.run.max_tokens. The
 // 80 percent warning is emitted once per run; at 100 percent the run pauses and the
@@ -296,6 +344,11 @@ export function checkRunBudget(
   currentTotal: number,
   currentTokens?: number
 ): boolean {
+  // R8.3: a run that is already paused (another worker's budget stop) is stopped silently.
+  if (ctx.journal?.state.state === "PAUSED") {
+    return true;
+  }
+
   const warned = (ctx.budgetWarned ??= { cost: false, tokens: false });
 
   const maxUsd = ctx.settings.budgets?.run?.max_usd;
@@ -372,52 +425,64 @@ function appendUsageForEvent(ctx: EffectContext, evt: EngineEvent): void {
   }
 }
 
+/** The kind of an action for scheduling (R8.3): workers run side by side, merges one at a time, the rest alone. */
+function kindOf(action: EngineAction): "worker" | "merge" | "exclusive" {
+  if (action.type === "worker" || action.type === "heal") return "worker";
+  if (action.type === "merge") return "merge";
+  return "exclusive";
+}
+
+function keyOf(action: EngineAction): string {
+  if (kindOf(action) === "worker") return `task:${action.taskId ?? "SOLO"}`;
+  if (action.type === "merge") return "merge";
+  return `${action.type}:${action.taskId ?? ""}`;
+}
+
+interface Flight {
+  kind: "worker" | "merge" | "exclusive";
+  taskId?: TaskId;
+  promise: Promise<void>;
+}
+
+/**
+ * Runs a run's actions until it reaches a terminal state (R8.3). Up to `concurrency.workers`
+ * worker actions run at once, each in its own worktree; a merge runs one at a time and may overlap
+ * the workers; any other action runs alone once nothing else is in flight. When an action finishes
+ * its events are already committed, dependents are settled, and the scheduler is asked again at
+ * once. A terminal state (budget, rate limit pause, interrupt) stops every in-flight worker through
+ * `runStop`, and the loop returns only when all of them have settled.
+ */
 export async function runEffectsLoop(
   ctx: EffectContext,
   initialState: EngineState
 ): Promise<EngineState> {
   const store = storeFor(ctx);
   const existingEvents = store.readAllSync();
-  let seq = existingEvents.length > 0 ? existingEvents[existingEvents.length - 1].seq : 0;
-  let persistedSeqs: Set<number> | undefined = undefined;
-
-  let state = initialState;
+  const journal: RunJournal = {
+    state: initialState,
+    seq: existingEvents.length > 0 ? existingEvents[existingEvents.length - 1].seq : 0,
+    tokens: existingEvents.reduce((total, evt) => total + usageTokensOf(evt), 0),
+  };
+  ctx.journal = journal;
+  const runStop = new AbortController();
+  ctx.runStop = runStop;
 
   // The loop emits the events it derives itself (promotions, blocks, the stall
-  // result), so every state change is still an appended event.
-  const emitLoopEvent = <T extends EventType>(type: T, data: EventData<T>): EngineEvent => {
-    const emitter = makeEmitter(ctx, { ...(state as any), _seq: seq } as EngineState);
-    const evt = emitter.emit(type, data);
-    seq = evt.seq;
-    return evt;
-  };
-
-  const applyEvent = (evt: EngineEvent): EngineState => {
-    state = reduce(state, evt);
-    if (evt.type === "run.finished") {
-      state = {
-        ...state,
-        state: (evt.data as any)?.exit_code === 0 ? "FINISHED" : "FAILED",
-      };
-    }
-    (state as any)._seq = seq;
-    return state;
-  };
+  // result). Each one is committed to the journal as it is emitted.
+  const emitLoopEvent = <T extends EventType>(type: T, data: EventData<T>): EngineEvent =>
+    makeEmitter(ctx, journal.state).emit(type, data);
 
   const settleDependents = (): void => {
-    for (const taskId of blockedPendingTasks(state)) {
+    for (const taskId of blockedPendingTasks(journal.state)) {
       // The dependent never runs: it is skipped, and the event says which upstream
       // task failed (or was itself skipped) so the log and the summary can say why.
-      const deps = state.tasks[taskId]?.depends_on ?? [];
-      const failed = deps.filter((d) => state.tasks[d]?.state === "BLOCKED");
-      const skipped = deps.filter((d) => state.tasks[d]?.state === "ABANDONED");
-      const emitter = makeEmitter(ctx, { ...(state as any), _seq: seq } as EngineState);
-      const evt = emitter.emit("task.skipped", { task_id: taskId, reason: "dependency_failed", failed, skipped });
-      seq = evt.seq;
-      applyEvent(evt);
+      const deps = journal.state.tasks[taskId]?.depends_on ?? [];
+      const failed = deps.filter((d) => journal.state.tasks[d]?.state === "BLOCKED");
+      const skipped = deps.filter((d) => journal.state.tasks[d]?.state === "ABANDONED");
+      makeEmitter(ctx, journal.state).emit("task.skipped", { task_id: taskId, reason: "dependency_failed", failed, skipped });
     }
-    for (const taskId of promoteReadyTasks(state)) {
-      applyEvent(emitLoopEvent("task.ready", { task_id: taskId }));
+    for (const taskId of promoteReadyTasks(journal.state)) {
+      emitLoopEvent("task.ready", { task_id: taskId });
     }
   };
 
@@ -427,73 +492,120 @@ export async function runEffectsLoop(
   // promotions, so they are emitted here, before the first action is chosen and
   // therefore before the stall check. Only the resume entry (engine.ts) starts the
   // loop in EXECUTING; a fresh run enters in CREATED and setup releases the first batch.
-  if (state.state === "EXECUTING") {
-    for (const taskId of unreleasedRootTasks(state)) {
-      applyEvent(emitLoopEvent("task.ready", { task_id: taskId }));
+  if (journal.state.state === "EXECUTING") {
+    for (const taskId of unreleasedRootTasks(journal.state)) {
+      emitLoopEvent("task.ready", { task_id: taskId });
     }
     settleDependents();
   }
 
-  while (!isTerminal(state)) {
+  const flights = new Map<string, Flight>();
+  let halted = false;
+  let fatal: { error: unknown } | undefined;
+
+  /** Stops every in-flight worker; the loop then waits for them to settle. */
+  const stopWorkers = (): void => {
+    if (!runStop.signal.aborted) runStop.abort();
+  };
+
+  const halt = (): void => {
+    halted = true;
+    stopWorkers();
+  };
+
+  const start = (action: EngineAction): void => {
+    const key = keyOf(action);
+    const promise = executeAction(action, ctx, journal.state).then(
+      () => {
+        flights.delete(key);
+      },
+      (error: unknown) => {
+        flights.delete(key);
+        if (!fatal) fatal = { error };
+        halt();
+      }
+    );
+    flights.set(key, { kind: kindOf(action), taskId: action.taskId, promise });
+  };
+
+  const runningTasks = (): TaskId[] =>
+    [...flights.values()]
+      .filter((f) => f.kind === "worker" && f.taskId !== undefined)
+      .map((f) => f.taskId as TaskId);
+
+  /** Decides what starts now, or ends the run when nothing can run (the loop's one decision point). */
+  const plan = (): void => {
     if (ctx.signal?.aborted) {
-      applyEvent(emitLoopEvent("run.paused", { reason: "user_cancel" }));
-      break;
+      if (!isTerminal(journal.state)) {
+        emitLoopEvent("run.paused", { reason: "user_cancel" });
+      }
+      halt();
+      return;
+    }
+    if (isTerminal(journal.state)) {
+      halt();
+      return;
     }
 
-    const actions = nextActions(state, ctx.settings, { concurrency: ctx.concurrency });
+    const actions = nextActions(journal.state, ctx.settings, {
+      concurrency: ctx.concurrency,
+      running: runningTasks(),
+    });
+
     if (actions.length === 0) {
-      log.debug("[DEBUG] runEffectsLoop: no actions while state is", state.state);
+      if (flights.size > 0) return;
+      log.debug("[DEBUG] runEffectsLoop: no actions while state is", journal.state.state);
       // Nothing can run: a task that failed for good (or was skipped) is the reason, not a
       // stall. The reason names the failed tasks so a caller reads it in the summary.
-      const failedIds = Object.values(state.tasks)
+      const failedIds = Object.values(journal.state.tasks)
         .filter((t) => t.state === "BLOCKED")
         .map((t) => t.id)
         .sort((a, b) => a.localeCompare(b));
       const reason = failedIds.length > 0 ? "tasks_failed" : "stalled";
-      applyEvent(
-        emitLoopEvent("run.finished", {
-          exit_code: 1,
-          status: "failed",
-          reason,
-          ...(failedIds.length > 0 ? { failed_tasks: failedIds } : {}),
-        })
-      );
-      break;
+      emitLoopEvent("run.finished", {
+        exit_code: 1,
+        status: "failed",
+        reason,
+        ...(failedIds.length > 0 ? { failed_tasks: failedIds } : {}),
+      });
+      halt();
+      return;
+    }
+
+    // A budget stop: the in-flight workers stop now, and the abort action runs once they
+    // have settled (it is exclusive).
+    if (actions.some((a) => a.type === "abort")) {
+      stopWorkers();
+    }
+
+    if ([...flights.values()].some((f) => f.kind === "exclusive")) return;
+
+    const exclusive = actions.filter((a) => kindOf(a) === "exclusive");
+    if (exclusive.length > 0) {
+      if (flights.size === 0) start(exclusive[0]);
+      return;
     }
 
     for (const action of actions) {
-      (state as any)._seq = seq;
-      const crashedBefore = Boolean((ctx as any)._observabilityCrashed);
-      const actionEvents = await executeAction(action, ctx, state);
-
-      // Usage ledger: one line per persisted usage.recorded event. Events
-      // emitted after an observer crash are not in the log, so they must not
-      // reach the ledger either.
-      if ((ctx as any)._observabilityCrashed && !crashedBefore) {
-        persistedSeqs = new Set(store.readAllSync().map((e) => e.seq));
-      }
-      for (const evt of actionEvents) {
-        if (evt.type === "usage.recorded") {
-          if (persistedSeqs && !persistedSeqs.has(evt.seq)) continue;
-          appendUsageForEvent(ctx, evt);
-        }
-      }
-
-      for (const evt of actionEvents) {
-        if (typeof evt.seq === "number") {
-          seq = evt.seq;
-        }
-        log.debug("[DEBUG] evt:", evt.type, evt.data);
-        applyEvent(evt);
-      }
-      settleDependents();
-
-      if (isTerminal(state)) {
-        break;
-      }
+      if (flights.has(keyOf(action))) continue;
+      if (kindOf(action) === "merge" && [...flights.values()].some((f) => f.kind === "merge")) continue;
+      if (runStop.signal.aborted) continue;
+      start(action);
     }
+  };
+
+  for (;;) {
+    if (!halted) plan();
+    if (flights.size === 0) break;
+    await Promise.race([...flights.values()].map((f) => f.promise));
+    settleDependents();
   }
 
+  if (fatal) {
+    throw fatal.error;
+  }
+
+  const state = journal.state;
   if (state.state === "FINISHED" || state.state === "FAILED") {
     // A finished or failed run leaves no worktree or task branch behind. The work of
     // every task that did not merge is saved under packets/ first, so it stays evidence.
@@ -504,7 +616,7 @@ export async function runEffectsLoop(
       unmerged.set(`${task.id}-g${generation}`, getTaskBranch(ctx.runId, task.id, generation));
     }
     try {
-      sweepRunWorkspaces(ctx.repoRoot, ctx.runId, ctx.runDir, unmerged);
+      await withRepoLock(ctx.repoRoot, () => sweepRunWorkspaces(ctx.repoRoot, ctx.runId, ctx.runDir, unmerged));
     } catch (err: any) {
       log.warn(`failed to remove the run's worktrees and task branches: ${err?.message ?? String(err)}`);
     }

@@ -242,6 +242,26 @@ describe("heartbeat", () => {
     void f.flush();
   });
 
+  it("names every worker that is running at once (R8.3): running T1, T2 while two sessions run, then the one left", () => {
+    const out = sink();
+    const f = createFormatter("text", out, sink(), { models: MODELS });
+    f.onEvent(ev("run.created", { mode: "plan" }));
+    f.onEvent(ev("plan.started", {}));
+    f.onEvent(ev("plan.approved", {}));
+    f.onEvent(ev("task.session.started", { task_id: "T2", generation: 1, attempt: 1, session_id: "s2" }));
+    f.onEvent(ev("task.session.started", { task_id: "T1", generation: 1, attempt: 1, session_id: "s1" }));
+    vi.advanceTimersByTime(15_000);
+    f.onEvent(ev("task.session.ended", { task_id: "T1", generation: 1, attempt: 1 }));
+    f.onEvent(ev("task.verify.started", { task_id: "T1", generation: 1, attempt: 1 }));
+    vi.advanceTimersByTime(15_000);
+    const beats = out.lines().filter((l) => l.includes("still working"));
+    expect(beats).toEqual([
+      "[00:15] still working: running T1, T2 (15s; cost is reported when this step ends)",
+      "[00:30] still working: task T2 running (15s; cost is reported when this step ends)",
+    ]);
+    void f.flush();
+  });
+
   it("shows no dollar amount before the first usage record, and the running total after it", () => {
     const out = sink();
     const f = createFormatter("text", out, sink(), { models: MODELS });

@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
-import { takeCall, applyCall } from "../scenario.mjs";
+import { takeCall, applyCall, taskKeyFromCwd } from "../scenario.mjs";
 
 /**
  * Emit raw NDJSON lines for the agy dialect.
@@ -541,7 +541,7 @@ export async function runDialect(argv, env) {
     conversationId = crypto.randomUUID();
   }
 
-  const { call } = takeCall(env.FAKE_SCENARIO_FILE);
+  const { call } = takeCall(env.FAKE_SCENARIO_FILE, taskKeyFromCwd(process.cwd()));
   applyCall(call, process.cwd());
 
   if (call.delay_ms && call.delay_ms > 0) {

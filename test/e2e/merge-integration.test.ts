@@ -164,13 +164,15 @@ describe("E2E merge & integration worktree (R3.6)", () => {
               "tasks/T2.md": t2Spec,
               "contracts/types.ts": CONTRACT_STUB,
             }),
-            // T1 worker modifies src/shared.txt
+            // T1 worker modifies src/shared.txt (tagged: with two workers at once, R8.3)
             {
+              task: "T1",
               edits: { "src/shared.txt": "t1-marker\n" },
               reply: "T1 completed\nDONE",
             },
             // T2 worker modifies src/shared.txt with conflicting lines
             {
+              task: "T2",
               edits: { "src/shared.txt": "t2-marker\n" },
               reply: "T2 completed\nDONE",
             },

@@ -129,7 +129,9 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
 
       // Each iteration can consume up to one planner call in the crashed run plus one in
       // the resumed run and one call per task; the calls are interchangeable because the
-      // finish line and the file writes are what the engine checks.
+      // finish line and the file writes are what the engine checks. T1 and T2 are independent,
+      // so with concurrency.workers 3 (R8.3) both can be in flight at the cut, and the resumed
+      // run then needs a call for each of them: two spare worker calls cover that.
       const claude = fakeClaudeAdapter([
         {
           reply: "wrote manifest.yaml and the task specs\nPLAN READY",
@@ -137,6 +139,14 @@ describe("Scenario 11: Kill and resume at every event boundary (§14.5 #11)", ()
         },
         {
           reply: "wrote the corrected plan\nPLAN READY",
+          edits: { "src/t2.ts": "// t2\n", "test/t2.test.ts": "// test\n" },
+        },
+        {
+          reply: "Worker passed verify",
+          edits: { "src/t1.ts": "// t1\n", "test/t1.test.ts": "// test\n" },
+        },
+        {
+          reply: "Worker passed verify",
           edits: { "src/t2.ts": "// t2\n", "test/t2.test.ts": "// test\n" },
         },
         {

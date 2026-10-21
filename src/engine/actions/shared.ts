@@ -17,6 +17,7 @@ import {
 import { resolveBaseRef } from "../../git/base-ref.js";
 import { createIntegrationWorktree, verifyIn, type VerifyFailure } from "../../git/index.js";
 import { withoutRootPaths } from "../../roles/planner.js";
+import { withRepoLock } from "../../git/repo-lock.js";
 import { redactSecrets, takeTail } from "../../util/index.js";
 
 export type Emit = TypedEmit;
@@ -41,7 +42,9 @@ export async function checkBaseVerify(
   if (verifyCommands.length === 0 || ctx.baseChecked) return;
   ctx.baseChecked = true;
   const baseSha = resolveBaseRef(ctx.repoRoot, manifest?.base_ref).sha;
-  const baseWt = await createIntegrationWorktree(ctx.repoRoot, ctx.runId, baseSha);
+  const baseWt = await withRepoLock(ctx.repoRoot, () =>
+    createIntegrationWorktree(ctx.repoRoot, ctx.runId, baseSha)
+  );
   ctx.baseVerifyPassed = (await verifyIn(baseWt, verifyCommands, ctx.settings)).passed;
 }
 
