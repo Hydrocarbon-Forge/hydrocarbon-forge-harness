@@ -150,6 +150,28 @@ function ageText(seconds: number): string {
   return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
 }
 
+/**
+ * The one status word a run's header shows, with its reason (R11.1): `paused: budget`, `paused: needs
+ * your answers`, `paused: stopped by you (user_cancel)`, `stopped (process gone)`. The JSON `status` field
+ * keeps its own values; this is the text form only.
+ */
+export function headerWordOf(record: RunRecord): string {
+  switch (record.status) {
+    case "interrupted":
+      return "paused: stopped by you (user_cancel)";
+    case "paused": {
+      const reason = record.state.pause_reason;
+      if (reason === "needs_human") return "paused: needs your answers";
+      if (reason === "budget_exhausted") return "paused: budget";
+      return `paused: ${reason ?? "paused"}`;
+    }
+    case "stopped":
+      return "stopped (process gone)";
+    default:
+      return record.status;
+  }
+}
+
 /** The lines a live header names for a run: its phase, process, tasks, log and next commands (R10.2). */
 function liveHeader(
   record: RunRecord,
@@ -166,11 +188,19 @@ function liveHeader(
   // R11.1: the budget the run records (its run.created, or a resume that replaced it), else the setting.
   const budget = recordedRunOptions(record.events).max_budget_usd ?? settings?.budgets?.run?.max_usd;
   const lastActivity = record.lastEventAt !== undefined ? Math.max(0, Math.floor((now - record.lastEventAt) / 1000)) : undefined;
-  const processLine = record.process === undefined
-    ? record.terminal ? "Process: none (the run has ended)" : `Process: not running (stopped; resume with: substrate resume ${id})`
-    : record.process.alive
-      ? `Process: pid ${record.process.pid} alive`
-      : `Process: not running (stopped; resume with: substrate resume ${id})`;
+  // R11.1: a paused or planned run is not over; its process line names the next step, not "ended".
+  const paused = record.state.state === "PAUSED";
+  const planned = record.state.state === "PLANNED";
+  const over = record.terminal && !paused && !planned;
+  const processLine = record.process?.alive === true
+    ? `Process: pid ${record.process.pid} alive`
+    : over
+      ? "Process: none (the run has ended)"
+      : paused
+        ? `Process: none (paused; resume with: substrate resume ${id})`
+        : planned
+          ? `Process: none (planned; resume with: substrate resume ${id})`
+          : `Process: not running (stopped; resume with: substrate resume ${id})`;
   const cost = formatCost(record.state.usage.total_usd);
   const budgetText = budget !== undefined && budget !== null ? ` (budget $${Number(budget).toFixed(2)})` : "";
   const countText = [
@@ -181,9 +211,9 @@ function liveHeader(
     ...(counts.skipped > 0 ? [`${counts.skipped} skipped`] : []),
   ].join(", ");
   const lines = [
-    `Run ${id}  ${record.status}   elapsed ${formatElapsed(elapsedS * 1000)}   request: ${requestPreview(request)}`,
+    `Run ${id}  ${headerWordOf(record)}   elapsed ${formatElapsed(elapsedS * 1000)}   request: ${requestPreview(request)}`,
     `Planner ${planner ?? "-"}   Worker ${worker ?? "-"}   merge: ${merge}`,
-    `Phase:  ${record.terminal ? "ended" : (progress?.phase ?? "-")}     last activity ${lastActivity !== undefined ? `${lastActivity}s ago` : "never"}     Cost ${cost}${budgetText}`,
+    `Phase:  ${paused ? "paused" : planned ? "planned" : record.terminal ? "ended" : (progress?.phase ?? "-")}     last activity ${lastActivity !== undefined ? `${lastActivity}s ago` : "never"}     Cost ${cost}${budgetText}`,
     processLine,
     `Tasks: ${countText}`,
   ];
@@ -358,14 +388,9 @@ export const statusCommand: CliCommand = {
       const files = [outcome.summary_path !== undefined ? "summary.txt" : undefined, outcome.result_path !== undefined ? "result.json" : undefined];
       ctx.stdout.write(`Outcome: ${files.filter((f) => f !== undefined).join(", ")} in .substrate/runs/${record.runId}/\n`);
     }
+    // R11.1: the run id, state, reason, task counts and cost are in the header above; this block keeps only
+    // what the header does not show: the pending questions and the task table.
     ctx.stdout.write(`\n=== Run Status ===\n`);
-    ctx.stdout.write(`Run ID:      ${state.run_id || targetRunId}\n`);
-    ctx.stdout.write(`State:       ${state.state}\n`);
-    if (state.pause_reason) {
-      ctx.stdout.write(`Pause Reason: ${state.pause_reason}\n`);
-    }
-    ctx.stdout.write(`Tasks:       ${passedCount}/${taskCount} passed\n`);
-    ctx.stdout.write(`Total Cost:  $${state.usage.total_usd.toFixed(2)}\n`);
 
     if (pendingQuestions && pendingQuestions.length > 0) {
       ctx.stdout.write(`\nPending Questions:\n`);

@@ -248,10 +248,10 @@ substrate status [--output-format json] [run-id]
 
 Shows a run's state, its tasks and any pause reason. Without a run id it uses the most recent run in `.substrate/runs/`. With no runs it exits 2 with `No run found to display status`. It never takes the run lock and never writes, so it works while the run is live, paused, failed or finished.
 
-The text starts with a live header, then the older block (its lines are unchanged):
+The text starts with a live header, then the `=== Run Status ===` block, which keeps only the pending questions and the task table (R11.1). Each fact is printed once: the run id, the state with its reason, the task counts and the cost are in the header. Costs have four decimals; the budget shows two.
 
 ```text
-Run r_BHS2PJJ53GQG  stopped   elapsed 00:03   request: make a snake game
+Run r_BHS2PJJ53GQG  stopped (process gone)   elapsed 00:03   request: make a snake game
 Planner claude:claude-sonnet-5-5   Worker claude:haiku   merge: on
 Phase:  finishing     last activity 3s ago     Cost $0.0000 (budget $5.00)
 Process: not running (stopped; resume with: substrate resume r_BHS2PJJ53GQG)
@@ -261,9 +261,9 @@ Log:   .substrate/runs/r_BHS2PJJ53GQG/progress.log
 Next:  substrate resume r_BHS2PJJ53GQG
 ```
 
-- the status word: `running` (the process holds the lock), `stopped` (no terminal event and no live process), `planned` (a plan-only run, ready for review: resume it to run the plan), `finished`, `failed`, `paused`, `interrupted` or `cancelled`
-- `Phase:` is the phase the run's progress lines name (`running T1, T3` while two workers run), and `ended` once the run has ended; `last activity` is the age of its newest event
-- `Process:` is `pid <n> alive` for a live process, `not running` for a stopped run, and `none (the run has ended)` for a finished one
+- the status word, with its reason (R11.1): `running` (the process holds the lock), `stopped (process gone)` (no terminal event and no live process), `planned` (a plan-only run, ready for review: resume it to run the plan), `finished`, `failed`, `cancelled`, `paused: budget`, `paused: needs your answers`, `paused: stopped by you (user_cancel)` (a stop or Ctrl+C), or `paused: <reason>` for other pauses. The JSON `status` field keeps its own values (`paused`, `interrupted`, `stopped`, ...).
+- `Phase:` is the phase the run's progress lines name (`running T1, T3` while two workers run), `paused` for a paused run, `planned` for a planned one, and `ended` once the run is over; `last activity` is the age of its newest event
+- `Process:` is `pid <n> alive` for a live process, `none (paused; resume with: substrate resume <id>)` for a paused run, `none (planned; resume with: ...)` for a planned one, `not running (stopped; resume with: ...)` for a stopped run, and `none (the run has ended)` for a finished or failed one
 - one row per task: id, title, state (`passed`, `running`, `failed`, `waiting` or `skipped`), generation, attempt, cost, `merged`, or the failure class, or `after <deps>`
 - `Next:` is the command a caller runs next: `substrate watch <id>` while running, `substrate resume <id>` when stopped or paused, `substrate merge <id>` for a finished run that is not merged
 - a run that has ended names its `summary.txt` and `result.json` on an `Outcome:` line

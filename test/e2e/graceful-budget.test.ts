@@ -174,6 +174,39 @@ describe("R11.1: the run budget is recorded and reused by a resume", () => {
     }
   }, 180000);
 
+  it("status says each fact once: the paused word and reason, Phase paused, the resume as the next step, and costs with four decimals", () => {
+    const repo = createE2ERepo(SEED);
+    const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-scenario-r111-text-"));
+    const scenarioPath = join(scenarioDir, "scenario.json");
+    const { env, homeDir } = setup(repo, scenarioPath, [planC, t1Edit, t2Edit]);
+    try {
+      const stopped = spawnSync(process.execPath, [substrateMjs, ...RUN_ARGS, "--max-budget-usd", "0.40", "Budget text"], {
+        cwd: repo.dir,
+        env,
+        encoding: "utf8",
+        timeout: 120000,
+      });
+      const runId = readdirSync(join(repo.dir, ".substrate", "runs")).sort().at(-1) as string;
+      expect(stopped.status).toBe(4);
+      const text = statusOf(repo.dir, env, runId);
+      const header = text.split("\n")[0];
+      expect(header).toMatch(new RegExp(`^Run ${runId}  paused: budget   elapsed`));
+      expect(text).toContain("Phase:  paused");
+      expect(text).toContain(`Process: none (paused; resume with: substrate resume ${runId})`);
+      expect(text).toMatch(/Cost \$\d+\.\d{4} \(budget \$0\.40\)/);
+      // Each fact once: the legacy block no longer repeats the state, the reason, the cost or the run id.
+      expect(text).not.toContain("State:");
+      expect(text).not.toContain("Pause Reason:");
+      expect(text).not.toContain("Total Cost:");
+      expect(text).not.toContain("Run ID:");
+      expect(text).not.toContain("the run has ended");
+    } finally {
+      repo.cleanup();
+      rmSync(scenarioDir, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  }, 180000);
+
   it("a run whose run.created has no max_budget_usd (an older log) shows and resumes with the project setting", () => {
     const repo = createE2ERepo(SEED);
     const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-scenario-r111-old-"));

@@ -410,3 +410,9 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 ## 63. OPEN: `plan_review` is emitted as a `run.reopened` reason the catalog does not list
 
 - Found (R11.1): `src/engine/engine.ts` emits `run.reopened` with `reason: "plan_review"`, and `RunReopenedEvent` in `src/contracts/events.ts` lists only `planning`, `setup` and `tasks`. The CLI reads events through the catalog (`src/cli/commands/status.ts` `readCatalogEvents`), so such an event may be skipped there. Not checked at runtime yet. Direction: add the reason to the catalog after the owner confirms the name.
+
+## 64. FIXED (R11.1): `status` said one run state three ways, and a paused run read as ended
+
+- Seen (live runs, 2026-10-21): after `substrate stop` the header said `interrupted`, the legacy block said `State: PAUSED` and `Pause Reason: user_cancel`, and `Phase:` and `Process:` said `ended` and `none (the run has ended)`. A paused run is not over. The cost showed as `$0.2075` in one block and `$0.21` in the other.
+- Fixed in the text form (`src/cli/commands/status.ts`): the header word carries the reason (`headerWordOf`), `Phase:` reads `paused` or `planned`, `Process:` names the resume, and the legacy `=== Run Status ===` block keeps only the pending questions and the task table. Costs have four decimals. The JSON fields keep their values.
+- Tests: `test/e2e/graceful-budget.test.ts` ("status says each fact once"), `test/unit/cli/status-words.test.ts`. No pinned text needed changing; the existing status tests pass unchanged.
