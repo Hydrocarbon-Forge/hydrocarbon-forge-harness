@@ -118,6 +118,14 @@ describe("Role Assets (assets/agents/*.md)", () => {
 
       expect(body).toMatch(/forbid(den)?.*implementation/i);
     });
+
+    it("states when tests earn their place, with the tests-class target convention", () => {
+      const filePath = resolve(ASSETS_DIR, "planner.md");
+      const { body } = parseAgentMarkdown(filePath);
+
+      expect(body).toContain("## When tests earn their place");
+      expect(body).toContain("test targets");
+    });
   });
 
   describe("Test-Writer Agent Asset (assets/agents/test-writer.md)", () => {
@@ -144,6 +152,14 @@ describe("Role Assets (assets/agents/*.md)", () => {
       const { body } = parseAgentMarkdown(filePath);
 
       expect(body).toMatch(/forbid|never modify.*application|source code/i);
+    });
+
+    it("limits tests to the spec's listed targets and no longer requires a test per listed item", () => {
+      const filePath = resolve(ASSETS_DIR, "test-writer.md");
+      const { body } = parseAgentMarkdown(filePath);
+
+      expect(body).toContain("Test exactly the targets the spec lists");
+      expect(body).not.toContain("each listed edge case gets at least one test");
     });
   });
 

@@ -66,19 +66,19 @@ One paragraph: what exists after this task and why.
 Exact signatures, types and file paths. Point to contract stubs by path.
 
 ## Behavior
-Numbered, testable statements of required behaviour.
+Numbered, testable statements of required behaviour. In a `tests` task, these are the test targets: at most about 10 numbered items that carry risk, each with a short reason on the same line.
 
 ## Invariants
 What must stay true (existing behaviour, performance, style).
 
 ## Edge cases
-Inputs and states the worker must handle, including failure paths.
+Inputs and states the worker must handle, including failure paths. Keep it to the cases that matter; `None` is acceptable. In a `tests` task, list only edge cases where a bug is likely and costly.
 
 ## Guardrails
 What the worker must not touch or do; known traps in this repository.
 
 ## Out of scope
-Things that look related but belong to other tasks or to nobody.
+Things that look related but belong to other tasks or to nobody. In a `tests` task, name what is deliberately not tested.
 ```
 Rules for these files:
 - Paths are repository-relative with forward slashes: no absolute paths, no `..`. Globs (picomatch) are allowed in `read` and `protected`; use explicit paths in `write` and `create`.
@@ -91,6 +91,21 @@ Type declarations (`interface`, `type`, `declare function`, abstract signatures,
 
 ### Worked example
 Request: "add a slugify helper with tests". Two tasks: T1 (class `tests`) writes `test/unit/slugify.test.ts` against the stub `src/util/slugify.ts`; T2 (class `feature`, `depends_on: [T1]`) creates the implementation and lists the test file under `protected`. T1 has `create: [test/unit/slugify.test.ts]`, `verify` that the test file at least parses (for example `npx tsc --noEmit`), and no `protected`. The manifest and T2 shown above are the real shape of this plan.
+
+T1 tests the targets that carry risk, not every input. Its Behavior and Out of scope sections read like this:
+```
+## Behavior
+1. Lowercases the text and joins its words with single hyphens: `Hello,  World!` gives `hello-world` (a bug here breaks every generated URL).
+2. Strips leading and trailing hyphens: `  !Hi!  ` gives `hi` (punctuation at the edges is the likely failure).
+3. Returns an empty string when the input has no letters or digits (boundary condition).
+
+## Edge cases
+None beyond the targets above.
+
+## Out of scope
+Non-ASCII transliteration (for example `é` to `e`), locale rules and length limits are not tested in this task.
+```
+Three targets are enough for this helper. A longer list is a sign that the spec tests internals; keep to about 3-5 targets for a small helper and never more than about 10.
 
 ### Pre-flight checklist (the linter enforces these)
 1. Task ids are unique and match the pattern; every task in `manifest.yaml` has a spec file and every spec file is listed.

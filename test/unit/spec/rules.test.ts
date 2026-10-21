@@ -816,3 +816,45 @@ describe("R7.7: lint rules that rejected a valid planner plan", () => {
     expect(result.diagnostics.filter((d) => d.code === "L012")).toEqual([]);
   });
 });
+
+describe("plan linter rule: L028 (test-target count, advisory)", () => {
+  function behaviourWithTargets(count: number): string {
+    return Array.from({ length: count }, (_, i) => `${i + 1}. Target ${i + 1} holds (reason ${i + 1}).`).join("\n");
+  }
+
+  function planWithBehaviour(classValue: string, count: number) {
+    const repo = createTempRepo();
+    const spec = sampleParsedTaskSpec({
+      frontmatter: sampleTaskSpecFrontmatter({ id: "T1", class: classValue }),
+      sections: new Map(
+        Object.entries({ ...SAMPLE_REQUIRED_SECTIONS, Behavior: behaviourWithTargets(count) }),
+      ),
+    });
+    const plan = sampleParsedPlan({
+      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
+      specs: [spec],
+    });
+    return lintPlan(plan, repo, sampleSettings());
+  }
+
+  it("warns when a tests task lists more than 10 test targets, and names the count", async () => {
+    const result = await planWithBehaviour("tests", 11);
+    const diags = result.diagnostics.filter((d) => d.code === "L028");
+    expect(diags).toHaveLength(1);
+    expect(diags[0].severity).toBe("warn");
+    expect(diags[0].task).toBe("T1");
+    expect(diags[0].message).toBe(
+      "Task T1 lists 11 test targets; keep the ones that carry risk (about 10 or fewer) and move the rest to Out of scope",
+    );
+  });
+
+  it("is silent for a tests task with exactly 10 test targets", async () => {
+    const result = await planWithBehaviour("tests", 10);
+    expect(result.diagnostics.some((d) => d.code === "L028")).toBe(false);
+  });
+
+  it("is silent for a non-tests task whose Behavior has more than 10 numbered items", async () => {
+    const result = await planWithBehaviour("feature", 12);
+    expect(result.diagnostics.some((d) => d.code === "L028")).toBe(false);
+  });
+});

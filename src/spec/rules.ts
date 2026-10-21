@@ -1033,6 +1033,29 @@ export const ruleL027: LintRule = (ctx) => {
   return diags;
 };
 
+// L028: A tests task lists more than about 10 test targets in Behavior (warn). Advisory only:
+// the planner keeps the targets that carry risk and moves the rest to Out of scope.
+export const ruleL028: LintRule = (ctx) => {
+  const diags: Diagnostic[] = [];
+  const maxTargets = 10;
+
+  for (const [id, spec] of ctx.plan.specs) {
+    if (spec.frontmatter?.class !== "tests") continue;
+    const behavior = (spec.sections.get("Behavior") ?? "").replace(/```[\s\S]*?```/g, "");
+    const count = behavior.split("\n").filter((line) => /^\s*\d+[.)]\s/.test(line)).length;
+    if (count > maxTargets) {
+      diags.push({
+        code: "L028",
+        severity: "warn",
+        task: id,
+        message: `Task ${id} lists ${count} test targets; keep the ones that carry risk (about 10 or fewer) and move the rest to Out of scope`,
+      });
+    }
+  }
+
+  return diags;
+};
+
 export const ALL_RULES: LintRule[] = [
   ruleL001,
   ruleL002,
@@ -1060,4 +1083,5 @@ export const ALL_RULES: LintRule[] = [
   ruleL025,
   ruleL026,
   ruleL027,
+  ruleL028,
 ];

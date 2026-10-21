@@ -20,7 +20,7 @@ Strictly forbidden: do not author implementation bodies in task specs or contrac
 3. Size tasks deliberately (next section). This is where most of the cost is won or lost.
 4. Declare shared interfaces as contract stubs first, so tasks that depend on each other can run in parallel without seeing each other's code.
 5. Put the riskiest or most uncertain task early so a failure is cheap, and say so in `decisions.md`.
-6. Write the tests first for new behaviour (a `tests` class task whose files the implementers list as `protected`).
+6. Decide whether the new behaviour needs tests, and how many (see "When tests earn their place"). A separate tests-first task (a `tests` class task whose files the implementers list as `protected`) is for non-trivial logic that the spec can state precisely enough to test blind. Otherwise let the implementing task write its own few focused tests, or none.
 7. Run the pre-flight checklist in the Plan Format section against your own output before you finish.
 
 ## Sizing tasks
@@ -32,10 +32,19 @@ Every task costs a fresh worker session: startup, reading the spec, reading file
 - Prefer 2-10 tasks. The hard cap is 40. A one-file request is one task.
 - Tasks that can run at the same time must not write the same files.
 
+## When tests earn their place
+Tests cost worker time and tokens. A test that only restates the code adds cost and catches nothing. Decide per task.
+- Write tests for: non-trivial logic; state machines; parsing and serialisation; boundary conditions; regressions for a fixed bug; contracts that other tasks depend on; risky refactors that must keep their behaviour.
+- Test a feature pipeline end to end rather than every internal function it is built from.
+- Do not write tests for: printing or formatting of output; static pages, markup or CSS; configuration; scaffolding or boilerplate; glue code and simple wiring; anything the compiler or type checker already proves; third-party behaviour; or something merely because it could fail.
+- Prefer fewer, sharper tests. Do not cover the same behaviour in two files.
+- In a `tests` task spec, the Behavior section lists the test targets: a numbered list of at most about 10 behaviours that carry risk, each with a short reason on the same line. The Edge cases section lists only edge cases where a bug is likely and costly (`None` when there are none). The Out of scope section names what is deliberately not tested.
+- In every other task spec, keep Edge cases to the cases that matter. `None` is acceptable.
+
 ## Verification
 The engine runs `verify` commands itself; workers cannot grade their own work.
-- Every task needs `verify` commands that fail when the behaviour is wrong and pass when it is right: the narrowest real test command, plus typecheck or lint when the repository has them. `true`, `echo`, `ls` and "file exists" checks are not verification.
-- Tests that gate an implementation come from an earlier `tests` class task (or from any task the implementing task depends on) and are listed under `protected` in the implementing tasks. The implementing task must depend on that task, directly or transitively. They must fail before the implementation and pass after. Because every `verify` command must exit 0, the `tests` task itself verifies only that the tests compile (typecheck or lint), not that they pass.
+- Every task needs at least one `verify` command the engine runs. Make it the cheapest check that fails when the task is wrong and passes when it is right. For code with real logic, that is the narrowest test command. For code without logic worth a test, use a compile, typecheck or lint command, or run the program once and check its output (a smoke check). `true`, `echo`, `ls` and "file exists" checks are not verification.
+- Use a `tests` class task only for non-trivial logic that the spec can state precisely enough to test blind. Its tests come from an earlier `tests` class task (or from any task the implementing task depends on) and are listed under `protected` in the implementing tasks. The implementing task must depend on that task, directly or transitively. They must fail before the implementation and pass after. Because every `verify` command must exit 0, the `tests` task itself verifies only that the tests compile (typecheck or lint), not that they pass.
 - `integration_verify` runs on the merged result after each batch of tasks is merged: use the project's real build or test command. It is expected to fail on the base commit when the run creates the code it checks, so do not add guards for that (no `if [ -f ... ]` wrappers); it must pass once the tasks that make it pass are merged.
 - Verify commands must not depend on the network, the wall clock or services outside the repository, and must finish inside their `timeout_s`.
 
