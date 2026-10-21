@@ -246,6 +246,10 @@ export function taskRowsOf(record: RunRecord): TaskRow[] {
   for (const id of Object.keys(record.state.tasks)) {
     if (!ids.includes(id)) ids.push(id);
   }
+  // R12.4: the repair attempts of a failed final check show as rows, after the plan's tasks.
+  for (const id of Object.keys(record.state.repairs ?? {})) {
+    if (!ids.includes(id)) ids.push(id);
+  }
   const costs = new Map<string, number>();
   const started = new Map<string, string>();
   const merged = new Set<string>();
@@ -263,7 +267,7 @@ export function taskRowsOf(record: RunRecord): TaskRow[] {
   }
   return ids.map((id) => {
     const entry = planned.find((t) => t.id === id);
-    const task = record.state.tasks[id as TaskId];
+    const task = record.state.tasks[id as TaskId] ?? record.state.repairs?.[id];
     const raw: string = task?.state ?? "PENDING";
     const dependsOn = Array.isArray(entry?.depends_on) ? (entry.depends_on as string[]) : [];
     return {

@@ -282,6 +282,11 @@ class TextFormatter implements OutputFormatter {
     if (summary.verification === "not_run") {
       this.out.write(`Verification: not run (${summary.verification_note ?? "no reason recorded"})\n`);
     }
+    // R12.4: a final check that passed after code repairs says how many attempts it took.
+    if (summary.repaired !== undefined) {
+      const n = summary.repaired;
+      this.out.write(`Repaired:   integration check passed after ${n} repair ${n === 1 ? "attempt" : "attempts"}\n`);
+    }
     const landed = summary.merged !== undefined;
     if (landed && summary.drafts_dir === undefined && summary.branch !== undefined) {
       this.writeResult(summary);
@@ -337,6 +342,14 @@ class TextFormatter implements OutputFormatter {
           }
         }
       }
+    }
+    // R12.4: a failed final check that the repairs did not fix says how many attempts ran, why the last one
+    // did not pass, and each attempt's outcome.
+    if (summary.repair !== undefined && !summary.repair.passed) {
+      const n = summary.repair.attempts;
+      const reason = summary.repair.reason !== undefined ? ` (${summary.repair.reason})` : "";
+      this.out.write(`Repair:     ${n} ${n === 1 ? "attempt" : "attempts"}, none passed${reason}\n`);
+      for (const line of summary.repair.outcomes) this.out.write(`            ${line}\n`);
     }
     // R8.2: an interrupted run says how to continue, in the words a caller can copy.
     if (summary.pause_reason === "user_cancel") {

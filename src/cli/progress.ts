@@ -344,7 +344,18 @@ export class RunProgress {
         this.setPhase("integration verify", at);
         return ["integration verify started"];
       case "integration.finished":
+        // R12.4: a check that passed after repairs says so.
+        if (data.passed && typeof data.repaired === "number") return ["integration verify passed after repair"];
         return [`integration verify ${data.passed ? "passed" : "failed"}`];
+      case "integration.repair.started":
+        // R12.4: the final check failed for a real reason; a worker repairs the code, up to the configured attempts.
+        return [`integration check failed; repairing (attempt ${data.attempt ?? "?"} of ${data.max ?? "?"})`];
+      case "integration.repair.finished": {
+        // R12.4: a passed attempt is announced by integration verify passed after repair; a rejected one says why.
+        if (data.passed) return [];
+        const reason = typeof data.reason === "string" ? data.reason.slice(0, 200) : "no reason recorded";
+        return [`repair attempt ${data.attempt ?? "?"} rejected: ${reason}`];
+      }
       case "integration.skipped":
         // R12.2: a single-task plan's own checks ran in its worktree, so the final check is not run again.
         return ["integration verify skipped (single task: its own checks already ran)"];
