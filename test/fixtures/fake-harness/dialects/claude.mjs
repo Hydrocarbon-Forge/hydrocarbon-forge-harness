@@ -1,9 +1,33 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { takeCall, applyCall } from "../scenario.mjs";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * R8.2 isolation probe (scenario 9). The worker writes probe/<name>.txt in its cwd, then records
+ * what it can see: the probe/ listing, the top-level listing, `git status --short` and the
+ * content of README.md, as <dir>/seen-<name>.json. The record is what the test compares.
+ *
+ * @param {{ dir: string, name: string }} probe
+ */
+async function runProbe(probe) {
+  const cwd = process.cwd();
+  fs.mkdirSync(`${cwd}/probe`, { recursive: true });
+  fs.writeFileSync(`${cwd}/probe/${probe.name}.txt`, `${probe.name}\n`, "utf8");
+  fs.mkdirSync(probe.dir, { recursive: true });
+  const status = execFileSync("git", ["status", "--short"], { cwd, encoding: "utf8" });
+  const record = {
+    name: probe.name,
+    top: fs.readdirSync(cwd).filter((f) => f !== ".git").sort(),
+    probe: fs.readdirSync(`${cwd}/probe`).sort(),
+    status: status.split("\n").filter((l) => l.length > 0),
+    readme: fs.readFileSync(`${cwd}/README.md`, "utf8"),
+  };
+  fs.writeFileSync(`${probe.dir}/seen-${probe.name}.json`, JSON.stringify(record, null, 2), "utf8");
+}
 
 /**
  * Runs the Claude CLI dialect.
@@ -61,6 +85,10 @@ export async function runDialect(argv, env) {
 
   const { call } = takeCall(scenarioFile);
   applyCall(call, process.cwd());
+
+  if (call.probe) {
+    await runProbe(call.probe);
+  }
 
   if (call.delay_ms && call.delay_ms > 0) {
     await new Promise((resolve) => setTimeout(resolve, call.delay_ms));

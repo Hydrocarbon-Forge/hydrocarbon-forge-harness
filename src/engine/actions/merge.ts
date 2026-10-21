@@ -52,31 +52,9 @@ export async function runMergeAction(
     return;
   }
 
-  const statusOut = execFileSync(
-    "git",
-    ["-C", ctx.repoRoot, "status", "--porcelain", "--untracked-files=no"],
-    { encoding: "utf8" }
-  ).trim();
-  if (statusOut.length > 0) {
-    const files: string[] = [];
-    for (const line of statusOut.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      let filePath = trimmed.replace(/^(\?\?|[MADRCU?!]+)\s+/, "");
-      if (filePath.includes(" -> ")) {
-        filePath = filePath.split(" -> ")[1].trim();
-      }
-      files.push(filePath);
-    }
-    emit("run.finished", {
-      exit_code: 2,
-      status: "failed",
-      reason: "dirty_checkout",
-      files,
-    });
-    return;
-  }
-
+  // R8.2: a batch merges into the run branch through the integration worktree and never
+  // touches the checkout, so uncommitted changes in the user's checkout do not stop it. The
+  // checkout is checked where the work lands (`substrate merge` and the run's merge flag).
   const manifestPath = join(ctx.runDir, "manifest.yaml");
   let manifest: Manifest | undefined;
   if (existsSync(manifestPath)) {

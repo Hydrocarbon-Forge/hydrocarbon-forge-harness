@@ -346,7 +346,7 @@ describe("E2E merge & integration worktree (R3.6)", () => {
   );
 
   it(
-    "(d) a modified tracked file in the user's checkout is not overwritten (run refuses with dirty_checkout)",
+    "(d) a modified tracked file in the user's checkout is not overwritten and does not stop the run (R8.2: the run finishes; the landing checks the checkout)",
     () => {
       const repo = createE2ERepo({
         "src/tracked.txt": "initial tracked file\n",
@@ -385,15 +385,14 @@ describe("E2E merge & integration worktree (R3.6)", () => {
       });
 
       try {
-        // Run refuses and terminates
-        expect(res.exitCode).toBe(1);
-
-        // Check event run.finished has reason: "dirty_checkout" and exit_code: 2
+        // R8.2: the batch merges into the run branch without touching the checkout, so the run
+        // finishes (exit 0) and the uncommitted file is left alone; nothing lands without --merge.
+        expect(res.exitCode).toBe(0);
         const finishedEvt = eventAt(res, "run.finished");
         expect(finishedEvt).toBeDefined();
-        expect(finishedEvt?.data.reason).toBe("dirty_checkout");
-        expect(finishedEvt?.data.exit_code).toBe(2);
-        expect(finishedEvt?.data.files).toContain("src/tracked.txt");
+        expect(finishedEvt?.data.exit_code).toBe(0);
+        expect(finishedEvt?.data.reason).toBeUndefined();
+        expect(res.stdout).toContain("NOT merged into");
 
         // The modified tracked file was NOT overwritten or lost
         const actualContent = readFileSync(join(repo.dir, "src/tracked.txt"), "utf8");

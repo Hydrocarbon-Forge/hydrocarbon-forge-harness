@@ -266,6 +266,12 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - A task that fails its last attempt prints `failed: <class>` twice: once for the attempt and once when the ladder gives up. Cosmetic.
 
-## 39. OPEN: scenario 9 (concurrent tasks cannot see each other's edits) is not yet tested
+## 39. OPEN: scenario 9 (a task cannot see its siblings' edits or the user's changes) (PARTLY TESTED, R8.2)
 
-- Not done in R8.1. The worktrees are separate directories, so the isolation is expected, but no test asserts it yet.
+- R8.2 tested the isolation that a sibling can observe: `test/e2e/graceful-concurrency.test.ts` runs two independent tasks through the built CLI with a fake worker that records its own view (probe/ listing, top-level listing, `git status --short`, README.md). Each worker sees only its own file, not the user's uncommitted tracked change or untracked file, and the run lands both on the run branch.
+- The test does NOT show concurrent execution: see known issue 40. The two workers ran one after the other, so the "at the same time" part of scenario 9 is still untested. Stays OPEN until 40 is decided.
+
+## 40. OPEN: the engine runs one worker at a time, whatever `concurrency.workers` says
+
+- Evidence (R8.2): `runEffectsLoop` in `src/engine/effects.ts` runs the actions of a scheduling step with `for (const action of actions) await executeAction(...)`. `scheduleNextTasks` returns up to `concurrency.workers` worker actions, but each one runs to the end before the next starts. With `concurrency: { workers: 2 }` and two independent tasks, the trace is `task.session.started T1`, `task.passed T1`, then the worktree and session of T2. `docs/reference/config.md` says `concurrency.workers` is the "maximum number of tasks running at once. Default 3."
+- Direction: owner decision. Either run the worker actions of a step concurrently (event sequencing and state updates in `executeAction` would need a serialising path), or document the setting as a cap that is not reached yet and set the default to 1. Not changed in R8.2 because it is an engine change larger than the package.
