@@ -137,6 +137,19 @@ export const planCommand: CliCommand = {
       writeNotice(ctx, repo.notice);
     }
 
+    // R10.5: the worker named with --work is recorded on run.created, so a bare resume of a planned run runs it.
+    if (ctx.flags.work !== undefined) {
+      const [backend, model, effort] = ctx.flags.work.split(":");
+      overrides.roles = {
+        ...(overrides.roles ?? {}),
+        worker: {
+          ...((overrides.roles as any)?.worker ?? {}),
+          ...(backend ? { backend } : {}),
+          ...(model ? { model } : {}),
+          ...(effort ? { effort } : {}),
+        },
+      } as any;
+    }
     // The planner named by the request or the flags takes precedence (R7.4).
     overrides = withRequestedRoles(overrides);
 
@@ -208,6 +221,14 @@ export const planCommand: CliCommand = {
       }
       if (sessionStore && session) {
         await sessionStore.addRun(session.sessionId, summary.run_id, prompt);
+      }
+      // R10.5: a planned run says how to continue: a bare resume when the worker was recorded, else with --work.
+      if (summary.status === "planned") {
+        summary.next = [
+          ctx.flags.work !== undefined
+            ? `substrate resume ${summary.run_id}`
+            : `substrate resume ${summary.run_id} --work <provider:model[:effort]>`,
+        ];
       }
       formatter.onSummary(summary, session?.sessionId ?? "");
       await formatter.flush();

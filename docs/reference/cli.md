@@ -31,7 +31,7 @@ Copied from SUBSTRATE-PLAN.md section 4.6:
 | `130` | SIGINT (Ctrl+C) |
 | `143` | SIGTERM |
 
-For a run, the engine maps its state to a code: finished is `0`; failed or cancelled is `1`; paused for budget is `4`; paused for a user cancel is `130`; any other pause, including a run paused for answers to `QUESTIONS.md`, is `3`. Commands that are not runs use `0`, `1` and `2` as their entries describe.
+For a run, the engine maps its state to a code: finished and planned (a plan-only run, R10.5) are `0`; failed or cancelled is `1`; paused for budget is `4`; paused for a user cancel is `130`; any other pause, including a run paused for answers to `QUESTIONS.md`, is `3`. Commands that are not runs use `0`, `1` and `2` as their entries describe.
 
 ## Global options
 
@@ -48,6 +48,7 @@ For a run, the engine maps its state to a code: finished is `0`; failed or cance
 | `--sandbox` | run, verify | enable the bubblewrap sandbox (`sandbox.enabled`) |
 | `--merge` | run, resume | merge a finished run into the checked-out branch for this run only, as if `git.auto_merge` were `true`. The request's `merge: true` does the same; the flag wins over the request field. Neither given, a new run uses the setting (default `true`), and a resume uses the choice its run recorded on `run.created` (R10.3). |
 | `--no-merge` | run, resume | keep a finished run on its run branch for this run only, as if `git.auto_merge` were `false`; `substrate merge <run>` lands it later. The request's `merge: false` does the same. `--merge` with `--no-merge` exits 2. |
+| `--review` | run | plan only, then stop for review (R10.5): the run ends `planned` and records `--work`, so `substrate resume <id>` runs the reviewed plan. Needs `--work` (exits 2 without it). |
 | `--concurrency <n>` | run, resume, plan | the number of workers that may run at once for this run, a whole number from 1 to 16 (otherwise exit `2`: `--concurrency must be a whole number from 1 to 16`). It overrides `concurrency.workers`. The value is recorded on `run.created`, and a resume uses it unless `--concurrency` is given again. `plan` accepts it; a plan starts no workers. `--concurrency 1` runs the tasks one at a time. |
 | `--no-governor` | all | deprecated no-op. The governor was deleted on 2026-10-20; the flag is still accepted and ignored so existing callers do not break |
 
@@ -209,7 +210,7 @@ substrate run --plan claude:opus:high --work claude:sonnet:medium "rename the co
 substrate plan [options] [prompt]
 ```
 
-Runs the planner only. It forces `--mode plan` and `plan` permissions, so it writes a plan and stops before any worker runs. It accepts the same prompt, `--request`, `--plan`, `--work`, `--model`, `--effort`, `--max-budget-usd` and `--timeout` options as `run`. `--detach` is not supported for `plan` and exits `2` with `--detach is not supported for plan; use substrate run --detach` (R10.3). Without a prompt or request it exits 2 with `prompt required`. It needs only a planner model (`--plan <provider>:<model>`, or `planner.model` in the request) and the same git repository rule as `run`.
+Runs the planner only. It forces `--mode plan` and `plan` permissions, so it writes a plan and stops before any worker runs. **Planned (R10.5).** A plan-only run ends `planned` with exit `0`: `Status: planned`, the task list with `N planned` tasks, `Merged: no`, and a `Next:` line that says to review or edit the plan in `.substrate/runs/<id>/` (manifest.yaml and the task specs), then run `substrate resume <id> --work <provider:model[:effort]>`. No worker runs, and no task reports a result. `run --review` is the same path with `--work` required, and it records the worker, so a bare `substrate resume <id>` runs the plan. `status`, `runs` and `watch` show the run as `planned`. It accepts the same prompt, `--request`, `--plan`, `--work`, `--model`, `--effort`, `--max-budget-usd` and `--timeout` options as `run`. `--detach` is not supported for `plan` and exits `2` with `--detach is not supported for plan; use substrate run --detach` (R10.3). Without a prompt or request it exits 2 with `prompt required`. It needs only a planner model (`--plan <provider>:<model>`, or `planner.model` in the request) and the same git repository rule as `run`.
 
 ```bash
 substrate plan --plan claude:opus:high "rename the config key"
@@ -259,7 +260,7 @@ Log:   .substrate/runs/r_BHS2PJJ53GQG/progress.log
 Next:  substrate resume r_BHS2PJJ53GQG
 ```
 
-- the status word: `running` (the process holds the lock), `stopped` (no terminal event and no live process), `finished`, `failed`, `paused`, `interrupted` or `cancelled`
+- the status word: `running` (the process holds the lock), `stopped` (no terminal event and no live process), `planned` (a plan-only run, ready for review: resume it to run the plan), `finished`, `failed`, `paused`, `interrupted` or `cancelled`
 - `Phase:` is the phase the run's progress lines name (`running T1, T3` while two workers run), and `ended` once the run has ended; `last activity` is the age of its newest event
 - `Process:` is `pid <n> alive` for a live process, `not running` for a stopped run, and `none (the run has ended)` for a finished one
 - one row per task: id, title, state (`passed`, `running`, `failed`, `waiting` or `skipped`), generation, attempt, cost, `merged`, or the failure class, or `after <deps>`

@@ -104,6 +104,8 @@ function countPassed(summary: RunSummary): number {
 
 class TextFormatter implements OutputFormatter {
   private lastPausedQuestions?: Question[];
+  /** R10.5: the tasks of the plan the run produced, for the summary of a planned run. */
+  private plannedTasks?: Array<{ id: string; title?: string; class?: string; depends_on?: string[] }>;
   private readonly now: () => number;
   private readonly progress: RunProgressState;
   private readonly heartbeat: HeartbeatState;
@@ -151,6 +153,10 @@ class TextFormatter implements OutputFormatter {
   onEvent(event: EngineEvent): void {
     const at = this.now();
     this.heartbeat.start();
+    // R10.5: the task list of the plan the run planned (the summary of a planned run names it).
+    if (event.type === "plan.produced" && Array.isArray((event.data as any)?.tasks)) {
+      this.plannedTasks = (event.data as any).tasks.filter((t: any) => t && typeof t.id === "string");
+    }
     if (event.type === "run.paused") {
       const data = (event.data ?? {}) as Record<string, any>;
       if (Array.isArray(data.questions)) {
@@ -180,7 +186,41 @@ class TextFormatter implements OutputFormatter {
     }
   }
 
+  // R10.5: a plan-only run ends planned. The summary names the planned tasks, says nothing merged, and says
+  // how to continue (review or edit the plan, then resume it).
+  private renderPlanned(summary: RunSummary, sessionId: string): void {
+    const tasks: Array<{ id: string; title?: string; class?: string; depends_on?: string[] }> =
+      this.plannedTasks ?? Object.keys(summary.tasks ?? {}).map((id) => ({ id }));
+    const n = tasks.length;
+    const cost = formatCost(summary.usage?.total_usd ?? 0);
+    this.writeLine(this.now(), `run ${summary.run_id} planned: ${n} ${n === 1 ? "task" : "tasks"}, ${cost}`);
+    this.out.write(`\n--- Run Summary ---\n`);
+    this.out.write(`Run ID:     ${summary.run_id}\n`);
+    this.out.write(`Session ID: ${sessionId}\n`);
+    this.out.write(`Status:     planned\n`);
+    this.out.write(`Branch:     ${summary.branch ?? "(none)"}\n`);
+    this.out.write(`Tasks:      ${n} planned\n`);
+    this.out.write(`Total Cost: ${cost}\n`);
+    this.out.write(`Exit Code:  0\n`);
+    this.out.write(`Merged:     no\n`);
+    for (const t of tasks) {
+      const title = t.title ? `  ${t.title}` : "";
+      const cls = t.class ? `  [${t.class}]` : "";
+      const after = t.depends_on && t.depends_on.length > 0 ? `  after ${t.depends_on.join(", ")}` : "";
+      this.out.write(`  ${t.id}${title}${cls}${after}\n`);
+    }
+    this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
+    const resume = summary.next?.[0] ?? `substrate resume ${summary.run_id} --work <provider:model[:effort]>`;
+    this.out.write(
+      `Next:       review or edit the plan in .substrate/runs/${summary.run_id}/ (manifest.yaml and the specs), then run: ${resume}\n`,
+    );
+  }
+
   private renderSummary(summary: RunSummary, sessionId: string): void {
+    if (summary.status === "planned") {
+      this.renderPlanned(summary, sessionId);
+      return;
+    }
     const questions = summary.questions ?? this.lastPausedQuestions;
     const tasks = summary.tasks ?? {};
     const taskKeys = Object.keys(tasks);

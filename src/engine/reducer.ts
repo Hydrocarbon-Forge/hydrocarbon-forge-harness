@@ -17,6 +17,7 @@ export type RunState =
   | "EXECUTING"
   | "INTEGRATING"
   | "REVIEWING"
+  | "PLANNED"
   | "FINISHED"
   | "PAUSED"
   | "FAILED"
@@ -140,8 +141,21 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       };
     }
 
+    case "plan.ready": {
+      // R10.5: a plan-only run ends planned, after the plan is ready for review (approve.ts emits run.finished next).
+      return { ...state, state: "PLANNED" };
+    }
+
+    case "run.finished": {
+      // The reduction of a finished run (journal.ts used to do this alone, so replays disagreed with live runs).
+      const code = data.exit_code;
+      if (code !== 0) return { ...state, state: "FAILED" };
+      return { ...state, state: data.reason === "planned" ? "PLANNED" : "FINISHED" };
+    }
+
     case "plan.produced": {
-      const nextTasks = { ...state.tasks };
+      // R10.5: a planned run takes its task set from the latest accepted plan, so a reviewed edit replaces it.
+      const nextTasks = state.state === "PLANNED" ? {} : { ...state.tasks };
       const taskList = data.tasks ?? data.manifest?.tasks;
       if (Array.isArray(taskList)) {
         for (const t of taskList) {
@@ -523,6 +537,10 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       // changes the states, so a replay of the log gives the same state as the live run did.
       const reason = data.reason;
       const cleared = { prior_state: undefined, pause_reason: undefined };
+      if (reason === "plan_review") {
+        // R10.5: a planned run is reopened to take a reviewed plan; it stays PLANNED until plan.produced.
+        return { ...state, ...cleared, state: "PLANNED" };
+      }
       if (reason === "planning") {
         // No plan was accepted: the run goes back to CREATED, and routing plans again.
         return { ...state, ...cleared, state: "CREATED", tasks: {} };

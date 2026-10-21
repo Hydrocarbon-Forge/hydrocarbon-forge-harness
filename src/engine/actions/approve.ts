@@ -71,7 +71,7 @@ export async function runLintAction(
     }
     if (ctx.permission_mode === "plan") {
       emit("plan.ready", {});
-      emit("run.finished", { exit_code: 0 });
+      emit("run.finished", { exit_code: 0, status: "planned", reason: "planned" });
       return;
     }
     emit("run.paused", { reason: "needs_approval" });
@@ -80,7 +80,7 @@ export async function runLintAction(
 
   if (ctx.permission_mode === "plan") {
     emit("plan.ready", {});
-    emit("run.finished", { exit_code: 0 });
+    emit("run.finished", { exit_code: 0, status: "planned", reason: "planned" });
     return;
   }
 

@@ -95,6 +95,8 @@ function finishedRun(eventsPath: string): boolean | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     if (events[i].type === "run.reopened") return false;
     if (events[i].type === "run.finished") {
+      // R10.5: a planned run ended on purpose, for review; it is resumed, not finished.
+      if ((events[i].data as { reason?: unknown } | undefined)?.reason === "planned") return false;
       const data = (events[i].data ?? {}) as { exit_code?: unknown; status?: unknown };
       return data.exit_code === 0 || data.status === "finished";
     }
@@ -353,6 +355,32 @@ export const resumeCommand: CliCommand = {
     }
     let overrides = withRequestedRoles({ ...overrides0, roles } as typeof overrides0);
 
+    // R10.5: a planned run is reviewed before it runs. It needs a worker (named now, or recorded by
+    // `run --review`), and its manifest and specs, as the person left them, must pass the ingest checks.
+    // Nothing is spent here: a refused plan exits 2 and the run stays planned.
+    const { reduceEvents } = await import(`../run-observe.js`);
+    const plannedRun = reduceEvents(resolved.runId, runEvents as EngineEvent[]).state === "PLANNED";
+    if (plannedRun) {
+      if (ctx.flags.work === undefined && ctx.flags.workerModel === undefined && recorded.worker === undefined) {
+        ctx.stderr.write("Error: a worker model is required: --work <provider:model[:effort]>\n");
+        return 2;
+      }
+      const { ingestPlanDraft } = await import(`../../roles/planner.js`);
+      let reviewSettings;
+      try {
+        reviewSettings = await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings, flags: overrides });
+      } catch (err: any) {
+        ctx.stderr.write(`Error loading settings: ${err.message}\n`);
+        return 2;
+      }
+      const reviewed = await ingestPlanDraft({ runDir, repoRoot: ctx.cwd, settings: reviewSettings });
+      if (!reviewed.ok) {
+        ctx.stderr.write(`Error: the plan does not pass review; edit it in .substrate/runs/${resolved.runId}/ and resume again:\n`);
+        for (const d of reviewed.diagnostics) ctx.stderr.write(`  ${d}\n`);
+        return 2;
+      }
+    }
+
     let engine = ctx.engine;
     if (!engine) {
       try {
@@ -379,7 +407,8 @@ export const resumeCommand: CliCommand = {
     const resumeOpts: Partial<RunOptions> = {
       cwd: ctx.cwd,
       mode: (ctx.flags.mode ?? originalMode) as any,
-      permission_mode: (ctx.flags.permissionMode ?? originalPermissionMode) as any,
+      // R10.5: a plan-only run was planned under `plan` permissions; its tasks run under the default ones.
+      permission_mode: (ctx.flags.permissionMode ?? (plannedRun ? "dontAsk" : originalPermissionMode)) as any,
       overrides,
       signal: ctx.signal,
       onEvent: (event) => {

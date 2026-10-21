@@ -93,6 +93,7 @@ export interface EffectContext {
 function isTerminal(state: EngineState): boolean {
   return (
     state.state === "FINISHED" ||
+    state.state === "PLANNED" ||
     state.state === "FAILED" ||
     state.state === "CANCELLED" ||
     state.state === "PAUSED"

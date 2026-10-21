@@ -509,7 +509,7 @@ export type RunOptions = {
 
 export const RunSummary = z.object({
   run_id: RunId,
-  status: z.enum(["finished", "failed", "paused", "cancelled"]),
+  status: z.enum(["finished", "planned", "failed", "paused", "cancelled"]),
   pause_reason: PauseReason.optional(),
   questions: z.array(QuestionSchema).optional(),
   tasks: z.record(TaskId, z.object({

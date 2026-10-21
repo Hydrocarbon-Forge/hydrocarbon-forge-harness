@@ -211,6 +211,13 @@ async function nextOf(cwd: string, record: RunRecord, rows: TaskRow[]): Promise<
     case "paused":
     case "interrupted":
       return [`substrate resume ${id}`];
+    case "planned": {
+      // R10.5: a planned run names the resume: bare when the worker was recorded (run --review), else with --work.
+      const workerRecorded = record.events.some(
+        (e) => e.type === "run.created" && (e.data as { requested_roles?: { worker?: unknown } } | undefined)?.requested_roles?.worker !== undefined,
+      );
+      return [workerRecorded ? `substrate resume ${id}` : `substrate resume ${id} --work <provider:model[:effort]>`];
+    }
     case "finished":
       return mergedOf(cwd, record) ? [] : [`substrate merge ${id}`];
     case "failed": {

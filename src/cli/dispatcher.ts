@@ -44,6 +44,8 @@ export interface CliGlobalFlags {
   detach?: boolean;
   /** run, resume, plan: workers that may run at once, 1 to 16 (R10.3). */
   concurrency?: number;
+  /** run: plan only and stop for review; the run records --work so a bare resume runs the reviewed plan (R10.5). */
+  review?: boolean;
   hard?: boolean;
   verify?: string[];
   request?: string;
@@ -153,6 +155,7 @@ const CLI_OPTIONS = {
   "no-merge": { type: "boolean" },
   "no-follow": { type: "boolean" },
   detach: { type: "boolean" },
+  review: { type: "boolean" },
   concurrency: { type: "string" },
   hard: { type: "boolean" },
   request: { type: "string" },
@@ -233,6 +236,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues["no-merge"]) flags.noMerge = true;
   if (parsedValues["no-follow"]) flags.noFollow = true;
   if (parsedValues.detach) flags.detach = true;
+  if (parsedValues.review) flags.review = true;
   if (parsedValues.concurrency !== undefined) flags.concurrency = Number(parsedValues.concurrency);
   if (parsedValues.hard) flags.hard = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
@@ -353,6 +357,7 @@ function printHelp(out: NodeJS.WriteStream): void {
   out.write(`  --no-follow               watch: print the run's history and exit\n`);
   out.write(`  --detach                  run, resume: start in the background; watch, status and stop follow it\n`);
   out.write(`  --concurrency <n>         run, resume, plan: workers that may run at once (1 to 16)\n`);
+  out.write(`  --review                  run: plan only and stop for review; resume runs the reviewed plan (needs --work)\n`);
 }
 
 export async function runCli(

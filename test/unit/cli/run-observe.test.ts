@@ -30,7 +30,7 @@ describe("R10.2: a run's status word", () => {
     expect(statusOf(stateWith("EXECUTING"), false)).toBe("stopped");
   });
 
-  it("the journal's reduction ends a run at the state its run.finished names; the plain reducer does not", () => {
+  it("the journal's reduction and the plain reducer end a run at the state its run.finished names (R10.5)", () => {
     const finished: EngineEvent = {
       v: 1,
       seq: 2,
@@ -40,7 +40,8 @@ describe("R10.2: a run's status word", () => {
       data: { exit_code: 1, status: "failed" },
     } as EngineEvent;
     const before = stateWith("EXECUTING");
-    expect(reduce(before, finished).state).toBe("EXECUTING");
+    // R10.5: the reducer owns the terminal state, so a replay of the log equals the live journal.
+    expect(reduce(before, finished).state).toBe("FAILED");
     expect(applyJournalEvent(before, finished).state).toBe("FAILED");
   });
 });

@@ -11,6 +11,7 @@
       "type": "string",
       "enum": [
         "finished",
+        "planned",
         "failed",
         "paused",
         "cancelled"

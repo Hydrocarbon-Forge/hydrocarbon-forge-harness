@@ -83,8 +83,8 @@ describe("Scenario 13: Planner Format Retry (§14.5 #13)", () => {
         permission_mode: "plan", // plan mode completes after planning
       });
 
-      // Plan-only complete exits 0
-      expect(summary.status).toBe("finished");
+      // Plan-only complete ends planned (R10.5), exit 0
+      expect(summary.status).toBe("planned");
       expect(summary.exit_code).toBe(0);
 
       // Planner retried once

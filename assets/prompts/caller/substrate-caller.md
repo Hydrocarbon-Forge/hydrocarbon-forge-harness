@@ -122,6 +122,12 @@ substrate usage --by model --output-format json
 
 The output has `rows`, one per model, and `totals`. Each row has `group` (the model id), `runs`, `calls`, `input_tokens`, `output_tokens`, `cost_usd` and `unknown_cost_rows`. `unknown_cost_rows` counts calls whose price Substrate does not know. Those calls are in the token counts, but not in `cost_usd`.
 
+## Reviewing a plan first (R10.5)
+
+To read the plan before any worker runs, start the run with `--review` (the planner writes the plan, then the run stops): `substrate run --review --plan <provider>:<model> --work <provider>:<model> "<goal>"`. (`plan` does the same without a worker; the resume then names `--work`.) The run ends with `Status: planned`, exit `0`, and lists the planned tasks. Read the plan in `.substrate/runs/<id>/` (the manifest and the task specs), edit it if you need to, then run `substrate resume <id>`. A plan that fails the checks exits `2` with the diagnostics and runs nothing; fix the file and resume again.
+
+**A stop during planning.** A resume of a run that was stopped while planning reuses the complete plan draft the planner left, when it passes the same checks, and then does not call the planner again. It prints `found a complete plan draft from the earlier planning session; using it`. If there is no draft that passes, it prints `no plan was accepted; planning again (planning costs again)` and keeps the old draft in `drafts-<n>/`.
+
 ## Exit codes
 
 - `0`: success.

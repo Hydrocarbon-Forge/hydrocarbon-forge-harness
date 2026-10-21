@@ -16,11 +16,8 @@ export interface RunJournal {
 
 /** Reduces one event into a state. A `run.finished` also sets the terminal state its exit code names. */
 export function applyJournalEvent(state: EngineState, evt: EngineEvent): EngineState {
-  const next = reduce(state, evt);
-  if (evt.type === "run.finished") {
-    return { ...next, state: (evt.data as any)?.exit_code === 0 ? "FINISHED" : "FAILED" };
-  }
-  return next;
+  // R10.5: the reducer sets the terminal state of run.finished (FINISHED, PLANNED or FAILED), so live and replay agree.
+  return reduce(state, evt);
 }
 
 /** The input plus output tokens a `usage.recorded` event adds to the run total (0 for other events). */

@@ -72,12 +72,14 @@ function findExistingUnstartedRun(runsDir: string): RunId | undefined {
   return candidates[0].id;
 }
 
-type RunSummaryStatus = "finished" | "paused" | "failed" | "cancelled";
+type RunSummaryStatus = "finished" | "planned" | "paused" | "failed" | "cancelled";
 
 function statusForState(runState: RunState): RunSummaryStatus {
   switch (runState) {
     case "FINISHED":
       return "finished";
+    case "PLANNED":
+      return "planned";
     case "PAUSED":
       return "paused";
     case "FAILED":
@@ -94,6 +96,9 @@ function statusForState(runState: RunState): RunSummaryStatus {
 export function exitCodeForState(runState: RunState, pauseReason?: PauseReason): number {
   switch (runState) {
     case "FINISHED":
+      return 0;
+    // R10.5: a plan-only run is planned: nothing failed, so it exits 0.
+    case "PLANNED":
       return 0;
     case "FAILED":
       return 1;
@@ -464,6 +469,26 @@ export class EngineImpl implements Engine {
           await emit("run.reopened", {
             ...reopenData([...existingEvents, ...appended], state),
             ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
+          });
+        }
+
+        // R10.5: a planned run (planned by `plan` or `run --review`) takes the plan the person reviewed. The
+        // manifest and specs are ingested again (they may have been edited), the contracts are committed again,
+        // and plan.produced replaces the task set; the run then lints, sets up and runs its tasks as usual.
+        if (state.state === "PLANNED") {
+          const reviewed = await ingestPlanDraft({ runDir, repoRoot, settings });
+          if (!reviewed.ok) {
+            throw new Error(`the reviewed plan does not pass: ${reviewed.diagnostics.join("; ")}`);
+          }
+          await emit("run.reopened", { reason: "plan_review" });
+          const base = resolveBaseRef(repoRoot, reviewed.manifest.base_ref);
+          const commitSha = await commitContractStubs(repoRoot, runId, base.sha, reviewed.manifest.contracts, runDir);
+          await emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });
+          await emit("plan.produced", {
+            manifest: reviewed.manifest,
+            tasks: planTasksForEvent(reviewed.manifest, reviewed.plan.specs),
+            commit_sha: commitSha,
+            source: "review",
           });
         }
 

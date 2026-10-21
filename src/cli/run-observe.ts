@@ -21,9 +21,9 @@ type RunProgressState = InstanceType<typeof RunProgress>;
 // lock or writes: a run's state is the reduced journal, and its liveness is the lock's pid.
 
 /** The states a run cannot leave by itself: its process has ended with one of these (R10.2). */
-const TERMINAL_STATES: ReadonlySet<string> = new Set(["FINISHED", "FAILED", "PAUSED", "CANCELLED"]);
+const TERMINAL_STATES: ReadonlySet<string> = new Set(["FINISHED", "PLANNED", "FAILED", "PAUSED", "CANCELLED"]);
 
-export type RunStatus = "running" | "stopped" | "finished" | "failed" | "paused" | "interrupted" | "cancelled";
+export type RunStatus = "running" | "stopped" | "planned" | "finished" | "failed" | "paused" | "interrupted" | "cancelled";
 
 export interface RunRecord {
   runId: string;
@@ -65,6 +65,8 @@ export function statusOf(state: EngineState, alive: boolean): RunStatus {
   switch (state.state) {
     case "FINISHED":
       return "finished";
+    case "PLANNED":
+      return "planned";
     case "FAILED":
       return "failed";
     case "CANCELLED":

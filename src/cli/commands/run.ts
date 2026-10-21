@@ -36,6 +36,8 @@ export interface CliGlobalFlags {
   detach?: boolean;
   /** Workers that may run at once for this run, 1 to 16 (R10.3). */
   concurrency?: number;
+  /** run: plan only and stop for review (R10.5). */
+  review?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -308,6 +310,15 @@ export const runCommand: CliCommand = {
     if (concurrencyProblem !== undefined) {
       ctx.stderr.write(concurrencyProblem);
       return 2;
+    }
+    // R10.5: --review is plan only. It is the plan command's path, and it records the worker, so a bare resume works.
+    if (ctx.flags.review === true) {
+      if (ctx.flags.work === undefined) {
+        ctx.stderr.write("Error: --review needs --work <provider:model[:effort]>\n");
+        return 2;
+      }
+      const { planCommand } = await import(`./plan.js`);
+      return planCommand.execute(ctx as any);
     }
     // R10.3: a detached run is started by a child of this CLI, which then runs the same code.
     if (ctx.flags.detach === true) {

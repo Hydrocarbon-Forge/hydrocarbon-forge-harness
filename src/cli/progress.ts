@@ -142,6 +142,7 @@ export class RunProgress {
       case "run.reopened": {
         // R10.4: a run that did not finish says what the resume runs again, and what it keeps.
         this.setPhase("resuming", at);
+        if (data.reason === "plan_review") return [`resuming planned run ${event.run_id}: the reviewed plan is accepted`];
         if (data.reason === "planning") {
           // R10.5: an abandoned draft is kept, not deleted; the line names where it went.
           return typeof data.draft_dir === "string"
@@ -178,6 +179,11 @@ export class RunProgress {
         return [];
       }
       case "plan.produced": {
+        // R10.5: a plan reviewed after a plan-only run is accepted: its tasks are listed when the run is ready.
+        if (data.source === "review") {
+          this.pendingPlan = Array.isArray(data.tasks) ? data.tasks.filter((t: any) => t && typeof t.id === "string") : [];
+          return ["plan accepted after review"];
+        }
         // R10.5: a complete draft from an earlier planning session was accepted; the planner did not run.
         if (data.source === "draft") {
           this.pendingPlan = Array.isArray(data.tasks) ? data.tasks.filter((t: any) => t && typeof t.id === "string") : [];
