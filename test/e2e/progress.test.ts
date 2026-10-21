@@ -138,7 +138,8 @@ describe("E2E progress: text mode writes the run's progress to stdout (R7.3)", (
     const res = runSubstrate({
       files: SEED,
       scenario: { calls: [{ plan: { files: PLAN_FILES }, reply: "wrote the plan\nPLAN READY" }, WORKER_T1, WORKER_T2] },
-      args: RUN_ARGS,
+      // R10.1: --no-merge keeps the run on its branch, so the summary's NOT merged line is the one under test.
+      args: [RUN_ARGS[0], "--no-merge", ...RUN_ARGS.slice(1)],
     });
 
     try {
@@ -168,10 +169,10 @@ describe("E2E progress: text mode writes the run's progress to stdout (R7.3)", (
         cursor = at + 1;
       }
       expect(res.stdout).toMatch(/Tasks:      2 passed \/ 2 total/);
-      // R7.4: Merged means the work is in the checked-out branch. Without --merge the run
+      // R7.4: Merged means the work is in the checked-out branch. With --no-merge the run
       // branch is left for `substrate merge`, so the summary says so.
       expect(res.stdout).toMatch(/Merged:     no/);
-      expect(res.stdout).toMatch(/NOT merged into main yet — run: substrate merge /);
+      expect(res.stdout).toMatch(/\(merging was turned off\)/);
       expect(res.stdout).not.toMatch(/Drafts and logs:/);
     } finally {
       res.cleanup();

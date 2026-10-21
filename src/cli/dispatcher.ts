@@ -36,6 +36,8 @@ export interface CliGlobalFlags {
   /** merge: land the passed tasks of a failed run after integration verify passes on the run branch (R8.2). */
   partial?: boolean;
   merge?: boolean;
+  /** Do not merge a finished run into the checked-out branch, for this run only (R10.1). */
+  noMerge?: boolean;
   hard?: boolean;
   verify?: string[];
   request?: string;
@@ -137,6 +139,7 @@ const CLI_OPTIONS = {
   "abort-on-conflict": { type: "boolean" },
   partial: { type: "boolean" },
   merge: { type: "boolean" },
+  "no-merge": { type: "boolean" },
   hard: { type: "boolean" },
   request: { type: "string" },
   answers: { type: "string" },
@@ -213,6 +216,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues["abort-on-conflict"]) flags.abortOnConflict = true;
   if (parsedValues.partial) flags.partial = true;
   if (parsedValues.merge) flags.merge = true;
+  if (parsedValues["no-merge"]) flags.noMerge = true;
   if (parsedValues.hard) flags.hard = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);

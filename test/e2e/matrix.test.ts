@@ -576,7 +576,8 @@ const row11: MatrixRow = {
     writeFileSync(scenarioPath, JSON.stringify({ calls }), "utf8");
     const reference = run(ctx, {
       files: seed,
-      args: [...RUN_ARGS, "Run the boundary case"],
+      // R10.1: the first run keeps its branch (--no-merge); the resume is what lands it.
+      args: ["run", "--no-merge", ...RUN_ARGS.slice(1), "Run the boundary case"],
       env: { FAKE_SCENARIO_FILE: scenarioPath },
     });
     const referenceCount = reference.events.length;
@@ -601,7 +602,8 @@ const row11: MatrixRow = {
       rmSync(`${scenarioPath}.state.json`, { force: true });
       const first = run(ctx, {
         repo,
-        args: [...RUN_ARGS, "Run the boundary case"],
+        // R10.1: the first run keeps its branch (--no-merge); the resume is what lands it.
+      args: ["run", "--no-merge", ...RUN_ARGS.slice(1), "Run the boundary case"],
         env: { FAKE_SCENARIO_FILE: scenarioPath },
       });
       const runId = runIdOf(first);

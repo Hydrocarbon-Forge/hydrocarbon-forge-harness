@@ -20,6 +20,9 @@ export interface CliGlobalFlags {
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
+  /** R10.1: landing choice. */
+  merge?: boolean;
+  noMerge?: boolean;
 }
 
 export interface CliGovernanceFlags {

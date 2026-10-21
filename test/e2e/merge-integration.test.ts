@@ -326,7 +326,7 @@ describe("E2E merge & integration worktree (R3.6)", () => {
             },
           ],
         },
-        args: RUN_ARGS,
+        args: ["run", "--no-merge", ...RUN_ARGS.slice(1)], // R10.1: this test checks the checkout is untouched by the run, so it keeps the run on its branch.
       });
 
       try {
@@ -391,13 +391,14 @@ describe("E2E merge & integration worktree (R3.6)", () => {
 
       try {
         // R8.2: the batch merges into the run branch without touching the checkout, so the run
-        // finishes (exit 0) and the uncommitted file is left alone; nothing lands without --merge.
-        expect(res.exitCode).toBe(0);
+        // finishes (exit 0) and the uncommitted file is left alone. R10.1: the landing (on by default)
+        // is refused by the dirty checkout (exit 1, the merge command's refusal code), so the work stays on the run branch.
+        expect(res.exitCode).toBe(1);
         const finishedEvt = eventAt(res, "run.finished");
         expect(finishedEvt).toBeDefined();
         expect(finishedEvt?.data.exit_code).toBe(0);
         expect(finishedEvt?.data.reason).toBeUndefined();
-        expect(res.stdout).toContain("NOT merged into");
+        expect(res.stdout).toContain("not merged: your working tree has uncommitted changes");
 
         // The modified tracked file was NOT overwritten or lost
         const actualContent = readFileSync(join(repo.dir, "src/tracked.txt"), "utf8");

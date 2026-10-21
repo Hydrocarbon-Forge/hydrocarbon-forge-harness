@@ -26,7 +26,8 @@ describe("removed settings keys through the built CLI", () => {
     const res = runSubstrate({ args: ["config", "get", "git.auto_merge"] });
     try {
       expect(res.exitCode).toBe(0);
-      expect(res.stdout).toContain("false");
+      // R10.1: the default of git.auto_merge is true.
+      expect(res.stdout).toContain("true");
     } finally {
       res.cleanup();
     }

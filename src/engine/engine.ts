@@ -26,6 +26,7 @@ import { RunLockImpl, RunLockError } from "../store/run-lock.js";
 import { ensureGitExclude, getRunBranch, restoreTaskBranch } from "../git/index.js";
 import { runBranchExists } from "../git/workspace.js";
 import { deepMerge } from "../util/merge.js";
+import { currentBranchName } from "../git/landing.js";
 import { createRunId } from "../util/index.js";
 import { log } from "../util/log.js";
 
@@ -233,6 +234,8 @@ export class EngineImpl implements Engine {
             permission_mode: opts.permission_mode,
             // R8.2 (known issue 18): the models the caller named, kept so a resume uses them.
             ...(settings.roles.requested !== undefined ? { requested_roles: settings.roles.requested } : {}),
+            // R10.1: the branch the run starts on; its work lands there only (detached: "HEAD").
+            base_branch: currentBranchName(repoRoot),
           },
         };
 
@@ -370,6 +373,24 @@ export class EngineImpl implements Engine {
           lastSeq = readyEvt.seq;
           notifyObserver(ctx, readyEvt);
           state = reduce(state, readyEvt);
+        }
+
+        // R10.1: a crash after integration verify passed, before run.finished, leaves a FINISHED
+        // state with no run.finished in the log. The resume writes it, so the log and the landing
+        // see the run as finished.
+        if (state.state === "FINISHED" && !existingEvents.some((e) => e.type === "run.finished")) {
+          const finishedEvt: EngineEvent = {
+            v: 1,
+            seq: lastSeq + 1,
+            ts: new Date().toISOString(),
+            run_id: runId,
+            type: "run.finished",
+            data: { exit_code: 0 },
+          };
+          await store.append(finishedEvt);
+          lastSeq = finishedEvt.seq;
+          notifyObserver(ctx, finishedEvt);
+          state = reduce(state, finishedEvt);
         }
 
         state = await runEffectsLoop(ctx, state);

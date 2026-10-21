@@ -203,7 +203,7 @@ describe("R7.2: run and plan need a named model and a git repository", () => {
 
   it("(6) an empty non-repository directory is initialised with one empty commit and the run completes", () => {
     const s = fresh();
-    const res = runCli(s, ["run", "--mode", "solo", "--work", "claude:haiku", "--verify", "test -f feature.txt", "create feature.txt"], {
+    const res = runCli(s, ["run", "--mode", "solo", "--work", "claude:haiku", "--no-merge", "--verify", "test -f feature.txt", "create feature.txt"], {
       scenario: SCENARIO_CALLS,
       identity: true,
     });
@@ -219,7 +219,7 @@ describe("R7.2: run and plan need a named model and a git repository", () => {
   it("(7) a fresh git init with no commits and an empty tree gets the initial commit and the run completes", () => {
     const s = fresh();
     git(s.project, ["init", "-b", "main"]);
-    const res = runCli(s, ["run", "--mode", "solo", "--work", "claude:haiku", "--verify", "test -f feature.txt", "create feature.txt"], {
+    const res = runCli(s, ["run", "--mode", "solo", "--work", "claude:haiku", "--no-merge", "--verify", "test -f feature.txt", "create feature.txt"], {
       scenario: SCENARIO_CALLS,
       identity: true,
     });

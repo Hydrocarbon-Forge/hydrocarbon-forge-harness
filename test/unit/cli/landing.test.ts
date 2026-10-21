@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PassThrough } from "node:stream";
 
 import type { RunSummary } from "../../../src/contracts/index.js";
-import { JSON_FILES_LIMIT, TEXT_FILES_LIMIT, failureOf, withLanding } from "../../../src/engine/landing.js";
+import { JSON_FILES_LIMIT, MERGE_TURNED_OFF_REASON, TEXT_FILES_LIMIT, failureOf, withLanding } from "../../../src/engine/landing.js";
 import { createFormatter } from "../../../src/cli/output.js";
 
 // R7.4: the landing fields, and the text, json and stream-json summaries that carry them.
@@ -129,9 +129,33 @@ describe("R7.4 text summary", () => {
       withLanding(summaryOf(), { merged: false, base_branch: "main", files: ["a.txt"], runFailed: false, needsInput: false }) as RunSummary,
     );
     expect(text).toContain("Merged:     no\n");
-    expect(text).toContain(
-      `NOT merged into main yet — run: substrate merge ${RUN_ID}  (or pass the merge flag next time)\n`,
+    expect(text).toContain(`NOT merged into main yet — run: substrate merge ${RUN_ID}\n`);
+  });
+
+  // R10.1: a finished run kept on its branch because merging was turned off says so, and names the merge command.
+  it("finished, merging turned off: the Result line says so, the Next line names the merge command, and no NOT merged line", () => {
+    const text = render(
+      withLanding(summaryOf(), {
+        merged: false, base_branch: "main", files: ["a.txt"], runFailed: false, needsInput: false,
+        notMergedReason: MERGE_TURNED_OFF_REASON,
+      }) as RunSummary,
     );
+    expect(text).toContain("Merged:     no\n");
+    expect(text).toContain(`Result:     finished: work is on branch substrate/runs/${RUN_ID}, not merged (merging was turned off)\n`);
+    expect(text).toContain(`Next:       substrate merge ${RUN_ID}\n`);
+    expect(text).not.toContain("NOT merged into");
+  });
+
+  // R10.1: a refused landing prints its reason, and the reason is the only line for it.
+  it("a refused landing prints its reason line", () => {
+    const text = render(
+      withLanding(summaryOf(), {
+        merged: false, base_branch: "main", files: ["a.txt"], runFailed: false, needsInput: false,
+        notMergedReason: `not merged: you switched from main to other while the run was working; check out main and run: substrate merge ${RUN_ID}`,
+      }) as RunSummary,
+    );
+    expect(text).toContain(`not merged: you switched from main to other while the run was working; check out main and run: substrate merge ${RUN_ID}\n`);
+    expect(text).not.toContain("NOT merged into");
   });
 
   // R9.1: a finished run whose branch holds the work and which is not merged says so in the Result line.
@@ -142,7 +166,7 @@ describe("R7.4 text summary", () => {
     expect(text).toContain("Merged:     no\n");
     expect(text).toContain(`Result:     finished: work is on branch substrate/runs/${RUN_ID}, not merged yet\n`);
     expect(text).not.toContain("1 files changed on branch");
-    expect(text).toContain(`NOT merged into main yet — run: substrate merge ${RUN_ID}  (or pass the merge flag next time)\n`);
+    expect(text).toContain(`NOT merged into main yet — run: substrate merge ${RUN_ID}\n`);
   });
 
   // R9.1: the summary's cost has the same four decimals as the progress line.

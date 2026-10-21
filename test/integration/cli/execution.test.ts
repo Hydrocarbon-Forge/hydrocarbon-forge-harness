@@ -461,7 +461,9 @@ describe("cli: execution commands (run, plan, resume)", () => {
       const runId = createRunId() as Contracts.RunId;
       let resumedRunId: Contracts.RunId | undefined;
 
+      // The mock run has no branch of its own, so there is nothing to land (R10.1).
       const engine = createMockEngine({
+        resumeResult: { branch: undefined },
         onResume: (rid) => {
           resumedRunId = rid;
         },

@@ -41,6 +41,8 @@ export const RunCreatedEvent = member(
       mode: z.string().optional(),
       permission_mode: z.string().optional(),
       requested_roles: z.record(z.string(), z.unknown()).optional(),
+      // The branch checked out when the run started: the only branch its work lands on (R10.1).
+      base_branch: z.string().optional(),
     })
     .strict()
 );

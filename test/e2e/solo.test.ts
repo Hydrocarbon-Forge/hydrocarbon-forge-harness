@@ -22,6 +22,7 @@ describe("Solo mode E2E", () => {
         "run",
         "--mode",
         "solo",
+        "--no-merge",
         "--verify",
         "test -f feature.txt",
         "create feature.txt",

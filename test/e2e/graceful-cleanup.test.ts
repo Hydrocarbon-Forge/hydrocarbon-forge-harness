@@ -56,7 +56,7 @@ describe("R8.1 graceful: a finished run leaves no worktrees or task branches", (
         headBefore = git(repo.dir, ["rev-parse", "HEAD"]);
       },
       scenario: { calls: [planCall(contractFiles(plan.manifest, plan.specs)), ...plan.calls] },
-      args: [...RUN_ARGS, "Two passing tasks"],
+      args: [...RUN_ARGS, "--no-merge", "Two passing tasks"],
     });
     try {
       expect(res.exitCode).toBe(0);

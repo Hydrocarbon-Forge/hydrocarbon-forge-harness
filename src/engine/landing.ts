@@ -8,6 +8,16 @@ export const TEXT_FILES_LIMIT = 10;
 /** File names the json and stream-json summaries carry; files_changed_total counts all. */
 export const JSON_FILES_LIMIT = 50;
 
+/** Why a finished run stays on its branch when the caller turned merging off (R10.1). */
+export const MERGE_TURNED_OFF_REASON = "not merged: merging was turned off";
+
+/** The branch a run started on, from its run.created event; undefined for a run without one (before R10.1). */
+export function startBranchOf(events: readonly EventLike[]): string | undefined {
+  const created = events.find((e) => e.type === "run.created");
+  const base = (created?.data as { base_branch?: unknown } | undefined)?.base_branch;
+  return typeof base === "string" ? base : undefined;
+}
+
 export interface LandingFacts {
   /** The run's work is in the checked-out history (the working tree has it). */
   merged: boolean;

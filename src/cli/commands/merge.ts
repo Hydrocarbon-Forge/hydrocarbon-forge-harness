@@ -65,6 +65,8 @@ export interface MergeRunOptions {
   abortOnConflict?: boolean;
   /** Write nothing to stdout: the run command reports the landing itself (R7.4). */
   quiet?: boolean;
+  /** Called with the conflicting files when the run cannot merge cleanly (R10.1). */
+  onConflict?: (files: string[]) => void;
 }
 
 function resolveRunBranch(repoRoot: string, runId: string): { branch: string; exists: boolean } {
@@ -270,8 +272,11 @@ export async function mergeRun(
   const pf = await merger.preflight(ctx.cwd, "HEAD", runBranch);
   if (!pf.clean) {
     if (!abortOnConflict) {
-      for (const file of pf.conflictFiles ?? []) {
-        ctx.stderr.write(`${file}\n`);
+      opts?.onConflict?.(pf.conflictFiles ?? []);
+      if (opts?.quiet !== true) {
+        for (const file of pf.conflictFiles ?? []) {
+          ctx.stderr.write(`${file}\n`);
+        }
       }
       return 1;
     }

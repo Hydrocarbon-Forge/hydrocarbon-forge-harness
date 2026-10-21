@@ -137,7 +137,8 @@ describe("cli: inspection and lifecycle commands", () => {
     const ctx: CommandContext = {
       cwd: env.repoRoot,
       // R7.2: run needs named models; --model and --worker-model name them.
-      flags: { permissionMode: "bypassPermissions", model: "claude-sonnet-5-5", workerModel: "haiku" },
+      // R10.1: the run stays on its branch (--no-merge): the callers inspect it and the merge test merges it.
+      flags: { permissionMode: "bypassPermissions", model: "claude-sonnet-5-5", workerModel: "haiku", noMerge: true },
       rawArgs: ["Implement tasks T1 and T2"],
       stdout,
       stderr,
@@ -518,6 +519,7 @@ describe("cli: inspection and lifecycle commands", () => {
           stderr,
         };
 
+        const { execFileSync: dbgExec } = await import("node:child_process");
         const exitCode = await mergeCommand.execute(ctx);
         expect(exitCode).toBe(0);
         expect(stdout.getOutput()).toMatch(/Merged/);

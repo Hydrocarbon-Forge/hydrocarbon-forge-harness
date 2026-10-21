@@ -15,6 +15,9 @@ import {
 
 export interface CliGlobalFlags {
   print?: boolean;
+  /** Land the resumed run when it finishes (R10.1); --no-merge keeps it on its branch. */
+  merge?: boolean;
+  noMerge?: boolean;
   outputFormat?: "text" | "json" | "stream-json";
   model?: string;
   workerModel?: string;
@@ -62,7 +65,7 @@ export interface CliCommand {
 
 const { createFormatter } = await import(`../output.js`);
 const { registry } = await import(`../registry.js`);
-const { buildSettingsOverrides } = await import(`./run.js`);
+const { buildSettingsOverrides, landRun, mergeChoiceOf, mergeFlagsConflict } = await import(`./run.js`);
 const { withRequestedRoles } = await import(`../../config/index.js`);
 
 /**
@@ -125,6 +128,11 @@ export const resumeCommand: CliCommand = {
   name: "resume",
   description: "Resume a paused or interrupted Substrate run",
   async execute(ctx: CommandContext): Promise<number> {
+    const mergeConflict = mergeFlagsConflict(ctx.flags);
+    if (mergeConflict !== undefined) {
+      ctx.stderr.write(mergeConflict);
+      return 2;
+    }
     const targetArg =
       ctx.rawArgs.length > 0
         ? ctx.rawArgs[0]
@@ -370,20 +378,30 @@ export const resumeCommand: CliCommand = {
       permission_mode: (ctx.flags.permissionMode ?? originalPermissionMode) as any,
       overrides,
       signal: ctx.signal,
-      onEvent: (event) => formatter.onEvent(event),
+      onEvent: (event) => {
+        runEvents.push(event);
+        formatter.onEvent(event);
+      },
     };
 
     try {
-      const summary = await engine.resume(resolved.runId, resumeOpts);
-      if (summary.pause_reason === "needs_human" && summary.questions === undefined) {
+      const resumed = await engine.resume(resolved.runId, resumeOpts);
+      if (resumed.pause_reason === "needs_human" && resumed.questions === undefined) {
         const qPath = path.join(runDir, "QUESTIONS.md");
         if (fs.existsSync(qPath)) {
           const { parseQuestions } = await import(`../questions.js`);
           try {
-            summary.questions = parseQuestions(fs.readFileSync(qPath, "utf8"));
+            resumed.questions = parseQuestions(fs.readFileSync(qPath, "utf8"));
           } catch {}
         }
       }
+      // R10.1: a resumed run that finishes lands like a run does, unless the caller or the setting says no.
+      const landSettings = await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings, flags: overrides });
+      const landed = await landRun(ctx, resumed, {
+        mergeRequested: mergeChoiceOf(ctx.flags) ?? landSettings.git?.auto_merge === true,
+        events: runEvents,
+      });
+      const summary = landed.summary;
       if (forked) {
         await sessionStore.addRun(forked.sessionId, summary.run_id);
         formatter.onSummary(summary, forked.sessionId);
@@ -392,7 +410,7 @@ export const resumeCommand: CliCommand = {
       }
       await formatter.flush();
 
-      return summary.exit_code;
+      return landed.exitCode;
     } catch (err: any) {
       if (err instanceof RunLockError) {
         formatter.onError(err);

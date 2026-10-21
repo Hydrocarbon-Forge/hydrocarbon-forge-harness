@@ -1,5 +1,5 @@
 import type { EngineEvent, Question, RunId, RunSummary } from "../contracts/index.js";
-import { TEXT_FILES_LIMIT } from "../engine/landing.js";
+import { MERGE_TURNED_OFF_REASON, TEXT_FILES_LIMIT } from "../engine/landing.js";
 import { failedRunAdvice } from "../engine/failed-run.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
@@ -108,6 +108,14 @@ class TextFormatter implements OutputFormatter {
     const passed = countPassed(summary);
     const needsInput = summary.pause_reason === "needs_human" && questions !== undefined;
 
+    // R10.1: one line says where the finished work went, just before the run's last line.
+    if (summary.status === "finished" && summary.merged !== undefined) {
+      const landing = summary.merged
+        ? `merged into ${summary.base_branch ?? "HEAD"}`
+        : (summary.not_merged_reason ?? "not merged: no changes to merge");
+      this.writeLine(this.now(), landing);
+    }
+
     this.writeLine(
       this.now(),
       `run ${summary.run_id} ${summary.status}: ${passed}/${taskKeys.length} passed, ${formatCost(summary.usage?.total_usd ?? 0)}`
@@ -195,20 +203,23 @@ class TextFormatter implements OutputFormatter {
   private writeResult(summary: RunSummary): void {
     const count = summary.files_changed_total ?? 0;
     const base = summary.base_branch ?? "HEAD";
-    // R9.1: a finished run whose branch holds the work, and which is not merged, says so in one line.
-    if (!summary.merged && summary.status === "finished" && count > 0) {
+    const turnedOff = summary.not_merged_reason === MERGE_TURNED_OFF_REASON;
+    // R10.1: a finished run kept on its branch because merging was turned off says so and names the merge command.
+    if (!summary.merged && turnedOff && summary.status === "finished") {
+      this.out.write(`Result:     finished: work is on branch ${summary.branch}, not merged (merging was turned off)\n`);
+      this.out.write(`Next:       substrate merge ${summary.run_id}\n`);
+    } else if (!summary.merged && summary.status === "finished" && count > 0) {
+      // R9.1: a finished run whose branch holds the work, and which is not merged, says so in one line.
       this.out.write(`Result:     finished: work is on branch ${summary.branch}, not merged yet\n`);
     } else {
       this.out.write(`Result:     ${count} files changed on branch ${summary.branch}\n`);
     }
     if (summary.merged) {
       this.out.write(`Merged into ${base} (working tree updated)\n`);
-    } else if (summary.not_merged_reason !== undefined) {
+    } else if (summary.not_merged_reason !== undefined && !turnedOff) {
       this.out.write(`${summary.not_merged_reason}\n`);
-    } else {
-      this.out.write(
-        `NOT merged into ${base} yet — run: substrate merge ${summary.run_id}  (or pass the merge flag next time)\n`,
-      );
+    } else if (!turnedOff) {
+      this.out.write(`NOT merged into ${base} yet — run: substrate merge ${summary.run_id}\n`);
     }
     const files = summary.files_changed ?? [];
     if (files.length > 0) {

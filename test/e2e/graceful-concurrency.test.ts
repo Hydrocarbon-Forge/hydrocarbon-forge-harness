@@ -93,7 +93,7 @@ describe("R8.2 graceful: scenario 9, a task cannot see its sibling's edits or th
         ],
       },
       settings: { concurrency: { workers: 2 } },
-      args: [...RUN_ARGS, "Isolation case"],
+      args: [...RUN_ARGS, "--no-merge", "Isolation case"],
     });
     try {
       expect(res.exitCode, `stdout: ${res.stdout.slice(-1200)}\nstderr: ${res.stderr.slice(-600)}`).toBe(0);

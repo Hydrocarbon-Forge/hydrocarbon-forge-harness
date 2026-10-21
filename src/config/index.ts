@@ -112,7 +112,7 @@ export const DEFAULT_SETTINGS: Contracts.Settings & { pricing: Contracts.Pricing
   concurrency: { workers: 3 },
   permissions: { allow: [], deny: [] },
   sandbox: { enabled: false },
-  git: { on_scope_violation: "revert", auto_merge: false },
+  git: { on_scope_violation: "revert", auto_merge: true },
   instructions: { workers: "none" },
   usage: { global: true },
   execution: { strategy: "direct" },

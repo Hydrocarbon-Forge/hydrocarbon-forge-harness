@@ -102,13 +102,15 @@ describe("R7.4: where the work lands", () => {
     }
   });
 
-  it("the same run without --merge leaves the files out of the working tree, and the printed command merges them", () => {
+  // R10.1: --no-merge is the opt-out; the run is then left on its branch and the printed command merges it.
+  it("the same run with --no-merge leaves the files out of the working tree, and the printed command merges them", () => {
     const s = scratch(HELLO_CALLS());
     try {
       const res = cli(s, [
         "run",
         "--plan", "claude:claude-sonnet-5-5",
         "--work", "claude:haiku",
+        "--no-merge",
         "--permission-mode", "bypassPermissions",
         "Create the hello file",
       ]);
@@ -117,8 +119,9 @@ describe("R7.4: where the work lands", () => {
       expect(runId, diag(res)).toBeDefined();
       expect(res.stdout).toContain("Merged:     no\n");
       expect(res.stdout).toContain(
-        `NOT merged into main yet — run: substrate merge ${runId}  (or pass the merge flag next time)\n`,
+        `Result:     finished: work is on branch substrate/runs/${runId}, not merged (merging was turned off)\n`,
       );
+      expect(res.stdout).toContain(`Next:       substrate merge ${runId}\n`);
       expect(res.stdout).toContain("Files:\n  contracts/types.ts\n  src/hello.txt\n");
       expect(existsSync(join(s.project, "src", "hello.txt"))).toBe(false);
 

@@ -64,3 +64,14 @@ Supersedes the R6.4 rule that a named planner forces `plan` in auto mode: with b
 - Failed tasks are no longer kept for a human to resume by default. A task that the replan ladder cannot continue, with no QUESTIONS.md, is failed for good (`task.failed` with `can_replan: false`); its dependents are skipped (`task.skipped`); the run ends failed (exit 1). A pause with exit 3 remains only for real questions and for the permission and rate-limit pauses. The planner-questions row above is unchanged.
 - A merge conflict drops the conflicting task without a replan (`merge_conflict`, `can_replan: false`); the message names the tasks it collided with.
 - A finished (merged or failed) run removes its worktrees and task branches; the run branch and the failed work's evidence (`packets/<task>-g<n>.patch` and the attempt reports) are kept under the run directory.
+
+## Note 2026-10-21 (R10.1): a finished run merges by default, superseding the `bypassPermissions merge` row
+
+The row `bypassPermissions merge` (table above, "Auto-merge into the user's branch only if `git.auto_merge` is `true`") is superseded. The owner asked, after a finished run's summary said `Merged: no` and `run: substrate merge <id> (or pass the merge flag next time)`, why it did not merge automatically. The owner's decision: a run that finishes successfully merges into the user's branch by default.
+
+Why: the caller of Substrate (an agent such as Hermes, or a person) expects the requested change to appear in the project when the run succeeds. Having to remember a flag or a follow-up command left finished work stranded on a run branch.
+
+The rule now:
+- `git.auto_merge` defaults to `true`. `--no-merge` and the request's `merge: false` keep one run on its run branch. `--merge` and `merge: true` land one run even when the setting is `false`. Precedence: the flag or the request field, then the project setting, then the default.
+- The safety net: nothing lands unless the run ends `finished` with every task passed and integration verify passed. A failed, partial, paused, interrupted or budget-stopped run never lands, and `substrate plan` never lands. A dirty checkout (uncommitted tracked changes) refuses the landing. A run lands only into the branch it started on: if the user switched branches meanwhile, or HEAD is detached, it does not merge. A conflict at landing is refused with the files named, leaving no merge state.
+- `substrate merge <run>` is unchanged: it merges into the current branch, because the user chose it.

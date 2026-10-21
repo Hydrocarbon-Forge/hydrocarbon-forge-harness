@@ -8,7 +8,7 @@ import { loadSettings, sandboxProblem, withRequestedRoles } from "../../config/i
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
 import { changedFilesOnRun, currentBranchName, runLandedInHead } from "../../git/landing.js";
-import { budgetResumeCommand, budgetStopMessage, failureOf, withLanding } from "../../engine/landing.js";
+import { MERGE_TURNED_OFF_REASON, budgetResumeCommand, budgetStopMessage, failureOf, startBranchOf, withLanding } from "../../engine/landing.js";
 import { planHasIntegrationVerify } from "../../engine/failed-run.js";
 
 export interface CliGlobalFlags {
@@ -28,6 +28,8 @@ export interface CliGlobalFlags {
   work?: string;
   /** Merge a passing run into the checked-out branch, for this run only (R7.4). */
   merge?: boolean;
+  /** Keep a finished run on its branch, for this run only (R10.1). */
+  noMerge?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -161,11 +163,30 @@ interface LandResult {
   exitCode: number;
 }
 
-// Where a finished run's work lands (R7.4). The changed files are read before any merge, since
-// the merge moves the fork point. The run is merged into the checked-out branch only when the
-// caller asked (--merge, the request's merge field, or git.auto_merge); otherwise the run branch
-// stays for `substrate merge`. A failed merge sets the exit code to the merge's.
-async function landRun(
+/**
+ * The landing choice the caller made (R10.1): --merge or --no-merge on the command line (the
+ * flag wins), else the request's merge field, else undefined, so the project setting decides.
+ * Both flags together are refused by the caller.
+ */
+export function mergeChoiceOf(flags: { merge?: boolean; noMerge?: boolean }, requestMerge?: boolean): boolean | undefined {
+  if (flags.merge === true) return true;
+  if (flags.noMerge === true) return false;
+  return requestMerge;
+}
+
+/** Refuses --merge with --no-merge, before any side effect (R10.1). */
+export function mergeFlagsConflict(flags: { merge?: boolean; noMerge?: boolean }): string | undefined {
+  return flags.merge === true && flags.noMerge === true ? "Error: --merge and --no-merge cannot be used together\n" : undefined;
+}
+
+// Where a finished run's work lands (R7.4, R10.1). The run is merged into the checked-out branch
+// when the caller asked for it or the project setting git.auto_merge says so (default true). It
+// lands only when the run finished with every task passed; a failed, paused, interrupted or
+// budget-stopped run never lands. The landing refuses, and the run stays finished with the
+// reason in not_merged_reason, when the work would land on another branch than the run started
+// on, when the checkout has uncommitted tracked changes, or when the changes conflict. The changed
+// files are read before any merge, since the merge moves the fork point.
+export async function landRun(
   ctx: CommandContext,
   summary: RunSummary,
   opts: { mergeRequested: boolean; events: EngineEvent[] },
@@ -175,19 +196,51 @@ async function landRun(
   // No branch, no files: a run that never created its branch changed nothing to land (R7.9).
   const files = summary.branch === undefined ? [] : changedFilesOnRun(ctx.cwd, summary.branch);
   let exitCode = summary.exit_code;
-  // R8.2: a refused landing leaves a finished run, not a failed one. Uncommitted tracked changes
-  // are the refusal the caller can fix; the merge command (exit 1) lands the run once they are gone.
+  // R8.2: a refused landing leaves a finished run, not a failed one. R10.1: the same holds for every
+  // refusal below, and each one names its reason and the command that lands the run later.
   let notMergedReason: string | undefined;
-  if (!runFailed && opts.mergeRequested) {
-    const dirty = trackedChangesOf(ctx.cwd);
-    if (dirty.length > 0) {
-      notMergedReason = `not merged: your working tree has uncommitted changes; commit or stash them, then run: substrate merge ${summary.run_id}`;
-      exitCode = 1;
+  const allPassed = Object.values(summary.tasks ?? {}).every((t) => t.state === "PASSED");
+  if (!runFailed && summary.status === "finished" && allPassed && summary.branch !== undefined) {
+    if (!opts.mergeRequested) {
+      notMergedReason = MERGE_TURNED_OFF_REASON;
     } else {
-      const { mergeRun } = await import(`./merge.js`);
-      const mergeCode = await mergeRun(ctx, summary.run_id, { dryRun: false, abortOnConflict: false, quiet: true });
-      if (mergeCode !== 0) {
-        exitCode = mergeCode;
+      const started = startBranchOf(opts.events);
+      if (started === "HEAD") {
+        notMergedReason = `not merged: the run started on a detached HEAD, so it has no branch to land on; check out a branch and run: substrate merge ${summary.run_id}`;
+        exitCode = 1;
+      } else if (started !== undefined && started !== base_branch) {
+        // R10.1: the work lands on the branch the run started on, and only while that branch is checked out.
+        notMergedReason = `not merged: you switched from ${started} to ${base_branch} while the run was working; check out ${started} and run: substrate merge ${summary.run_id}`;
+        exitCode = 1;
+      } else {
+        const dirty = trackedChangesOf(ctx.cwd);
+        if (dirty.length > 0) {
+          notMergedReason = `not merged: your working tree has uncommitted changes; commit or stash them, then run: substrate merge ${summary.run_id}`;
+          exitCode = 1;
+        } else {
+          const { mergeRun } = await import(`./merge.js`);
+          const conflicts: string[][] = [];
+          let mergeCode: number;
+          try {
+            mergeCode = await mergeRun(ctx, summary.run_id, {
+              dryRun: false,
+              abortOnConflict: false,
+              quiet: true,
+              onConflict: (names) => conflicts.push(names),
+            });
+          } catch (err: any) {
+            mergeCode = 1;
+            notMergedReason = `not merged: ${err?.message ?? "the merge failed"}; run: substrate merge ${summary.run_id}`;
+          }
+          if (mergeCode !== 0) {
+            exitCode = mergeCode;
+            if (conflicts.length > 0) {
+              notMergedReason = `not merged: the run's changes conflict with your branch in ${conflicts[0].join(", ")}; resolve them, then run: substrate merge ${summary.run_id}`;
+            } else if (notMergedReason === undefined) {
+              notMergedReason = `not merged: the merge into ${base_branch} failed; run: substrate merge ${summary.run_id}`;
+            }
+          }
+        }
       }
     }
   }
@@ -260,8 +313,13 @@ export const runCommand: CliCommand = {
 
     let mode = ctx.flags.mode ?? "auto";
     let permission_mode = ctx.flags.permissionMode ?? "dontAsk";
-    // --merge or the request's merge field: merge a passing run for this run only (R7.4).
-    let mergeFlag = ctx.flags.merge === true;
+    // --merge, --no-merge or the request's merge field decide this run's landing (R7.4, R10.1).
+    const mergeConflict = mergeFlagsConflict(ctx.flags);
+    if (mergeConflict !== undefined) {
+      ctx.stderr.write(mergeConflict);
+      return 2;
+    }
+    let requestMerge: boolean | undefined;
     let overrides = buildSettingsOverrides(ctx.flags, mode);
     let prompt = ctx.rawArgs[0];
     let runVerify: string[] | undefined;
@@ -284,9 +342,7 @@ export const runCommand: CliCommand = {
       if (reqRes.request.permission_mode) {
         permission_mode = reqRes.request.permission_mode;
       }
-      if (reqRes.request.merge === true) {
-        mergeFlag = true;
-      }
+      requestMerge = reqRes.request.merge;
       if (reqRes.overrides.roles) {
         overrides.roles = { ...(overrides.roles ?? {}), ...reqRes.overrides.roles };
       }
@@ -434,7 +490,7 @@ export const runCommand: CliCommand = {
           flags: overrides,
         }));
       const landed = await landRun(ctx, summary, {
-        mergeRequested: mergeFlag || effectiveSettings.git?.auto_merge === true,
+        mergeRequested: mergeChoiceOf(ctx.flags, requestMerge) ?? effectiveSettings.git?.auto_merge === true,
         events: runEvents,
       });
       formatter.onSummary(landed.summary, session?.sessionId ?? "");
