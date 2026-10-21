@@ -216,6 +216,7 @@ substrate merge [--dry-run] [--abort-on-conflict] [run-id]
 ```
 
 Merges a finished run branch into the current branch. A missing run id exits 2 with `Run ID required`, and an unknown run exits 2 with `Error: unknown run <id>`. The merge is refused, exit 1, when the run did not finish successfully, when tracked files have uncommitted changes, or when a preflight check finds a conflict; the conflicting files are listed on stderr. `--abort-on-conflict` takes the abort path on a conflict. `--dry-run` runs the checks without merging.
+`--partial` (R8.2) lands the passed tasks of a failed run on purpose. It needs a run that failed and has at least one task merged into its run branch, else it exits 1. It runs the plan's `integration_verify` commands on the run branch in a throwaway worktree first (removed afterwards); only when they all pass does the run branch merge into the checked-out branch. Otherwise it exits 1 with `not merged: integration verify failed on the run branch: <command> ...` and the output's last line on stderr, and nothing changes. The uncommitted-changes and conflict refusals are the same as for a finished run. A failed run's summary names `substrate merge <run> --partial` in `next` when it has a passed task.
 
 ## undo
 
@@ -417,6 +418,12 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 - **Resume** continues the run: tasks that passed are not run again, and the models of the run are used (see resume).
 - **SIGKILL** (no chance to clean up) writes no `run.paused` event and can leave a harness process behind. The next `substrate resume` ends the recorded process before it continues; a run lock left by the killed CLI does not block the resume.
 
+## Budget stop and refused landings (R8.2)
+
+- **Budget stop.** A run that spends its run budget (`--max-budget-usd`, `budgets.run.max_usd`) stops with exit `4` and `Status: paused`. The worker in flight is killed, as the run budget's kill always is (R1.4), and its unverified work is not kept; a task that passed before the stop is merged on the run branch. The summary's `Reason:` reads `budget_exhausted: spent $<spent> of the $<budget> run budget; <task> passed, <task> interrupted, <task> not started`, and `Next:` reads `substrate resume <run> --max-budget-usd <n>` with `<n>` above the spend. The resume uses the new budget; the spend already recorded counts against it. A paused run keeps its task worktrees and branches for the resume.
+- **Refused landing.** A run that passed and was asked to merge (`--merge`, the request's `merge` field or `git.auto_merge`) while your checkout has uncommitted changes to tracked files is still `Status: finished`, with `Merged: no`, `Exit Code: 1` (the merge command's refusal code) and this line in `Result:`: `not merged: your working tree has uncommitted changes; commit or stash them, then run: substrate merge <run>`. Nothing is lost: the run branch keeps the work, and `substrate merge <run>` lands it once the checkout is clean. In json the same sentence is `not_merged_reason`.
+- **Progress.** A task that fails for good prints one `[task <id>] failed: <class>: <reason>` line. Its failed attempts print nothing extra; the replan ladder prints its own lines.
+
 ## Failed and partial runs (R8.1)
 
 - **Independent tasks keep going.** A failed task does not stop its siblings. Each dependent of a failed task is skipped: its event is `task.skipped` with `reason: dependency_failed`, `failed` (the direct dependencies that failed) and `skipped`, and its progress line reads `[task T3] skipped (depends on T2, which failed)`.
@@ -426,5 +433,5 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 - **Cleanup.** A run that finishes (`FINISHED` or `FAILED`) removes its task worktrees, its integration worktree and every task branch `substrate/tasks/<run>/*`. The run branch `substrate/runs/<run>` is kept. A paused run keeps them, because resume needs them.
 - **Evidence.** The work of each task that did not merge is kept under the run directory: `.substrate/runs/<run>/packets/<task>-g<n>.patch` (what the task changed) and the attempt reports `packets/<task>-g<n>-attempt<k>.json` (the verify results of each attempt, with the output of the last one), plus the failure packet `packets/<task>-g<n>.json` when the ladder ran.
 - **The checkout stays clean.** `.substrate/` is added to the repository's `.git/info/exclude` at run start, so `git status` in your checkout never shows it. A run without the merge flag changes nothing outside `.substrate/`.
-- **A dirty checkout does not stop the run (R8.2).** Batches merge into the run branch through the integration worktree and never touch your checkout, so uncommitted changes there do not fail a task or the run. The checkout is checked where the work lands: `substrate merge` and the run's merge flag refuse tracked uncommitted changes with exit `1` and leave the run branch intact. Commit or stash the changed files, then run `substrate merge <run>`. (The landing refusal is still reported with the run's status; see known issue 35.)
+- **A dirty checkout does not stop the run (R8.2).** Batches merge into the run branch through the integration worktree and never touch your checkout, so uncommitted changes there do not fail a task or the run. The checkout is checked where the work lands: `substrate merge` and the run's merge flag refuse tracked uncommitted changes with exit `1` and leave the run branch intact (see Budget stop and refused landings).
 

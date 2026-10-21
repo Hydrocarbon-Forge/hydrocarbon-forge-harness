@@ -248,23 +248,26 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - Seen: the second task of a batch that conflicted went to the replan ladder.
 - Fixed: `src/engine/actions/merge.ts` fails it with `merge_conflict` and `can_replan: false`, and names the colliding tasks (matched by their write and create patterns, else the earlier tasks of the batch). The first task's merge stays.
 
-## 35. OPEN: a dirty user checkout fails a successful run that `substrate merge` will not land
+## 35. A dirty user checkout failed a successful run that `substrate merge` would not land (FIXED, R8.2)
 
 - Evidence: with `--merge` and a modified tracked file in the user's checkout, the merge is refused. The summary says `Tasks: 0 passed ... 1 total` although the task passed, `Reason: failed`, and nothing tells the caller to commit or stash. The run is `failed`, and `substrate merge` refuses a run that did not finish with exit 0, so no next command lands the work.
-- Direction: the refusal needs its own status (or the merge needs a retry path) and a message that names the files. Owner decision: whether a dirty checkout should end the run as finished-but-not-landed.
+- Fixed: a batch no longer checks the checkout (`src/engine/actions/merge.ts`; the run finishes with its tasks merged into the run branch). The landing checks it (`landRun` in `src/cli/commands/run.ts`): with `--merge` and uncommitted tracked changes the run stays `Status: finished` with `Merged: no`, `Exit Code: 1` (the merge command's documented refusal code) and `not_merged_reason` (`not merged: your working tree has uncommitted changes; commit or stash them, then run: substrate merge <run>`). `substrate merge <run>` lands it once the tree is clean. The message does not list the files; the owner's wording was kept.
+- Tests: `test/e2e/graceful-merge.test.ts` (refused landing, then the merge succeeds), `test/e2e/merge-integration.test.ts` (d) (changed: the run no longer stops with dirty_checkout).
 
-## 36. OPEN: no command lands the passed part of a partial run
+## 36. No command landed the passed part of a partial run (FIXED, R8.2)
 
 - Evidence: a run with one failed task ends `failed`, and the summary says `NOT merged: N of M tasks failed or were skipped; the passed tasks stay on branch ...`. `substrate merge` refuses failed runs, so the passed work can only be reached by hand.
-- Direction: owner decision on a deliberate partial landing command, or on resume re-running only the failed tasks.
+- Fixed: `substrate merge <run> --partial` (`src/cli/commands/merge.ts`, `verifyRunBranch`). It needs a failed run with a merged task, runs the plan's `integration_verify` on the run branch in a throwaway worktree, and merges only when that passes; otherwise it exits 1 with `not merged: integration verify failed on the run branch: <command> ...`. The failed run's summary names it in `next` and as an `or` line. Resume re-running only the failed tasks is not done (see known issue 41).
+- Tests: `test/e2e/graceful-merge.test.ts` (names `--partial` next, refused on a failing verify, lands on a passing verify).
 
 ## 37. OPEN: failed tasks still go through the replan ladder before they fail
 
 - Each failed task spends planner sessions (L1, then L2) before it is failed for good. A crash is not healed first. This is the existing R3.5 policy, kept as is. Cost and retry shape are an owner decision.
 
-## 38. OPEN: duplicate progress line for a failed task
+## 38. Duplicate progress line for a failed task (FIXED, R8.2)
 
-- A task that fails its last attempt prints `failed: <class>` twice: once for the attempt and once when the ladder gives up. Cosmetic.
+- A task that fails its last attempt printed `failed: <class>` twice: once for the attempt and once when the ladder gave up. Fixed: `src/cli/progress.ts` prints an attempt's own failure not at all (the ladder prints its lines), and does not repeat a `failed` line for a task and class it already reported (the merge culprit path). The give-up line now carries its reason too.
+- Test: `test/e2e/graceful-merge.test.ts` ("a task that fails for good is reported with one `failed` line"); `test/unit/cli/progress.test.ts` unchanged and passing.
 
 ## 39. OPEN: scenario 9 (a task cannot see its siblings' edits or the user's changes) (PARTLY TESTED, R8.2)
 
@@ -286,3 +289,10 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - Seen: SIGINT on a run with a hung worker exited 130 and printed `Status: paused`, `Reason: user_cancel`, and a `NOT merged: 0 of 2 tasks failed` line that was wrong for a paused run. A SIGKILL of the CLI left the hung worker running, with no record that would let a later resume find it.
 - Fixed: the text summary ends an interrupted run with `Interrupted. Resume with: substrate resume <run-id>`, and the `NOT merged:` line is only for a failed run (`src/cli/output.ts`). Each worker session is recorded in `<run>/workers/` while it runs (`src/backends/worker-pids.ts`, `src/roles/worker.ts`); `endStaleWorkers` ends a recorded process still alive whose command line names its harness, under the run lock, at the start of a resume (`src/engine/engine.ts`).
 - Tests: `test/e2e/graceful-interrupt.test.ts` (SIGINT exit 130 and SIGTERM exit 143, each within 5 s, worker gone, resume finishes without rerunning T1; SIGKILL then resume ends the worker).
+
+## 43. OPEN: the run budget kills the worker in flight and discards its work
+
+- Evidence (R8.2): with `--max-budget-usd 0.02` a worker that spends $0.05 is killed mid-session when the run's total passes the cap (`checkRunBudget` in `src/engine/effects.ts`, called from the task action's run policy, `kill: "budget"`). Its edits are never verified, so that task does not pass; the work is not on the run branch. The code comment on `checkRunBudget` says "at 100 percent the run pauses and the session is killed by the caller" (R1.4), so the kill is the documented behaviour and is kept.
+- Direction: owner decision. Either keep the kill (the cap is hard), or let the in-flight task finish and stop before the next one (the cap is soft by one task). The per-task cap is unaffected.
+- Note: the stop's `failure_class` is `budget_exhausted` (the pause reason and exit 4), not `budget_exceeded` (the class of a task that hits its own cap).
+

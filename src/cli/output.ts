@@ -164,7 +164,14 @@ class TextFormatter implements OutputFormatter {
       if (!needsInput) {
         // Without a branch the run failed in planning, and resuming plans again (R7.9).
         const replan = summary.branch === undefined ? "  (re-runs planning; costs again)" : "";
-        this.out.write(`Next:       substrate resume ${summary.run_id}${replan}\n`);
+        // A budget stop names the resume with a higher budget (R8.2); other runs name plain resume.
+        const resume = summary.next?.find((c) => c.startsWith("substrate resume ")) ?? `substrate resume ${summary.run_id}`;
+        this.out.write(`Next:       ${resume}${replan}\n`);
+        // R8.2: a failed run with a passed task on its run branch can land that work deliberately.
+        const partial = summary.next?.find((c) => c.endsWith(" --partial"));
+        if (partial !== undefined) {
+          this.out.write(`            or ${partial}  (lands the passed tasks after integration verify passes)\n`);
+        }
       }
       if (summary.failure_class !== undefined) {
         const message = summary.message ? `: ${summary.message}` : "";
@@ -184,6 +191,8 @@ class TextFormatter implements OutputFormatter {
     this.out.write(`Result:     ${count} files changed on branch ${summary.branch}\n`);
     if (summary.merged) {
       this.out.write(`Merged into ${base} (working tree updated)\n`);
+    } else if (summary.not_merged_reason !== undefined) {
+      this.out.write(`${summary.not_merged_reason}\n`);
     } else {
       this.out.write(
         `NOT merged into ${base} yet — run: substrate merge ${summary.run_id}  (or pass the merge flag next time)\n`,

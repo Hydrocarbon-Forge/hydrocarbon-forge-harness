@@ -4,8 +4,11 @@ import path from "node:path";
 
 import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
-import { TaskMerger } from "../../git/merger.js";
+import { TaskMerger, verifyIn } from "../../git/merger.js";
 import { gitIdentityEnv } from "../../git/identity.js";
+import { loadSettings } from "../../config/index.js";
+import { integrationFailureDetail, safeParseManifest } from "../../engine/actions/shared.js";
+import { spawnSync } from "node:child_process";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -22,6 +25,8 @@ export interface CliGlobalFlags {
   dryRun?: boolean;
   abortOnConflict?: boolean;
   hard?: boolean;
+  /** Land a failed run's passed tasks after its integration verify passes on the run branch (R8.2). */
+  partial?: boolean;
 }
 
 export interface CliGovernanceFlags {
@@ -83,6 +88,66 @@ function resolveRunBranch(repoRoot: string, runId: string): { branch: string; ex
   return { branch: runBranch, exists: false };
 }
 
+/** The run's events, or none when it has no event log. */
+function runEventTypes(repoRoot: string, runId: string): Array<{ type: string; data?: any }> {
+  const eventsFile = path.join(repoRoot, ".substrate", "runs", runId, "events.jsonl");
+  if (!fs.existsSync(eventsFile)) return [];
+  return fs
+    .readFileSync(eventsFile, "utf8")
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
+}
+
+/**
+ * `merge --partial` (R8.2): the run failed, and at least one of its tasks merged into the run
+ * branch. Returns the reason it cannot land, or undefined when it can.
+ */
+function partialRefusal(repoRoot: string, runId: string): string | undefined {
+  const events = runEventTypes(repoRoot, runId);
+  const finished = events.filter((e) => e.type === "run.finished").at(-1);
+  if (finished === undefined || finished.data?.exit_code === 0) {
+    return `run ${runId} did not fail; use: substrate merge ${runId}`;
+  }
+  if (!events.some((e) => e.type === "task.merged")) {
+    return `run ${runId} has no passed task on its run branch to land`;
+  }
+  return undefined;
+}
+
+/**
+ * Runs the plan's integration_verify on the run branch in a throwaway worktree (R8.2). The
+ * worktree is removed afterwards whatever the outcome.
+ */
+async function verifyRunBranch(
+  ctx: CommandContext,
+  runId: string,
+  runBranch: string,
+): Promise<{ passed: true } | { passed: false; message: string }> {
+  let commands: import("../../contracts/index.js").Command[] = [];
+  try {
+    const manifest = safeParseManifest(fs.readFileSync(path.join(ctx.cwd, ".substrate", "runs", runId, "manifest.yaml"), "utf8"));
+    commands = manifest.integration_verify ?? [];
+  } catch {}
+  const settings = await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings });
+  const worktree = path.join(ctx.cwd, ".substrate", "worktrees", runId, "partial-verify");
+  execFileSync("git", ["worktree", "add", "--detach", worktree, runBranch], { cwd: ctx.cwd, stdio: "pipe" });
+  try {
+    const outcome = await verifyIn(worktree, commands, settings);
+    if (outcome.passed) return { passed: true };
+    return { passed: false, message: integrationFailureDetail(outcome.failure, [worktree, ctx.cwd]).message };
+  } finally {
+    spawnSync("git", ["worktree", "remove", "--force", worktree], { cwd: ctx.cwd, stdio: "pipe" });
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+}
+
 function isRunFinished(repoRoot: string, runId: string): boolean {
   const eventsFile = path.join(repoRoot, ".substrate", "runs", runId, "events.jsonl");
   if (!fs.existsSync(eventsFile)) {
@@ -140,7 +205,14 @@ export async function mergeRun(
     return 2;
   }
 
-  if (!isRunFinished(ctx.cwd, runId)) {
+  const partial = ctx.flags.partial === true;
+  if (partial) {
+    const refusal = partialRefusal(ctx.cwd, runId);
+    if (refusal !== undefined) {
+      ctx.stderr.write(`Error: ${refusal}\n`);
+      return 1;
+    }
+  } else if (!isRunFinished(ctx.cwd, runId)) {
     ctx.stderr.write(`Error: run ${runId} did not finish successfully; not merged\n`);
     return 1;
   }
@@ -183,6 +255,15 @@ export async function mergeRun(
     if (opts?.quiet !== true) ctx.stdout.write("Already up to date.\n");
     return 0;
   } catch {}
+
+  // R8.2: a partial landing lands only what passes integration verify on the run branch.
+  if (partial) {
+    const verified = await verifyRunBranch(ctx, runId, runBranch);
+    if (!verified.passed) {
+      ctx.stderr.write(`not merged: integration verify failed on the run branch: ${verified.message}\n`);
+      return 1;
+    }
+  }
 
   // Conflict preflight
   const merger = new TaskMerger();

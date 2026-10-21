@@ -75,6 +75,9 @@ export class RunProgress {
   private plannerAttempt = 1;
   private readonly taskCostUsd = new Map<string, number>();
   private readonly mergedTasks = new Set<string>();
+  // The failure class each task was last reported failed with (R8.2): the replan ladder's give-up
+  // repeats the failure a task already printed, and only the first line is shown.
+  private readonly failedTasks = new Map<string, string>();
   private pendingPlan: PlanTaskView[] | undefined;
 
   constructor(
@@ -202,7 +205,17 @@ export class RunProgress {
         this.setPhase("scheduling", at);
         return [`${taskLabel} merged, ${formatCost(this.taskCostUsd.get(tid) ?? 0)}`];
       case "task.failed": {
-        const reason = typeof data.message === "string" && data.message !== "" ? `: ${data.message}` : "";
+        // R8.2: an attempt's own failure is followed by the replan ladder, which prints its own
+        // line and, when the task is given up, the one `failed` line for it. The attempt's line
+        // is not printed, so a task that fails for good shows `failed` once.
+        if (data.attempt !== undefined && data.can_replan === undefined) return [];
+        const failureClass = String(data.failure_class ?? "-");
+        if (tid !== "" && data.can_replan === false && this.failedTasks.get(tid) === failureClass) return [];
+        if (tid !== "") this.failedTasks.set(tid, failureClass);
+        const text = typeof data.message === "string" && data.message !== ""
+          ? data.message
+          : typeof data.detail === "string" ? data.detail : "";
+        const reason = text !== "" ? `: ${text}` : "";
         return [`${taskLabel} failed: ${data.failure_class ?? "-"}${reason}`];
       }
       case "task.skipped": {

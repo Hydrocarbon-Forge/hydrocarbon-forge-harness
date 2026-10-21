@@ -139,6 +139,9 @@
     },
     "drafts_dir": {
       "type": "string"
+    },
+    "not_merged_reason": {
+      "type": "string"
     }
   },
   "required": [

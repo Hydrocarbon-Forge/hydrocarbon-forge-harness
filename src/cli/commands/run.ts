@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -7,7 +8,7 @@ import { loadSettings, sandboxProblem, withRequestedRoles } from "../../config/i
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionRecord, type SessionStore } from "../../store/sessions.js";
 import { changedFilesOnRun, currentBranchName, runLandedInHead } from "../../git/landing.js";
-import { failureOf, withLanding } from "../../engine/landing.js";
+import { budgetResumeCommand, budgetStopMessage, failureOf, withLanding } from "../../engine/landing.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -148,6 +149,12 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
   return overrides;
 }
 
+/** Tracked files with uncommitted changes in the checkout (untracked files do not block a merge). */
+function trackedChangesOf(repoRoot: string): string[] {
+  const res = spawnSync("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: repoRoot, encoding: "utf8" });
+  return res.status === 0 ? res.stdout.split("\n").filter((line) => line.trim().length > 0) : [];
+}
+
 interface LandResult {
   summary: RunSummary;
   exitCode: number;
@@ -167,16 +174,38 @@ async function landRun(
   // No branch, no files: a run that never created its branch changed nothing to land (R7.9).
   const files = summary.branch === undefined ? [] : changedFilesOnRun(ctx.cwd, summary.branch);
   let exitCode = summary.exit_code;
+  // R8.2: a refused landing leaves a finished run, not a failed one. Uncommitted tracked changes
+  // are the refusal the caller can fix; the merge command (exit 1) lands the run once they are gone.
+  let notMergedReason: string | undefined;
   if (!runFailed && opts.mergeRequested) {
-    const { mergeRun } = await import(`./merge.js`);
-    const mergeCode = await mergeRun(ctx, summary.run_id, { dryRun: false, abortOnConflict: false, quiet: true });
-    if (mergeCode !== 0) {
-      exitCode = mergeCode;
+    const dirty = trackedChangesOf(ctx.cwd);
+    if (dirty.length > 0) {
+      notMergedReason = `not merged: your working tree has uncommitted changes; commit or stash them, then run: substrate merge ${summary.run_id}`;
+      exitCode = 1;
+    } else {
+      const { mergeRun } = await import(`./merge.js`);
+      const mergeCode = await mergeRun(ctx, summary.run_id, { dryRun: false, abortOnConflict: false, quiet: true });
+      if (mergeCode !== 0) {
+        exitCode = mergeCode;
+      }
     }
   }
   // A failed run never lands, even when its branch has no commits of its own.
   const merged = !runFailed && summary.branch !== undefined && runLandedInHead(ctx.cwd, summary.branch);
-  const failure = runFailed ? failureOf(opts.events) : undefined;
+  let failure = runFailed ? failureOf(opts.events) : undefined;
+  let resumeCommand: string | undefined;
+  // R8.2: a run stopped by its run budget says what it spent, what each task was doing, and the
+  // resume command with a higher budget.
+  if (summary.pause_reason === "budget_exhausted") {
+    const exceeded = [...opts.events].reverse().find((e) => e.type === "run.budget.exceeded");
+    const spent = Number((exceeded?.data as { cost_usd?: unknown } | undefined)?.cost_usd ?? summary.usage?.total_usd ?? 0);
+    const cap = Number((exceeded?.data as { max_usd?: unknown } | undefined)?.max_usd ?? ctx.flags.maxBudgetUsd ?? 0);
+    failure = {
+      failure_class: "budget_exhausted",
+      message: budgetStopMessage(spent, cap, summary.tasks),
+    };
+    resumeCommand = budgetResumeCommand(summary.run_id, spent, cap);
+  }
   const landed = withLanding(
     { ...summary, exit_code: exitCode },
     {
@@ -186,6 +215,11 @@ async function landRun(
       runFailed,
       needsInput: summary.pause_reason === "needs_human" && summary.questions !== undefined,
       ...(failure !== undefined ? { failure } : {}),
+      ...(resumeCommand !== undefined ? { resumeCommand } : {}),
+      ...(notMergedReason !== undefined ? { notMergedReason } : {}),
+      // A task merged into the run branch is what `merge --partial` lands (R8.2).
+      partialLandable: summary.status === "failed" && summary.branch !== undefined &&
+        opts.events.some((e) => e.type === "task.merged"),
     },
   );
   return { summary: landed, exitCode };

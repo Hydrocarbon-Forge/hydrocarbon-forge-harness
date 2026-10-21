@@ -532,6 +532,8 @@ export const RunSummary = z.object({
   failure_class: z.string().optional(),
   message: z.string().optional(),
   drafts_dir: z.string().optional(),
+  // A finished run whose landing was refused (R8.2): the sentence that says why and what to run.
+  not_merged_reason: z.string().optional(),
 }).strict();
 export type RunSummary = z.infer<typeof RunSummary>;
 
