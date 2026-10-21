@@ -242,3 +242,37 @@ describe("R11.1: the run budget is recorded and reused by a resume", () => {
     }
   }, 180000);
 });
+
+// Known issue 62 (R11.2): a worker the harness stops for its own budget records the spend on run.budget.exceeded,
+// so the progress line and the event say what was spent, as the other budget stops do.
+describe("R11.2: a budget kill by the harness records the spend", () => {
+  it("run.budget.exceeded carries the spend the run recorded when the worker's own budget ends it", () => {
+    const repo = createE2ERepo(SEED);
+    const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-scenario-r112-kill-"));
+    const scenarioPath = join(scenarioDir, "scenario.json");
+    const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });
+    const planK = planCall(contractFiles(manifestFor("Budget kill", ["T1"]), { "tasks/T1.md": t1 }));
+    const { env, homeDir } = setup(repo, scenarioPath, [planK, { failure: "budget", cost_usd: 0.3, reply: "" }]);
+    try {
+      const stopped = spawnSync(process.execPath, [substrateMjs, ...RUN_ARGS, "Budget kill"], {
+        cwd: repo.dir,
+        env,
+        encoding: "utf8",
+        timeout: 120000,
+      });
+      const runId = readdirSync(join(repo.dir, ".substrate", "runs")).sort().at(-1) as string;
+      expect(stopped.status, stopped.stdout.slice(-800)).toBe(4);
+      const exceeded = eventsOf(repo.dir, runId).filter((e) => e.type === "run.budget.exceeded");
+      expect(exceeded.length).toBeGreaterThan(0);
+      const data = exceeded.at(-1)?.data as { cost_usd?: number; max_usd?: number };
+      // The fake harness reports 0.3 plus its own small per-call cost, so the spend is a little above 0.3.
+      expect(data.cost_usd).toBeGreaterThan(0.29);
+      expect(data.cost_usd).toBeLessThan(0.31);
+      expect(stopped.stdout).toMatch(/budget exceeded: spent \$0\.30\d\d/);
+    } finally {
+      repo.cleanup();
+      rmSync(scenarioDir, { recursive: true, force: true });
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  }, 120000);
+});

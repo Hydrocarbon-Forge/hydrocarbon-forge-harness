@@ -405,16 +405,26 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - Found (R11.1, not reproduced): the answers path (`src/engine/actions/plan.ts`, `hasAnswers`) sends only `planner/answers.md` to the planner, on the session the pause recorded (`session_id`). The request text is in that session, not re-sent. A pause that recorded no session id would plan without the request. Direction: include the recorded request in the answers prompt when the session cannot be resumed.
 
-## 62. OPEN: a worker-killed budget stop records the cap but not the spend
+## 62. FIXED (R11.2): a worker-killed budget stop records the cap but not the spend
 
-- Found (R11.1): the budget kill of a worker in flight (`src/engine/actions/task.ts`) emits `run.budget.exceeded` with the cap only; the spend is not in scope there, so the progress line reads `spent $0.0000` for that event. The run summary has the true total.
+- Found (R11.1): the budget kill of a worker in flight (`src/engine/actions/task.ts`, the harness-reported budget kill) emitted `run.budget.exceeded` with the cap only, so the progress line read `spent $0.0000` for that event.
+- Fixed: the event carries `cost_usd: runSpend()`, the run's recorded spend at the kill (the same figure the other budget stops use). The progress line (`src/cli/progress.ts`) already printed `cost_usd`, so its text is unchanged and now shows the spend.
+- Tests: `test/e2e/graceful-budget.test.ts` ("a budget kill by the harness records the spend"). A worker call with `failure: "budget"` stands in for the harness's own budget stop.
 
-## 63. OPEN: `plan_review` is emitted as a `run.reopened` reason the catalog does not list
+## 63. FIXED (R11.2): `plan_review` was emitted as a `run.reopened` reason the catalog did not list
 
-- Found (R11.1): `src/engine/engine.ts` emits `run.reopened` with `reason: "plan_review"`, and `RunReopenedEvent` in `src/contracts/events.ts` lists only `planning`, `setup` and `tasks`. The CLI reads events through the catalog (`src/cli/commands/status.ts` `readCatalogEvents`), so such an event may be skipped there. Not checked at runtime yet. Direction: add the reason to the catalog after the owner confirms the name.
+- Found (R11.1): `src/engine/engine.ts` (`resume`) emits `run.reopened` with `reason: "plan_review"` when the reviewed plan is accepted (R10.5), and `RunReopenedEvent` in `src/contracts/events.ts` listed only `planning`, `setup` and `tasks`. `readCatalogEvents` (`src/cli/commands/status.ts`) drops any line the catalog refuses, so the reopen was missing from `status` and `watch`.
+- Fixed: the catalog lists `plan_review` (`src/contracts/events.ts`). The engine emits through its own append, which does not check the catalog, so the reason is now checked by the catalog the reader uses.
+- Tests: `test/unit/cli/reopen-reason.test.ts` (the catalog accepts a plan_review reopen and refuses an unknown reason; `readCatalogEvents` keeps the reopen).
+- DECISIONS.md (`docs/plan/DECISIONS.md` line 93) still names only `planning`, `setup` and `tasks`; it is append-only and no decision changed, so it was not edited. The owner may want a dated note.
 
 ## 64. FIXED (R11.1): `status` said one run state three ways, and a paused run read as ended
 
 - Seen (live runs, 2026-10-21): after `substrate stop` the header said `interrupted`, the legacy block said `State: PAUSED` and `Pause Reason: user_cancel`, and `Phase:` and `Process:` said `ended` and `none (the run has ended)`. A paused run is not over. The cost showed as `$0.2075` in one block and `$0.21` in the other.
 - Fixed in the text form (`src/cli/commands/status.ts`): the header word carries the reason (`headerWordOf`), `Phase:` reads `paused` or `planned`, `Process:` names the resume, and the legacy `=== Run Status ===` block keeps only the pending questions and the task table. Costs have four decimals. The JSON fields keep their values.
 - Tests: `test/e2e/graceful-budget.test.ts` ("status says each fact once"), `test/unit/cli/status-words.test.ts`. No pinned text needed changing; the existing status tests pass unchanged.
+
+## 65. FIXED (R11.2): two output and undo tests failed under load
+
+- `test/integration/cli/commands.test.ts` "reverts the run branch to the last batch checkpoint ref" (1 in 3 runs with 8 in parallel). Cause: the two worker calls of the scenario were untagged, so each concurrent worker took whichever edit was next. A worker's edits outside its write scope are dropped at the merge, so both batches merged nothing: the batch checkpoints all equal the run tip, and `undo` (`src/cli/commands/undo.ts`) has no earlier checkpoint to revert to (exit 1). Fix: the calls carry `task: "T1"` and `task: "T2"`, so each worker takes its own edits. The test also gets a 60 s limit: its fixture is a real two-task run, and the default 5 s limit failed under load.
+- `test/integration/cli/output.test.ts` "text progress prints the tracked event lines": the failing assertion compared two offsets in stdout (`[task T1] started` before `[task T2] started`, `459 to be less than 386`). Two tasks run at once (the default is three workers), so which one starts first is not fixed. Fix: the calls are tagged by task, and the assertion now checks that the started lines follow the journal's `task.session.started` order, and that each task's started line precedes its merged line. There is no wall-clock threshold in this test.

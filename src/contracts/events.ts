@@ -127,7 +127,8 @@ export const RunReopenedEvent = member(
   "run.reopened",
   z
     .object({
-      reason: z.enum(["planning", "setup", "tasks"]),
+      // plan_review: the engine reopens a planned run when `resume` accepts the plan the person reviewed (R10.5).
+      reason: z.enum(["planning", "setup", "tasks", "plan_review"]),
       failed_tasks: z.array(z.string()).optional(),
       skipped_tasks: z.array(z.string()).optional(),
       kept_tasks: z.array(z.string()).optional(),

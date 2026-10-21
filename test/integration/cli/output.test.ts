@@ -50,6 +50,8 @@ describe("cli: output formatters driven by real engine runs", () => {
     fakeClaude = fakeClaudeAdapter([
       { reply: "PLAN READY" },
       {
+        // Tagged by task: two workers run at once, and an untagged call would go to whichever starts first.
+        task: "T1",
         edits: {
           "src/t1.ts": "export const t1 = 1;\n",
           "test/t1.test.ts": "export const testT1 = true;\n",
@@ -57,6 +59,7 @@ describe("cli: output formatters driven by real engine runs", () => {
         reply: "Done T1",
       },
       {
+        task: "T2",
         edits: {
           "src/t2.ts": "export const t2 = 2;\n",
           "test/t2.test.ts": "export const testT2 = true;\n",
@@ -157,7 +160,8 @@ describe("cli: output formatters driven by real engine runs", () => {
     expect(out).toMatch(/\[task T2\] merged, \$/);
     // No failures in this run: no failed lines.
     expect(out).not.toMatch(/\] failed:/);
-    expect(out.indexOf("[task T1] started")).toBeLessThan(out.indexOf("[task T2] started"));
+    expect(out.indexOf("[task T1] started")).toBeLessThan(out.indexOf("[task T1] merged"));
+    expect(out.indexOf("[task T2] started")).toBeLessThan(out.indexOf("[task T2] merged"));
     expect(out.indexOf("[task T1] merged")).toBeLessThan(out.indexOf("--- Run Summary ---"));
     expect(out).toMatch(new RegExp(`\\[\\d\\d:\\d\\d\\] run ${summary.run_id} finished: 2/2 passed`));
 
@@ -168,6 +172,12 @@ describe("cli: output formatters driven by real engine runs", () => {
     expect(eventTypes).not.toContain("task.failed");
     expect(eventTypes).not.toContain("run.paused");
     expect(out).toContain("--- Run Summary ---");
+    // The two tasks run at once, so which one starts first is not fixed. The text lines follow the journal's
+    // order, which is the guarantee: the started lines, in stdout, name the tasks in the order the log started them.
+    const startedInLog = log.filter((e) => e.type === "task.session.started").map((e) => (e.data as { task_id: string }).task_id);
+    const startedInOut = [...out.matchAll(/\[task (T\d+)\] started/g)].map((m) => m[1]);
+    expect(startedInOut).toEqual(startedInLog);
+    expect([...startedInLog].sort()).toEqual(["T1", "T2"]);
   });
 
   // Behavior 2: text summary counts a task passed when its state is PASSED

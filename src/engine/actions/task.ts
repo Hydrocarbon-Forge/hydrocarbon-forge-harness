@@ -196,7 +196,8 @@ export async function runTaskAction(
             return { stop: true };
           }
           if (res.killed_for === "budget") {
-            emit("run.budget.exceeded", { max_usd: ctx.settings.budgets.run.max_usd });
+            // R11.2 (known issue 62): the spend the run has recorded, as the other budget stops do.
+            emit("run.budget.exceeded", { cost_usd: runSpend(), max_usd: ctx.settings.budgets.run.max_usd });
             emit("run.paused", { reason: "budget_exhausted" });
             return { stop: true };
           }

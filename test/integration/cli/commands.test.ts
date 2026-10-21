@@ -68,6 +68,8 @@ describe("cli: inspection and lifecycle commands", () => {
     const fakeClaude = fakeClaudeAdapter([
       { reply: "PLAN READY" },
       {
+        // Tagged by task: two workers run at once, and an untagged call would go to whichever starts first.
+        task: "T1",
         edits: {
           "src/t1.ts": "export const t1 = 1;\n",
           "test/t1.test.ts": "export const testT1 = true;\n",
@@ -75,6 +77,7 @@ describe("cli: inspection and lifecycle commands", () => {
         reply: "Done T1",
       },
       {
+        task: "T2",
         edits: {
           "src/t2.ts": "export const t2 = 2;\n",
           "test/t2.test.ts": "export const testT2 = true;\n",
@@ -553,7 +556,7 @@ describe("cli: inspection and lifecycle commands", () => {
       } finally {
         await env.cleanup();
       }
-    });
+    }, 60000); // the default 5 s limit is load-dependent: the fixture runs a real two-task engine run
   });
 
   describe("discard command", () => {
