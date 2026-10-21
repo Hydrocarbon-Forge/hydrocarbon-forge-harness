@@ -19,6 +19,15 @@ These items are still open. Each one has its detail in the numbered section belo
 - Item 13: the reviewer role (deferred, DECISIONS A2).
 - Item 14: test gaps and test-helper masking (the open parts).
 - Item 15: the live opencode smoke needs the local base URL in the environment.
+- Item 24a: L003 scans every `.md` under `tasks/` recursively (plan-lint audit).
+- Item 24b: L011 resolves the verify binary only on the lint host's PATH and `node_modules/.bin`.
+- Item 24c: L013 can trip on `...` in ordinary prose.
+- Item 24d: L017 can trip when a glob in `read` matches more than 50 files.
+- Item 24e: the L018 example in `assets/prompts/planner/format.md` needs TypeScript, which a fresh repository may not have at plan time.
+- Item 24f: L023 (red-check, when enabled) runs verify commands in the repository root during lint.
+- Item 24g: the planner runs the contract typecheck up to three or four times per plan (cost and time).
+- Item 24h: the `safeLoadPlan` placeholders in the repository root can be seen by a lint that runs there.
+- Item 24i: `resume` does not keep the models a run started with (item 18).
 
 ## 1. Planner failure diagnostics reach task.failed (FIXED)
 
@@ -170,3 +179,18 @@ The reviewer role needs a new engine phase (DECISIONS A2). Item 16 (the mechanic
 ## 23. A plan refused after the contract stage ended the run (FIXED, R7.7)
 
 - FIXED (R7.7): the approval lint (`LINTING`, `src/engine/actions/approve.ts`) ran after the planner had committed the contract stubs, and a refusal there was `plan.rejected`, which cancels the run, while a refusal by the format lint got up to three attempts. The planner now runs the approval lint (`approvalLintDiagnostics` in `src/roles/planner.ts`, which uses `safeLoadPlan` from `src/spec/stub-plan.ts`) after its own checks and before `commitContractStubs`. A refusal is a `plan.format_rejected` and a retry, within `planner_format_retries` and the run budget (`runBudgetExceeded`, from `plan.ts`), and the diagnostics carry no absolute paths (`withoutRootPaths`). Nothing is committed for a refused attempt, so a stub from it never reaches the run branch; the commit is built from the base commit each time. The post-commit `LINTING` lint is kept as a guard; a refusal there is still terminal. Limits: after the L018 fix no real plan is refused by the approval lint alone, so the retry from that check is covered by the code path, not by a reproduction; the contract-typecheck retry is covered by `test/e2e/planner-retry-post-contract.test.ts`. A run whose attempts are all refused ends `failed` (`task.failed`, `spec_invalid`), not `cancelled`. Tests: `test/e2e/planner-retry-post-contract.test.ts` (recovery on attempt 2; three refusals; no stub committed from a refused attempt).
+
+## 24. Plan-lint audit after R7.7 (OPEN)
+
+The R7.7 audit of the plan lint and the planner found the open items below. Each one is OPEN and has no fix in R7.8. Items a to h are facts from the audit; item i repeats item 18.
+
+- OPEN (24a): L003 (`src/spec/rules.ts`) scans every `.md` under the repository's `tasks/` recursively, so a repository that keeps its own docs in `tasks/` rejects every plan. Direction: scope the scan to the spec files the manifest names.
+- OPEN (24b): L011 resolves the verify binary on the lint host's PATH and `node_modules/.bin` only. A binary installed by `setup`, or created by the task, and a relative script path are rejected, although they exist at run time. Direction: resolve against the task worktree or the run's setup result, or accept a relative path under the repository.
+- OPEN (24c): L013 can trip on `...` in ordinary prose outside code fences in Interface or Behavior. Direction: match only the placeholder tokens the format defines.
+- OPEN (24d): L017 can trip when a glob in `read` matches more than 50 files. Direction: count the files a task reads once the glob is expanded against the planner's intent, or raise the limit for globs.
+- OPEN (24e): the L018 example in `assets/prompts/planner/format.md` runs the TypeScript compiler, but `setup` runs only in task worktrees. A fresh repository without TypeScript fails at plan time. Direction: use a command the repository's own ecosystem provides, or state in the format that the example needs a prior install.
+- OPEN (24f): L023 (red-check, when enabled) runs verify commands in the repository root during lint, which has side effects. Direction: run red-check in a disposable checkout of the base ref.
+- OPEN (24g): the planner runs the contract typecheck up to three or four times per plan (pre-lint, explicit check, in-loop approval lint, and the LINTING guard). This is a cost and time concern. Direction: keep one typecheck per attempt and reuse its result for the later checks.
+- OPEN (24h): the `safeLoadPlan` placeholder writes (`src/spec/stub-plan.ts`) go into the repository root. They are cleaned up afterwards, but any lint that runs in the repository root can still see placeholders. Direction: run the placeholder lint in a temporary copy of the tree.
+- OPEN (24i): `resume` does not keep the models a run started with. This is item 18 and is cross-referenced here, not a new finding.
+
