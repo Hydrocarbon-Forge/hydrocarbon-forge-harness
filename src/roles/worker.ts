@@ -31,6 +31,7 @@ import {
 import { VerifyRunner } from "../verify/index.js";
 import { resolveTaskRoute } from "./router.js";
 import { bindAbort } from "../backends/process.js";
+import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { capBytes, HEAL_TAIL_MAX_BYTES } from "../util/index.js";
 
 /** The action's typed emit (R1.2): every event is checked against the catalog. */
@@ -225,6 +226,9 @@ async function runAttempt(
   };
 
   const handle = opts.adapter.spawn(spawnReq);
+  // R8.2: the session is recorded in the run directory until it ends (see endStaleWorkers).
+  const pidRecord = { task_id: opts.taskId, generation: opts.generation, attempt, pid: handle.pid, backend: route.backend };
+  recordWorkerPid(opts.rawDir, pidRecord);
 
   let timedOut = false;
   const timeoutTimer = setTimeout(() => {
@@ -518,6 +522,7 @@ async function runAttempt(
   } finally {
     clearTimeout(timeoutTimer);
     unbind();
+    clearWorkerPid(opts.rawDir, pidRecord);
   }
 }
 

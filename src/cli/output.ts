@@ -151,7 +151,8 @@ class TextFormatter implements OutputFormatter {
     if (landed && summary.drafts_dir === undefined && summary.branch !== undefined) {
       this.writeResult(summary);
     }
-    if (summary.exit_code !== 0 && summary.branch !== undefined && passed > 0 && !summary.merged) {
+    // Only a failed run is "NOT merged: N of M failed"; an interrupted run is paused (R8.2).
+    if (summary.status === "failed" && summary.branch !== undefined && passed > 0 && !summary.merged) {
       // A partial run lands nothing: the passed work stays on the run branch (R8.1).
       this.out.write(
         `NOT merged: ${failedCount + skippedCount} of ${taskKeys.length} tasks failed or were skipped; ` +
@@ -169,6 +170,10 @@ class TextFormatter implements OutputFormatter {
         const message = summary.message ? `: ${summary.message}` : "";
         this.out.write(`Reason:     ${summary.failure_class}${message}\n`);
       }
+    }
+    // R8.2: an interrupted run says how to continue, in the words a caller can copy.
+    if (summary.pause_reason === "user_cancel") {
+      this.out.write(`Interrupted. Resume with: substrate resume ${summary.run_id}\n`);
     }
   }
 

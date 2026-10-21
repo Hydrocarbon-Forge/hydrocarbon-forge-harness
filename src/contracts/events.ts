@@ -40,6 +40,7 @@ export const RunCreatedEvent = member(
       prompt: z.string().optional(),
       mode: z.string().optional(),
       permission_mode: z.string().optional(),
+      requested_roles: z.record(z.string(), z.unknown()).optional(),
     })
     .strict()
 );

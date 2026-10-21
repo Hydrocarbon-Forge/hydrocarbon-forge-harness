@@ -169,6 +169,8 @@ substrate resume [options] <run-id | session-id>
 - A run paused with questions needs answers. `--answers <file|->` reads a JSON object `{"answers":[{"id":"Q1","text":"..."}]}` from a file or stdin. A question left out takes its `default`. A question with no default and no answer exits 2. An answer for an unknown question id exits 2. `--answers` on a run with no pending questions exits 2.
 - `--fork-session` with a session target forks the session first.
 - Exit codes follow the run exit codes above.
+- **Models (R8.2, known issue 18).** The run records the models the caller named (`roles.requested`) on its `run.created` event. A resume uses them. Naming a role again replaces it for the rest of the run: `--plan` or `--model` for the planner, `--work` or `--worker-model` for the workers (`--work claude:opus` takes the form `provider[:model[:effort]]`). Settings files do not change a recorded model.
+- **Stale workers (R8.2).** Each worker session is recorded under `.substrate/runs/<id>/workers/` while it runs. A resume ends any recorded worker still alive whose command line names its harness, before it continues, so a CLI killed with SIGKILL leaves no harness process behind.
 
 ```bash
 substrate resume r_ABC123DEF456
@@ -406,6 +408,14 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 - The cost of each attempt is a constant per arm: A `0.5`, B `0.1`, C `0.3` and D `0.01` USD. The printed costs and rates therefore are not measurements.
 - Only the task globs reach the command. `--dry-run` is not passed through, so it does not prevent the attempts. The other bench options (`--arms`, `--repetitions`, `--format`, `--output`, `--max-budget`, `--concurrency`, `--tasks`, `--top-model`, `--cheap-model`, `--local-model`) are dropped by the dispatcher. A value after one of them is read as a task glob, which fails with `No benchmark tasks found matching pattern(s)`.
 - Exit `0` on success, `1` on error.
+
+## Interrupt and resume (R8.2)
+
+- **Ctrl+C (SIGINT) or SIGTERM** stops the run promptly (under 5 seconds with a hung harness). The harness processes of the run's workers are killed with their process groups. The run is `paused` with reason `user_cancel`, and its summary ends with `Interrupted. Resume with: substrate resume <run-id>`.
+- **Exit codes.** SIGINT exits `130` and SIGTERM exits `143`. A second signal forces the exit at once. The summary of an interrupted run says `Status: paused` and `Exit Code:` with the signal's code.
+- **The checkout is untouched.** An interrupted run merges nothing and leaves your checkout as it was. Its task worktrees stay on disk, because resume needs them.
+- **Resume** continues the run: tasks that passed are not run again, and the models of the run are used (see resume).
+- **SIGKILL** (no chance to clean up) writes no `run.paused` event and can leave a harness process behind. The next `substrate resume` ends the recorded process before it continues; a run lock left by the killed CLI does not block the resume.
 
 ## Failed and partial runs (R8.1)
 

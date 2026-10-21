@@ -154,11 +154,11 @@ The reviewer role needs a new engine phase (DECISIONS A2). Item 16 (the mechanic
 - `scripts/check-plan.mjs` and its `check:plan` npm script are deleted. Its only input was the archived PROGRESS.md, so with the plan archived it checked nothing. It was not part of `npm run check`.
 - Tests: `test/unit/scripts/allowlist.test.ts`, and the `done-wp` case in `check-{purity,events,settings,wired}.test.ts`, now pin the rejection of a work-package tag. The archived PROGRESS fixtures are deleted.
 
-## 18. Requested models were ignored by plan-mode tasks and by a planner profile (FIXED, R7.4)
+## 18. Requested models were ignored by plan-mode tasks and by a planner profile (FIXED, R7.4; resume FIXED, R8.2)
 
 - FIXED (R7.4): `--work` (and `--worker-model`, `--model` in solo) reached only the solo worker. Plan-mode tasks resolved their route from `routing.<class>`, the worker profile and the built-in route, so a plan run used the profile's model whatever `--work` named. A planner with `defaults.planner_provider` set used the profile's `plan` slot, so `--plan` was ignored. The request now sits above every other route source. It is recorded as `roles.requested` (set only by run and plan from the request payload and the flags; a settings file that sets it is refused with exit 2), and `resolveTaskRoute` and `resolvePlannerRoute` in `src/roles/router.ts` apply it; solo mode uses the same function. A named worker model is not escalated on later generations.
 - Tests: `test/e2e/requested-models.test.ts` (plan mode: planner spawn and every task spawn read their `--model` from the fake harness argv log; solo: `--work` beats `routing.feature` and `roles.worker`) and `test/unit/roles/requested-route.test.ts`.
-- Still open: `resume` reads only its own flags (`src/cli/commands/resume.ts`, `buildSettingsOverrides`), so a resumed run uses the models from settings, not the models the run started with. R7.4 did not change this.
+- FIXED (R8.2): `resume` used only its own flags, so a resumed run took its models from settings. The run now records `requested_roles` on `run.created`, and resume uses them unless `--plan`, `--work`, `--model` or `--worker-model` names a role again. Tests: `test/e2e/graceful-interrupt.test.ts` ("resume keeps the models", "a resume that names --work again").
 
 ## 19. A planner base_ref that does not resolve failed the run (FIXED, R7.5)
 
@@ -275,3 +275,14 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - Evidence (R8.2): `runEffectsLoop` in `src/engine/effects.ts` runs the actions of a scheduling step with `for (const action of actions) await executeAction(...)`. `scheduleNextTasks` returns up to `concurrency.workers` worker actions, but each one runs to the end before the next starts. With `concurrency: { workers: 2 }` and two independent tasks, the trace is `task.session.started T1`, `task.passed T1`, then the worktree and session of T2. `docs/reference/config.md` says `concurrency.workers` is the "maximum number of tasks running at once. Default 3."
 - Direction: owner decision. Either run the worker actions of a step concurrently (event sequencing and state updates in `executeAction` would need a serialising path), or document the setting as a cap that is not reached yet and set the default to 1. Not changed in R8.2 because it is an engine change larger than the package.
+
+## 41. OPEN: `resume` of a failed run says "already finished" while the summary's `Next:` names resume
+
+- Evidence (R8.2): a run that ends `failed` (exit 1) prints `Next: substrate resume <id>` in its summary and in `next`. `substrate resume <id>` then prints `Run <id> is already finished. Nothing to resume.` and exits 0, because `isRunAlreadyFinished` in `src/cli/commands/resume.ts` treats any `run.finished` as finished. A planning failure's `Next:` (`re-runs planning; costs again`) has the same problem.
+- Direction: owner decision. Either a failed run is resumable (its failed tasks run again, which is the item 36 question), or the `Next:` line for a failed run names no resume command and says what to do instead.
+
+## 42. An interrupted run did not say how to resume, and a killed CLI left a worker (FIXED, R8.2)
+
+- Seen: SIGINT on a run with a hung worker exited 130 and printed `Status: paused`, `Reason: user_cancel`, and a `NOT merged: 0 of 2 tasks failed` line that was wrong for a paused run. A SIGKILL of the CLI left the hung worker running, with no record that would let a later resume find it.
+- Fixed: the text summary ends an interrupted run with `Interrupted. Resume with: substrate resume <run-id>`, and the `NOT merged:` line is only for a failed run (`src/cli/output.ts`). Each worker session is recorded in `<run>/workers/` while it runs (`src/backends/worker-pids.ts`, `src/roles/worker.ts`); `endStaleWorkers` ends a recorded process still alive whose command line names its harness, under the run lock, at the start of a resume (`src/engine/engine.ts`).
+- Tests: `test/e2e/graceful-interrupt.test.ts` (SIGINT exit 130 and SIGTERM exit 143, each within 5 s, worker gone, resume finishes without rerunning T1; SIGKILL then resume ends the worker).

@@ -23,6 +23,8 @@ export interface CliGlobalFlags {
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
   answers?: string;
+  plan?: string;
+  work?: string;
 }
 
 export interface CliGovernanceFlags {
@@ -59,6 +61,7 @@ export interface CliCommand {
 const { createFormatter } = await import(`../output.js`);
 const { registry } = await import(`../registry.js`);
 const { buildSettingsOverrides } = await import(`./run.js`);
+const { withRequestedRoles } = await import(`../../config/index.js`);
 
 function isRunAlreadyFinished(eventsPath: string): boolean {
   if (!fs.existsSync(eventsPath)) return false;
@@ -80,6 +83,16 @@ function isRunAlreadyFinished(eventsPath: string): boolean {
     // ignore
   }
   return false;
+}
+
+/** A role spec as --plan and --work take it, as a role entry: provider[:model[:effort]] becomes backend, model, effort. */
+function roleFromSpec(spec: string): Record<string, string> {
+  const [provider, model, effort] = spec.split(":");
+  return {
+    ...(provider ? { backend: provider } : {}),
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+  };
 }
 
 export const resumeCommand: CliCommand = {
@@ -172,6 +185,7 @@ export const resumeCommand: CliCommand = {
       } catch {}
     }
 
+    const createdEvt = runEvents.find((e) => e.type === "run.created");
     const hasPendingQuestions =
       isCurrentlyPaused &&
       lastPaused?.data?.reason === "needs_human" &&
@@ -266,7 +280,23 @@ export const resumeCommand: CliCommand = {
       formatter.onEvent(resumedEvt);
     }
 
-    const overrides = buildSettingsOverrides(ctx.flags, ctx.flags.mode);
+    // R8.2 (known issue 18): a resume uses the models the run started with, recorded on its
+    // run.created event. A role named again (--plan or --model for the planner, --work or
+    // --worker-model for the worker) replaces the recorded model; --effort still applies.
+    const recorded = (createdEvt?.data?.requested_roles ?? {}) as Record<string, Record<string, unknown> | undefined>;
+    const overrides0 = buildSettingsOverrides(ctx.flags, ctx.flags.mode);
+    const roles: Record<string, Record<string, unknown> | undefined> = { ...((overrides0.roles ?? {}) as typeof roles) };
+    if (ctx.flags.plan !== undefined) {
+      roles.planner = { ...(roles.planner ?? {}), ...roleFromSpec(ctx.flags.plan) };
+    } else if (ctx.flags.model === undefined && recorded.planner !== undefined) {
+      roles.planner = { ...recorded.planner, ...(roles.planner ?? {}) };
+    }
+    if (ctx.flags.work !== undefined) {
+      roles.worker = { ...(roles.worker ?? {}), ...roleFromSpec(ctx.flags.work) };
+    } else if (ctx.flags.workerModel === undefined && ctx.flags.model === undefined && recorded.worker !== undefined) {
+      roles.worker = { ...recorded.worker, ...(roles.worker ?? {}) };
+    }
+    let overrides = withRequestedRoles({ ...overrides0, roles } as typeof overrides0);
 
     let engine = ctx.engine;
     if (!engine) {
@@ -288,7 +318,6 @@ export const resumeCommand: CliCommand = {
       }
     }
 
-    const createdEvt = runEvents.find((e) => e.type === "run.created");
     const originalMode = createdEvt?.data?.mode;
     const originalPermissionMode = createdEvt?.data?.permission_mode;
 

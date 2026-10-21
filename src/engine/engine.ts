@@ -17,6 +17,7 @@ import type {
 } from "../contracts/index.js";
 import { DEFAULT_SETTINGS } from "../config/index.js";
 import { createAdapters, type AdapterMap } from "../backends/registry.js";
+import { endStaleWorkers } from "../backends/worker-pids.js";
 import { type EngineState, type RunState, reduce } from "./reducer.js";
 import { type EffectContext, runEffectsLoop } from "./effects.js";
 import { EventStoreImpl } from "../store/event-store.js";
@@ -228,6 +229,8 @@ export class EngineImpl implements Engine {
           prompt: opts.prompt,
           mode: opts.mode,
           permission_mode: opts.permission_mode,
+          // R8.2 (known issue 18): the models the caller named, kept so a resume uses them.
+          ...(settings.roles.requested !== undefined ? { requested_roles: settings.roles.requested } : {}),
         },
       };
 
@@ -279,6 +282,8 @@ export class EngineImpl implements Engine {
     const runDir = path.join(repoRoot, ".substrate", "runs", runId);
 
     ensureGitExclude(repoRoot);
+    // R8.2: a worker a killed CLI left running is ended now, while this run holds the lock.
+    endStaleWorkers(runDir);
 
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
