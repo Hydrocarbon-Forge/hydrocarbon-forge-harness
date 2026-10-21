@@ -24,7 +24,7 @@ Copied from SUBSTRATE-PLAN.md section 4.6:
 | Code | Meaning |
 |---|---|
 | `0` | success |
-| `1` | run failed: a task failed for good, the integration verify failed, or the run could not go on without an answer that does not exist (see Failed and partial runs) |
+| `1` | run failed: a task failed for good, the integration verify failed, the run could not go on without an answer that does not exist (see Failed and partial runs), or an unexpected internal error ended it (see Internal errors) |
 | `2` | usage/config error |
 | `3` | needs human: the planner left questions (`QUESTIONS.md`), or a run paused for approval at Substrate's permission gate, a permission denial or a rate limit. Exit `3` for approval depends on the gate, not on a harness denial. An escalation with no question is not `3`: it fails the task and the run with exit `1` |
 | `4` | budget exhausted |
@@ -139,6 +139,7 @@ Runs a goal end to end: plans it (unless the mode is `solo`, or `auto` routes it
 - **History**: `--history-all` includes archived runs from every charter version in the planner's context.
 - **Exit codes**: see the table above. A run that needs answers exits `3` and prints a `needs_input` result with its questions. Answer them with `resume --answers`.
 - **Integration verify (R9.1).** `integration_verify` is a whole-project command. It runs once, after every task of the plan has merged, on the run branch. Tasks merge into the run branch as they pass, with no whole-project verify between merges. When the final verify fails, the engine names a culprit only when bisect can isolate one: a task whose merge alone turns a passing set of merged tasks into a failing one. A set of merged tasks is not tested while a task outside it depends on one of its tasks, because its failure may only be the absent dependent's (a test-first plan is red until its implementer merges). Otherwise the run fails with `integration_failed: <command> exited <n>` and the output tail, and names no task.
+- **Internal errors (R9.1).** An unexpected exception in the engine ends the run as failed, with exit `1`. The summary prints the normal failed-run lines, `Reason: internal error: <message>` and `Next: This is a Substrate bug; the run directory keeps the event log: .substrate/runs/<id>/`. The stack trace goes to `error.txt` in the run directory, not to stdout. The event log ends with a `run.finished` event that carries `failure_class: internal_error` and the message. Worktrees and task branches are swept, and the work of tasks that did not merge is kept under `packets/`. `--output-format json` carries the same `failure_class` and `message`.
 - **Failures**: in text mode each failed task prints one stdout line, `[task <id>] failed: <failure_class>: <message>`. A planner failure has no task id, so its line reads `[task ] failed: ...`. The message is one line of at most 2000 characters. A crashed planner session names its exit code and the harness's own error, and a plan that never validates lists its diagnostics. The `failure_class` is unchanged. Json output carries the same message on the `task.failed` event in `events`.
 
 ```bash

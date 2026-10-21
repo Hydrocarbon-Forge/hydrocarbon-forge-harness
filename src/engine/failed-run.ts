@@ -33,8 +33,13 @@ export interface FailedRunAdvice {
  */
 export function failedRunAdvice(
   runId: string,
-  facts: { partialLandable: boolean; planningFailed: boolean }
+  facts: { partialLandable: boolean; planningFailed: boolean; internalError?: boolean }
 ): FailedRunAdvice {
+  // R9.1 (known issue 45): an unexpected exception is a Substrate bug, and the run directory keeps the evidence.
+  if (facts.internalError) {
+    const bug = `This is a Substrate bug; the run directory keeps the event log: .substrate/runs/${runId}/`;
+    return { next: bug, whatToDo: bug };
+  }
   if (facts.partialLandable) {
     return {
       next: `substrate merge ${runId} --partial  (lands the passed tasks after integration verify passes)`,

@@ -19,6 +19,7 @@ import { DEFAULT_SETTINGS } from "../config/index.js";
 import { createAdapters, type AdapterMap } from "../backends/registry.js";
 import { endStaleWorkers } from "../backends/worker-pids.js";
 import { type EngineState, type RunState, reduce } from "./reducer.js";
+import { failRunOnInternalError, isInterruption, notifyObserver, observerCrashed } from "./internal-error.js";
 import { type EffectContext, runEffectsLoop } from "./effects.js";
 import { EventStoreImpl } from "../store/event-store.js";
 import { RunLockImpl, RunLockError } from "../store/run-lock.js";
@@ -217,30 +218,36 @@ export class EngineImpl implements Engine {
     };
 
     try {
-      log.debug("[DEBUG] engine.run: creating run.created");
-      const createdEvt: EngineEvent = {
-        v: 1,
-        seq: 1,
-        ts: new Date().toISOString(),
-        run_id: runId,
-        type: "run.created",
-        data: {
+      try {
+        log.debug("[DEBUG] engine.run: creating run.created");
+        const createdEvt: EngineEvent = {
+          v: 1,
+          seq: 1,
+          ts: new Date().toISOString(),
           run_id: runId,
-          prompt: opts.prompt,
-          mode: opts.mode,
-          permission_mode: opts.permission_mode,
-          // R8.2 (known issue 18): the models the caller named, kept so a resume uses them.
-          ...(settings.roles.requested !== undefined ? { requested_roles: settings.roles.requested } : {}),
-        },
-      };
+          type: "run.created",
+          data: {
+            run_id: runId,
+            prompt: opts.prompt,
+            mode: opts.mode,
+            permission_mode: opts.permission_mode,
+            // R8.2 (known issue 18): the models the caller named, kept so a resume uses them.
+            ...(settings.roles.requested !== undefined ? { requested_roles: settings.roles.requested } : {}),
+          },
+        };
 
-      await store.append(createdEvt);
-      opts.onEvent?.(createdEvt);
-      state = reduce(state, createdEvt);
+        await store.append(createdEvt);
+        notifyObserver(ctx, createdEvt);
+        state = reduce(state, createdEvt);
 
-      log.debug("[DEBUG] engine.run: entering runEffectsLoop, state:", state.state);
-      state = await runEffectsLoop(ctx, state);
-      log.debug("[DEBUG] engine.run: exited runEffectsLoop, state:", state.state);
+        log.debug("[DEBUG] engine.run: entering runEffectsLoop, state:", state.state);
+        state = await runEffectsLoop(ctx, state);
+        log.debug("[DEBUG] engine.run: exited runEffectsLoop, state:", state.state);
+      } catch (error: unknown) {
+        // R9.1 (known issue 45): an unexpected exception ends the run as failed, cleanly.
+        if (isInterruption(error) || observerCrashed(ctx)) throw error;
+        state = await failRunOnInternalError(ctx, state, error);
+      }
 
       return buildSummary(runId, state, repoRoot);
     } finally {
@@ -302,68 +309,75 @@ export class EngineImpl implements Engine {
       store,
     };
 
+    let state: EngineState | undefined;
     try {
-      const existingEvents = await store.readAll();
-      let state: EngineState = {
-        run_id: runId,
-        state: "CREATED",
-        tasks: {},
-        usage: { total_usd: 0, by_role: {} },
-        checkpoints: [],
-      };
-      for (const evt of existingEvents) {
-        state = reduce(state, evt);
-      }
-
-      let lastSeq = existingEvents.length > 0 ? existingEvents[existingEvents.length - 1].seq : 0;
-
-      if (state.state === "PAUSED") {
-        const resumedEvt: EngineEvent = {
-          v: 1,
-          seq: lastSeq + 1,
-          ts: new Date().toISOString(),
+      try {
+        const existingEvents = await store.readAll();
+        state = {
           run_id: runId,
-          type: "run.resumed",
-          data: {},
+          state: "CREATED",
+          tasks: {},
+          usage: { total_usd: 0, by_role: {} },
+          checkpoints: [],
         };
-        await store.append(resumedEvt);
-        lastSeq = resumedEvt.seq;
-        opts?.onEvent?.(resumedEvt);
-        state = reduce(state, resumedEvt);
-      }
-
-      // A task killed between task.session.started and task.session.ended is put
-      // back in the queue; HEALING tasks keep their state.
-      for (const task of Object.values(state.tasks)) {
-        // A PASSED or MERGING task keeps its place when its branch is there, or can be
-        // rebuilt from the run branch (R8.1); otherwise its work is gone and it runs again.
-        const passedWork = task.state === "PASSED" || task.state === "MERGING";
-        if (passedWork && restoreTaskBranch(repoRoot, runId, task.id, task.generation ?? 1)) {
-          continue;
+        for (const evt of existingEvents) {
+          state = reduce(state, evt);
         }
-        if (
-          !passedWork &&
-          task.state !== "RUNNING" &&
-          task.state !== "SCOPE_CHECK" &&
-          task.state !== "VERIFYING"
-        ) {
-          continue;
-        }
-        const readyEvt: EngineEvent = {
-          v: 1,
-          seq: lastSeq + 1,
-          ts: new Date().toISOString(),
-          run_id: runId,
-          type: "task.ready",
-          data: { task_id: task.id, resumed: true },
-        };
-        await store.append(readyEvt);
-        lastSeq = readyEvt.seq;
-        opts?.onEvent?.(readyEvt);
-        state = reduce(state, readyEvt);
-      }
 
-      state = await runEffectsLoop(ctx, state);
+        let lastSeq = existingEvents.length > 0 ? existingEvents[existingEvents.length - 1].seq : 0;
+
+        if (state.state === "PAUSED") {
+          const resumedEvt: EngineEvent = {
+            v: 1,
+            seq: lastSeq + 1,
+            ts: new Date().toISOString(),
+            run_id: runId,
+            type: "run.resumed",
+            data: {},
+          };
+          await store.append(resumedEvt);
+          lastSeq = resumedEvt.seq;
+          notifyObserver(ctx, resumedEvt);
+          state = reduce(state, resumedEvt);
+        }
+
+        // A task killed between task.session.started and task.session.ended is put
+        // back in the queue; HEALING tasks keep their state.
+        for (const task of Object.values(state.tasks)) {
+          // A PASSED or MERGING task keeps its place when its branch is there, or can be
+          // rebuilt from the run branch (R8.1); otherwise its work is gone and it runs again.
+          const passedWork = task.state === "PASSED" || task.state === "MERGING";
+          if (passedWork && restoreTaskBranch(repoRoot, runId, task.id, task.generation ?? 1)) {
+            continue;
+          }
+          if (
+            !passedWork &&
+            task.state !== "RUNNING" &&
+            task.state !== "SCOPE_CHECK" &&
+            task.state !== "VERIFYING"
+          ) {
+            continue;
+          }
+          const readyEvt: EngineEvent = {
+            v: 1,
+            seq: lastSeq + 1,
+            ts: new Date().toISOString(),
+            run_id: runId,
+            type: "task.ready",
+            data: { task_id: task.id, resumed: true },
+          };
+          await store.append(readyEvt);
+          lastSeq = readyEvt.seq;
+          notifyObserver(ctx, readyEvt);
+          state = reduce(state, readyEvt);
+        }
+
+        state = await runEffectsLoop(ctx, state);
+      } catch (error: unknown) {
+        // R9.1 (known issue 45): an unexpected exception ends the run as failed, cleanly.
+        if (isInterruption(error) || observerCrashed(ctx)) throw error;
+        state = await failRunOnInternalError(ctx, state, error);
+      }
 
       return buildSummary(runId, state, repoRoot);
     } finally {

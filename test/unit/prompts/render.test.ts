@@ -33,9 +33,12 @@ describe("render (src/prompts/render.ts)", () => {
     expect(() => render("keep {{}}", {})).toThrow("unrendered placeholder in template");
   });
 
-  it("throws when a substituted value leaves {{ behind", () => {
-    expect(() => render("value: {{a}}", { a: "keep {{x}}" })).toThrow(
-      "unrendered placeholder in template",
+  // R9.1: a value is data. A contract stub with a JSDoc type such as `{{ x: number }}` used to fail a
+  // replan with "unrendered placeholder in template"; the check now reads the template only.
+  it("inserts a value that contains {{ unchanged, because values are data", () => {
+    expect(render("value: {{a}}", { a: "keep {{x}}" })).toBe("value: keep {{x}}");
+    expect(render("value: {{a}}", { a: "@typedef {{ x: number }} Point" })).toBe(
+      "value: @typedef {{ x: number }} Point",
     );
   });
 });

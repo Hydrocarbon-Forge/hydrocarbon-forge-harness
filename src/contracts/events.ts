@@ -101,6 +101,9 @@ export const RunFinishedEvent = member(
       reason: z.string().optional(),
       files: z.array(z.string()).optional(),
       failed_tasks: z.array(z.string()).optional(),
+      // R9.1: set when an unexpected exception ended the run (failure_class internal_error).
+      failure_class: z.string().optional(),
+      message: z.string().max(2000).optional(),
     })
     .strict()
 );

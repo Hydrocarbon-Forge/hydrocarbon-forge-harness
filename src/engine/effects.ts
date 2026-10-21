@@ -594,11 +594,20 @@ export async function runEffectsLoop(
     }
   };
 
-  for (;;) {
-    if (!halted) plan();
-    if (flights.size === 0) break;
-    await Promise.race([...flights.values()].map((f) => f.promise));
-    settleDependents();
+  try {
+    for (;;) {
+      if (!halted) plan();
+      if (flights.size === 0) break;
+      await Promise.race([...flights.values()].map((f) => f.promise));
+      settleDependents();
+    }
+  } catch (error: unknown) {
+    // An exception in the loop itself (not in an action) stops the workers the same way. The
+    // engine records the run as failed (R9.1, internal_error); this loop only makes sure nothing
+    // is still running when that happens.
+    if (!fatal) fatal = { error };
+    halt();
+    await Promise.allSettled([...flights.values()].map((f) => f.promise));
   }
 
   if (fatal) {

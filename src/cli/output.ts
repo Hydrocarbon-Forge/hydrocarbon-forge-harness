@@ -168,7 +168,8 @@ class TextFormatter implements OutputFormatter {
           // the partial landing of a passed task, a new run for a planning failure, or a narrower request.
           const partialLandable = summary.next?.some((c) => c.endsWith(" --partial")) === true;
           const planningFailed = Object.keys(summary.tasks ?? {}).length === 0;
-          const advice = failedRunAdvice(summary.run_id, { partialLandable, planningFailed });
+          const internalError = summary.failure_class === "internal_error";
+          const advice = failedRunAdvice(summary.run_id, { partialLandable, planningFailed, internalError });
           this.out.write(`Next:       ${advice.next}\n`);
         } else {
           // Without a branch the run failed in planning, and resuming plans again (R7.9).
@@ -180,7 +181,9 @@ class TextFormatter implements OutputFormatter {
       }
       if (summary.failure_class !== undefined) {
         const message = summary.message ? `: ${summary.message}` : "";
-        this.out.write(`Reason:     ${summary.failure_class}${message}\n`);
+        // An internal error reads as one phrase: `internal error: <message>` (R9.1).
+        const label = summary.failure_class === "internal_error" ? "internal error" : summary.failure_class;
+        this.out.write(`Reason:     ${label}${message}\n`);
       }
     }
     // R8.2: an interrupted run says how to continue, in the words a caller can copy.
