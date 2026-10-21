@@ -43,13 +43,13 @@ export async function routeRequest(opts: RouteRequestOptions): Promise<RoutingDe
   if (opts.flags?.mode === "solo") {
     return {
       mode: "solo",
-      rationale: "Explicit --mode solo flag",
+      rationale: "explicit mode flag",
     };
   }
   if (opts.flags?.mode === "plan") {
     return {
       mode: "plan",
-      rationale: "Explicit --mode plan flag",
+      rationale: "explicit mode flag",
     };
   }
   // Step 2: Deterministic Rules (Named single existing file + mechanical verb)
@@ -80,7 +80,7 @@ export async function routeRequest(opts: RouteRequestOptions): Promise<RoutingDe
       return {
         mode: "solo",
         task_class: "mechanical",
-        rationale: "Deterministic match: single file with mechanical verb",
+        rationale: "mechanical edit of a named file",
       };
     }
   }
@@ -89,7 +89,7 @@ export async function routeRequest(opts: RouteRequestOptions): Promise<RoutingDe
   return {
     mode: "plan",
     planner_route: "default",
-    rationale: "Default plan fallback",
+    rationale: "request is not a mechanical edit of a named file",
   };
 }
 

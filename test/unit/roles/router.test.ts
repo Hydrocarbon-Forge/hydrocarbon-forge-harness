@@ -62,7 +62,7 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
         });
 
         expect(decision.mode).toBe("solo");
-        expect(decision.rationale).toMatch(/explicit.*solo/i);
+        expect(decision.rationale).toBe("explicit mode flag");
       });
 
       it("returns plan decision when flags.mode === 'plan' even if prompt is mechanical", async () => {
@@ -77,7 +77,7 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
         });
 
         expect(decision.mode).toBe("plan");
-        expect(decision.rationale).toMatch(/explicit.*plan/i);
+        expect(decision.rationale).toBe("explicit mode flag");
       });
 
       it("routes a mechanical named-file request to solo in auto mode; a named planner no longer forces plan (R7.2 supersedes R6.4)", async () => {
@@ -123,7 +123,7 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
 
           expect(decision.mode).toBe("solo");
           expect(decision.task_class).toBe("mechanical");
-          expect(decision.rationale).toMatch(/deterministic match/i);
+          expect(decision.rationale).toBe("mechanical edit of a named file");
         },
       );
 
@@ -136,7 +136,7 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
 
         // Falls through to default fallback
         expect(decision.mode).toBe("plan");
-        expect(decision.rationale).toMatch(/default plan fallback/i);
+        expect(decision.rationale).toBe("request is not a mechanical edit of a named file");
       });
 
       it("does not match deterministic rule when multiple files are mentioned", async () => {
@@ -185,7 +185,7 @@ describe("Rules-First Router (src/roles/router.ts)", () => {
 
         expect(decision.mode).toBe("plan");
         expect(decision.planner_route).toBe("default");
-        expect(decision.rationale).toMatch(/default plan fallback/i);
+        expect(decision.rationale).toBe("request is not a mechanical edit of a named file");
       });
     });
   });

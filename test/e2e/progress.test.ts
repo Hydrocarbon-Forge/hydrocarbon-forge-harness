@@ -146,7 +146,7 @@ describe("E2E progress: text mode writes the run's progress to stdout (R7.3)", (
       const lines = textLines(res);
       const steps = [
         /^\[\d\d:\d\d\] run r_\S+ started: mode plan, planner claude:claude-sonnet-5-5, worker claude:haiku$/,
-        /^\[\d\d:\d\d\] routed to plan \(--mode plan\)$/,
+        /^\[\d\d:\d\d\] routed to plan \(explicit mode flag\)$/,
         /^\[\d\d:\d\d\] planning with claude:claude-sonnet-5-5$/,
         /^\[\d\d:\d\d\] planner attempt 1 finished, \$\d+\.\d{4}$/,
         /^\[\d\d:\d\d\] plan ready: 2 tasks$/,
@@ -225,7 +225,8 @@ describe("E2E progress: text mode writes the run's progress to stdout (R7.3)", (
       expect(res.exitCode).toBe(0);
       const beats = textLines(res).filter((l) => /^\[\d\d:\d\d\] still working: /.test(l));
       expect(beats.length).toBeGreaterThan(0);
-      expect(beats[0]).toMatch(/\((\d+)s, \$\d+\.\d{4}\)$/);
+      // Before the first usage record the beat names the missing cost; after it, the running total.
+      expect(beats[0]).toMatch(/\((\d+)s(, \$\d+\.\d{4}|; cost is reported when [a-z ]+ ends)\)$/);
       // The run still finishes with its summary after the heartbeats.
       expect(res.stdout).toMatch(/--- Run Summary ---/);
     } finally {
@@ -266,7 +267,8 @@ describe("E2E progress: stream-json carries planning events and heartbeats (R7.3
       for (const beat of beats) {
         expect(typeof beat.elapsed_s).toBe("number");
         expect(typeof beat.phase).toBe("string");
-        expect(typeof beat.cost_usd).toBe("number");
+        // null until the first usage record; a number after it.
+        expect(beat.cost_usd === null || typeof beat.cost_usd === "number").toBe(true);
         expect(typeof beat.run_id).toBe("string");
       }
 

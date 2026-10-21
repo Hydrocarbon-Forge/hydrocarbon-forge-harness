@@ -167,12 +167,14 @@ describe("heartbeat", () => {
     expect(out.lines().length).toBe(before);
 
     vi.advanceTimersByTime(1_000);
-    expect(out.lines().slice(before)).toEqual(["[00:15] still working: planning (15s, $0.0000)"]);
+    expect(out.lines().slice(before)).toEqual([
+      "[00:15] still working: planning (15s; cost is reported when planning ends)",
+    ]);
 
     vi.advanceTimersByTime(15_000);
     expect(out.lines().slice(before)).toEqual([
-      "[00:15] still working: planning (15s, $0.0000)",
-      "[00:30] still working: planning (30s, $0.0000)",
+      "[00:15] still working: planning (15s; cost is reported when planning ends)",
+      "[00:30] still working: planning (30s; cost is reported when planning ends)",
     ]);
     void f.flush();
   });
@@ -205,11 +207,42 @@ describe("heartbeat", () => {
     vi.advanceTimersByTime(15_000);
     const beats = out.lines().filter((l) => l.includes("still working"));
     // The phase changes at each event; a beat reports the phase it is in.
+    // No usage record in this run, so every phase reports no cost yet, and says when it will.
     expect(beats).toEqual([
-      "[00:15] still working: task T2 running (15s, $0.0000)",
-      "[00:30] still working: verifying T2 (15s, $0.0000)",
-      "[00:45] still working: merging T2 (15s, $0.0000)",
-      "[01:00] still working: scheduling (15s, $0.0000)",
+      "[00:15] still working: task T2 running (15s; cost is reported when this step ends)",
+      "[00:30] still working: verifying T2 (15s; cost is reported when this step ends)",
+      "[00:45] still working: merging T2 (15s; cost is reported when this step ends)",
+      "[01:00] still working: scheduling (15s; cost is reported when this step ends)",
+    ]);
+    void f.flush();
+  });
+
+  it("shows no dollar amount before the first usage record, and the running total after it", () => {
+    const out = sink();
+    const f = createFormatter("text", out, sink(), { models: MODELS });
+    f.onEvent(ev("run.created", { mode: "plan" }));
+    f.onEvent(ev("plan.started", {}));
+    vi.advanceTimersByTime(15_000);
+    f.onEvent(ev("usage.recorded", { record: { cost_usd: 0.25 }, role: "planner" }));
+    vi.advanceTimersByTime(15_000);
+    const beats = out.lines().filter((l) => l.includes("still working"));
+    expect(beats).toEqual([
+      "[00:15] still working: planning (15s; cost is reported when planning ends)",
+      "[00:30] still working: planning (30s, $0.2500)",
+    ]);
+    expect(beats[0]).not.toContain("$");
+    void f.flush();
+  });
+
+  it("names this step rather than planning when a non-planning phase has no cost yet", () => {
+    const out = sink();
+    const f = createFormatter("text", out, sink(), { heartbeatMs: DEFAULT_HEARTBEAT_MS });
+    f.onEvent(ev("run.created", { mode: "solo" }));
+    f.onEvent(ev("plan.approved", {}));
+    f.onEvent(ev("task.session.started", { task_id: "T1", generation: 1, attempt: 1, session_id: "s" }));
+    vi.advanceTimersByTime(15_000);
+    expect(out.lines().filter((l) => l.includes("still working"))).toEqual([
+      "[00:15] still working: task T1 running (15s; cost is reported when this step ends)",
     ]);
     void f.flush();
   });
@@ -249,6 +282,24 @@ describe("heartbeat", () => {
     expect(beat.phase_elapsed_s).toBe(15);
     expect(beat.cost_usd).toBeCloseTo(0.25, 6);
     expect(typeof beat.ts).toBe("string");
+    void f.flush();
+  });
+
+  it("writes cost_usd as null in stream-json until the first usage record, then the running total", () => {
+    const out = sink();
+    const f = createFormatter("stream-json", out, sink(), { models: MODELS });
+    const beats = () => out.lines().map((l) => JSON.parse(l)).filter((p) => p.type === "heartbeat");
+    f.onEvent(ev("run.created", { mode: "plan" }));
+    f.onEvent(ev("plan.started", {}));
+    vi.advanceTimersByTime(15_000);
+    expect(beats()).toHaveLength(1);
+    expect(beats()[0].cost_usd).toBeNull();
+    expect(beats()[0]).toHaveProperty("cost_usd", null);
+
+    f.onEvent(ev("usage.recorded", { record: { cost_usd: 0.25 }, role: "planner" }));
+    vi.advanceTimersByTime(15_000);
+    expect(beats()).toHaveLength(2);
+    expect(beats()[1].cost_usd).toBeCloseTo(0.25, 6);
     void f.flush();
   });
 });

@@ -13,7 +13,7 @@ export async function runRouteAction(
   // Auto mode runs the deterministic router: explicit flags, then the mechanical-file
   // rule, then the plan default. An explicit solo or plan mode bypasses the router.
   let mode: "solo" | "plan" = ctx.mode === "solo" ? "solo" : "plan";
-  let rationale = `--mode ${mode}`;
+  let rationale = "explicit mode flag";
   if (ctx.mode === "auto") {
     const decision = await routeRequest({
       prompt: ctx.prompt ?? "",

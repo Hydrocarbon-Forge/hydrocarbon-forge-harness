@@ -68,6 +68,9 @@ export class RunProgress {
   phase = "starting";
   private phaseStartedAt: number;
   private costUsd = 0;
+  // Set by the first usage record. Until then no cost has been reported, so a heartbeat
+  // says so instead of printing $0.0000 (claude reports a session's cost when it ends).
+  private usageSeen = false;
   private plannerAttemptCostUsd = 0;
   private plannerAttempt = 1;
   private readonly taskCostUsd = new Map<string, number>();
@@ -124,6 +127,7 @@ export class RunProgress {
         return [this.models.planner ? `planning with ${this.models.planner}` : "planning"];
       case "usage.recorded": {
         const cost = typeof data.record?.cost_usd === "number" ? data.record.cost_usd : 0;
+        this.usageSeen = true;
         this.costUsd += cost;
         if (data.role === "planner") this.plannerAttemptCostUsd += cost;
         if (tid !== "") this.taskCostUsd.set(tid, (this.taskCostUsd.get(tid) ?? 0) + cost);
@@ -239,13 +243,20 @@ export class RunProgress {
     return lines;
   }
 
-  /** The body of a heartbeat line: `still working: <phase> (<s>s, $<cost>)`. */
+  /**
+   * The body of a heartbeat line: `still working: <phase> (<s>s, $<cost>)` once a usage record
+   * exists. Before that it reads `(<s>s; cost is reported when <planning|this step> ends)`.
+   */
   heartbeatText(at: number): string {
     const secs = Math.floor((at - this.phaseStartedAt) / 1000);
+    if (!this.usageSeen) {
+      const ends = this.phase === "planning" ? "planning" : "this step";
+      return `still working: ${this.phase} (${secs}s; cost is reported when ${ends} ends)`;
+    }
     return `still working: ${this.phase} (${secs}s, ${formatCost(this.costUsd)})`;
   }
 
-  /** The stream-json heartbeat object. */
+  /** The stream-json heartbeat object. `cost_usd` is null until the first usage record. */
   heartbeatRecord(at: number): Record<string, unknown> {
     return {
       type: "heartbeat",
@@ -254,7 +265,7 @@ export class RunProgress {
       elapsed_s: Math.floor((at - this.startedAt) / 1000),
       phase: this.phase,
       phase_elapsed_s: Math.floor((at - this.phaseStartedAt) / 1000),
-      cost_usd: this.costUsd,
+      cost_usd: this.usageSeen ? this.costUsd : null,
     };
   }
 }
