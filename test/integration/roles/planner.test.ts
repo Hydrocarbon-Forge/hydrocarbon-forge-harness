@@ -154,7 +154,8 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
       expect(req.cwd).toBe(runDir);
       expect(req.model).toBe(DEFAULT_SETTINGS.roles.planner.model);
       expect(req.effort).toBe(DEFAULT_SETTINGS.roles.planner.effort);
-      expect(req.budget.max_usd).toBe(DEFAULT_SETTINGS.budgets.task.max_usd);
+      // R7.9: the planner is bounded by the run budget, not the per-task cap.
+      expect(req.budget.max_usd).toBe(DEFAULT_SETTINGS.budgets.run.max_usd);
 
       // The planner is a thin wrapper over the prompt library (R1.7).
       expect(req.system_append).toBe(assembleSystem("planner", {}));

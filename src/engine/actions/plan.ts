@@ -405,6 +405,7 @@ export async function runPlanAction(
       history,
       signal: ctx.signal,
       runBudgetExceeded: () => stoppedForBudget,
+      runSpentUsd: () => totalUsd,
     });
   } catch (err) {
     if (stoppedForBudget) return;

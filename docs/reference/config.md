@@ -81,7 +81,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 |---|---|---|
 | `budgets.run.max_usd` | number | Spend cap for a whole run in USD. Default 5. |
 | `budgets.run.max_tokens` | number | Token cap for a whole run. Unset by default. |
-| `budgets.task.max_usd` | number | Spend cap for one task in USD. Default 0.5. |
+| `budgets.task.max_usd` | number | Spend cap for one task in USD. Default 0.5. It binds tasks only: the planner is bounded by the run budget (see `budgets.run.max_usd`), each planner session getting the run budget not yet spent, at least 0.5 and never above the run cap. |
 | `budgets.task.max_tokens` | number | Token cap for one task. Unset by default. |
 | `budgets.task.timeout_min` | number | Timeout for one task, in minutes. Falls back to 30 when unset. |
 | `budgets.task.max_turns` | number | Turn cap for one task. Unset by default. |

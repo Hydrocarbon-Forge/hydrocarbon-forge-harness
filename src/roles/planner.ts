@@ -63,6 +63,19 @@ export interface PlannerRunOptions {
   signal?: AbortSignal;
   /** True once the run budget is spent; a retry the budget no longer covers is not started (R7.7). */
   runBudgetExceeded?: () => boolean;
+  /** Spend so far in the run, all roles: the planner's spawn cap is the run budget left (R7.9). */
+  runSpentUsd?: () => number;
+}
+
+/** The smallest cap a planner session gets, so a nearly spent run can still start planning (R7.9). */
+export const PLANNER_MIN_USD = 0.5;
+
+/**
+ * The --max-budget-usd of one planner session: the run budget not yet spent, floored at
+ * PLANNER_MIN_USD and never above the run cap. The per-task cap binds tasks, not the planner (R7.9).
+ */
+export function plannerSpawnBudgetUsd(runCapUsd: number, spentUsd: number): number {
+  return Math.min(runCapUsd, Math.max(runCapUsd - spentUsd, PLANNER_MIN_USD));
 }
 
 export type PlannerOutcome =
@@ -519,7 +532,10 @@ export async function runPlanner(
         deny: DENY_PERMISSIONS,
       },
       budget: {
-        max_usd: settings.budgets?.task?.max_usd ?? 5.0,
+        max_usd: plannerSpawnBudgetUsd(
+          settings.budgets?.run?.max_usd ?? 5.0,
+          opts.runSpentUsd?.() ?? totals.cost_usd,
+        ),
         timeout_ms: (settings.budgets?.task?.timeout_min ?? 30) * 60 * 1000,
         ...(settings.budgets?.task?.max_tokens
           ? { max_tokens: settings.budgets.task.max_tokens }
