@@ -236,6 +236,9 @@ export class EngineImpl implements Engine {
             ...(settings.roles.requested !== undefined ? { requested_roles: settings.roles.requested } : {}),
             // R10.1: the branch the run starts on; its work lands there only (detached: "HEAD").
             base_branch: currentBranchName(repoRoot),
+            // R10.3: the landing and the worker count in effect, so a resume keeps them.
+            merge: opts.merge ?? settings.git?.auto_merge === true,
+            concurrency: settings.concurrency.workers,
           },
         };
 

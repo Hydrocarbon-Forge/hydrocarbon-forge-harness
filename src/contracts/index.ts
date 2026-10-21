@@ -490,6 +490,8 @@ export const RunOptions = z.object({
   permission_mode: PermissionMode,
   overrides: z.record(z.string(), z.unknown()).optional(),
   resume: RunId.optional(),
+  // The landing the caller chose for this run (R10.3); undefined leaves the setting to decide.
+  merge: z.boolean().optional(),
   signal: z.custom<AbortSignal>((v) => v instanceof Object).optional(),
   onEvent: z.custom<(e: EngineEvent) => void>((v) => typeof v === "function").optional(),
 }).strict();
@@ -500,6 +502,7 @@ export type RunOptions = {
   permission_mode: PermissionMode;
   overrides?: Partial<Settings>;
   resume?: RunId;
+  merge?: boolean;
   signal?: AbortSignal;
   onEvent?: (e: EngineEvent) => void;
 };

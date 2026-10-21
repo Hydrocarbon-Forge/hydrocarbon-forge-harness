@@ -43,6 +43,10 @@ export const RunCreatedEvent = member(
       requested_roles: z.record(z.string(), z.unknown()).optional(),
       // The branch checked out when the run started: the only branch its work lands on (R10.1).
       base_branch: z.string().optional(),
+      // The landing choice in effect at creation (R10.3): a resume uses it unless --merge or --no-merge is given again.
+      merge: z.boolean().optional(),
+      // The worker count in effect at creation (R10.3): a resume uses it unless --concurrency is given again.
+      concurrency: z.number().int().optional(),
     })
     .strict()
 );

@@ -75,3 +75,8 @@ The rule now:
 - `git.auto_merge` defaults to `true`. `--no-merge` and the request's `merge: false` keep one run on its run branch. `--merge` and `merge: true` land one run even when the setting is `false`. Precedence: the flag or the request field, then the project setting, then the default.
 - The safety net: nothing lands unless the run ends `finished` with every task passed and integration verify passed. A failed, partial, paused, interrupted or budget-stopped run never lands, and `substrate plan` never lands. A dirty checkout (uncommitted tracked changes) refuses the landing. A run lands only into the branch it started on: if the user switched branches meanwhile, or HEAD is detached, it does not merge. A conflict at landing is refused with the files named, leaving no merge state.
 - `substrate merge <run>` is unchanged: it merges into the current branch, because the user chose it.
+
+## Note 2026-10-21 (R10.3): a resume keeps the landing and the worker count its run recorded
+
+The R10.1 precedence (the flag or the request field, then the project setting, then the default) applies to a new run. A resume now reads the landing its run recorded on `run.created` (`merge`) before the setting, so a `--no-merge` run stays on its branch when resumed without flags. `--merge` or `--no-merge` on the resume still wins. The worker count is recorded the same way (`concurrency`), and `--concurrency` on a resume wins. Runs logged before R10.3 have neither field and use the setting, as before. Code: `src/cli/commands/resume.ts`, `src/engine/engine.ts`.
+

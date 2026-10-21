@@ -42,6 +42,8 @@ export interface CliGlobalFlags {
   noFollow?: boolean;
   /** run, resume: start the run in the background and print how to follow it (R10.3). */
   detach?: boolean;
+  /** run, resume, plan: workers that may run at once, 1 to 16 (R10.3). */
+  concurrency?: number;
   hard?: boolean;
   verify?: string[];
   request?: string;
@@ -151,6 +153,7 @@ const CLI_OPTIONS = {
   "no-merge": { type: "boolean" },
   "no-follow": { type: "boolean" },
   detach: { type: "boolean" },
+  concurrency: { type: "string" },
   hard: { type: "boolean" },
   request: { type: "string" },
   answers: { type: "string" },
@@ -230,6 +233,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues["no-merge"]) flags.noMerge = true;
   if (parsedValues["no-follow"]) flags.noFollow = true;
   if (parsedValues.detach) flags.detach = true;
+  if (parsedValues.concurrency !== undefined) flags.concurrency = Number(parsedValues.concurrency);
   if (parsedValues.hard) flags.hard = true;
   if (parsedValues["max-budget-usd"] !== undefined) {
     flags.maxBudgetUsd = Number(parsedValues["max-budget-usd"]);
@@ -264,7 +268,6 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
 
   let commandName: string | undefined;
   let positional: string[] = [...rawPositionals];
-
   if (rawPositionals.length > 0) {
     const first = rawPositionals[0];
     const registered = registry.get(first);
@@ -284,6 +287,11 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
     }
   } else if (flags.print) {
     commandName = "run";
+  }
+
+  // bench reads its own `--flag value` pairs from its arguments, so --concurrency is handed back to it (R10.3).
+  if (commandName === "bench" && parsedValues.concurrency !== undefined) {
+    positional = [...positional, "--concurrency", String(parsedValues.concurrency)];
   }
 
   const known = new Set(Object.keys(CLI_OPTIONS));
@@ -344,6 +352,7 @@ function printHelp(out: NodeJS.WriteStream): void {
   out.write(`  --sandbox                 Enable bubblewrap sandbox\n`);
   out.write(`  --no-follow               watch: print the run's history and exit\n`);
   out.write(`  --detach                  run, resume: start in the background; watch, status and stop follow it\n`);
+  out.write(`  --concurrency <n>         run, resume, plan: workers that may run at once (1 to 16)\n`);
 }
 
 export async function runCli(

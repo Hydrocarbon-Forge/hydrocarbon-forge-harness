@@ -32,6 +32,8 @@ export interface CliGlobalFlags {
   work?: string;
   /** Start the resumed run in the background and return at once (R10.3). */
   detach?: boolean;
+  /** Workers for the resumed run; without it the run's recorded count is used (R10.3). */
+  concurrency?: number;
 }
 
 export interface CliGovernanceFlags {
@@ -69,7 +71,7 @@ export interface CliCommand {
 const { createFormatter, summaryPayload } = await import(`../output.js`);
 const { ProgressLog, writeOutcome } = await import(`../run-files.js`);
 const { registry } = await import(`../registry.js`);
-const { buildSettingsOverrides, landRun, mergeChoiceOf, mergeFlagsConflict } = await import(`./run.js`);
+const { buildSettingsOverrides, concurrencyFlagProblem, landRun, mergeChoiceOf, mergeFlagsConflict } = await import(`./run.js`);
 const { withRequestedRoles } = await import(`../../config/index.js`);
 
 /**
@@ -132,6 +134,11 @@ export const resumeCommand: CliCommand = {
   name: "resume",
   description: "Resume a paused or interrupted Substrate run",
   async execute(ctx: CommandContext): Promise<number> {
+    const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
+    if (concurrencyProblem !== undefined) {
+      ctx.stderr.write(concurrencyProblem);
+      return 2;
+    }
     // R10.3: the resume runs in a detached child; its own arguments minus --detach start it.
     if (ctx.flags.detach === true) {
       const { detachFrom } = await import(`../detach.js`);
@@ -350,6 +357,10 @@ export const resumeCommand: CliCommand = {
     // --worker-model for the worker) replaces the recorded model; --effort still applies.
     const recorded = (createdEvt?.data?.requested_roles ?? {}) as Record<string, Record<string, unknown> | undefined>;
     const overrides0 = buildSettingsOverrides(ctx.flags, ctx.flags.mode);
+    // R10.3: the worker count the run recorded, unless --concurrency is given again.
+    if (ctx.flags.concurrency === undefined && typeof createdEvt?.data?.concurrency === "number") {
+      overrides0.concurrency = { workers: createdEvt.data.concurrency };
+    }
     const roles: Record<string, Record<string, unknown> | undefined> = { ...((overrides0.roles ?? {}) as typeof roles) };
     if (ctx.flags.plan !== undefined) {
       roles.planner = { ...(roles.planner ?? {}), ...roleFromSpec(ctx.flags.plan) };
@@ -414,7 +425,8 @@ export const resumeCommand: CliCommand = {
       // R10.1: a resumed run that finishes lands like a run does, unless the caller or the setting says no.
       const landSettings = await loadSettings({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings, flags: overrides });
       const landed = await landRun(ctx, resumed, {
-        mergeRequested: mergeChoiceOf(ctx.flags) ?? landSettings.git?.auto_merge === true,
+        // R10.3: the landing the run recorded on run.created, unless --merge or --no-merge is given again (old logs: the setting).
+        mergeRequested: mergeChoiceOf(ctx.flags) ?? (typeof createdEvt?.data?.merge === "boolean" ? createdEvt.data.merge : landSettings.git?.auto_merge === true),
         events: runEvents,
       });
       const summary = landed.summary;

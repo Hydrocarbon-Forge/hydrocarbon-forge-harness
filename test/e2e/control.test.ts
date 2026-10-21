@@ -65,15 +65,15 @@ function tempDir(prefix: string): string {
   return dir;
 }
 
-function newRepo(): E2ERepo {
-  const repo = createE2ERepo(SEED);
+function newRepo(workers = 1, seed: Record<string, string> = SEED): E2ERepo {
+  const repo = createE2ERepo(seed);
   repos.push(repo);
   mkdirSync(join(repo.dir, ".substrate"), { recursive: true });
   writeFileSync(
     join(repo.dir, ".substrate", "settings.json"),
     JSON.stringify({
       backends: { claude: { bin: join(binDir, "claude") }, opencode: { bin: join(binDir, "opencode") }, agy: { bin: join(binDir, "agy") } },
-      concurrency: { workers: 1 },
+      concurrency: { workers },
     }),
     "utf8",
   );
@@ -428,5 +428,212 @@ describe("R10.3: run --detach starts a run in the background", () => {
     const events = eventsOf(repo, runId);
     expect(events.some((e) => e.type === "run.finished" && e.data.exit_code === 0)).toBe(true);
     expect(events.filter((e) => e.type === "task.session.started" && e.data.task_id === "T1").length).toBe(1);
+  }, 240000);
+});
+
+const SEED3 = { "src/t1.txt": "seed t1\n", "src/t2.txt": "seed t2\n", "src/t3.txt": "seed t3\n", "contracts/types.ts": CONTRACT_STUB };
+
+function planThree(goal: string): Record<string, unknown> {
+  const specs: Record<string, string> = {};
+  for (const id of ["T1", "T2", "T3"]) {
+    const l = id.toLowerCase();
+    specs[`tasks/${id}.md`] = taskSpec({ id, write: [`src/${l}.txt`], verify: `grep -q ${l}-done src/${l}.txt` });
+  }
+  return planCall(contractFiles(manifestFor(goal, ["T1", "T2", "T3"]), specs));
+}
+
+/** A worker for one of T1..T3 that edits its file and passes, with no barrier. */
+function passWorker(task: string): Record<string, unknown> {
+  const l = task.toLowerCase();
+  // Tagged with its task: the harness matches it to the worktree of that task, whatever the start order.
+  return { task, edits: { [`src/${l}.txt`]: `seed ${l}\n${l}-done\n` }, reply: `${task} done\nDONE` };
+}
+
+/** A worker that waits at its barrier for the named siblings, for at most timeout ms, then sleeps delay ms. */
+function barrierWorker(task: string, dir: string, waitFor: string[], timeout: number, delay: number): Record<string, unknown> {
+  const l = task.toLowerCase();
+  return {
+    task,
+    edits: { [`src/${l}.txt`]: `seed ${l}\n${l}-done\n` },
+    trace: { dir, name: task, wait_for: waitFor, timeout_ms: timeout },
+    delay_ms: delay,
+    reply: `${task} done\nDONE`,
+  };
+}
+
+interface Span {
+  start: number;
+  end: number;
+}
+
+function spanOf(dir: string, name: string): Span {
+  const start = JSON.parse(readFileSync(join(dir, `start-${name}.json`), "utf8")).at as number;
+  const endFile = join(dir, `end-${name}.json`);
+  const end = existsSync(endFile) ? (JSON.parse(readFileSync(endFile, "utf8")).at as number) : Number.POSITIVE_INFINITY;
+  return { start, end };
+}
+
+/** The most worker sessions alive at one moment, from the trace files. */
+function maxOverlapOf(spans: Span[]): number {
+  const points: Array<{ t: number; d: number }> = [];
+  for (const s of spans) {
+    points.push({ t: s.start, d: 1 }, { t: s.end, d: -1 });
+  }
+  points.sort((a, b) => a.t - b.t || a.d - b.d);
+  let alive = 0;
+  let max = 0;
+  for (const p of points) {
+    alive += p.d;
+    max = Math.max(max, alive);
+  }
+  return max;
+}
+
+function barrierMet(dir: string, name: string): boolean {
+  return JSON.parse(readFileSync(join(dir, `barrier-${name}.json`), "utf8")).met === true;
+}
+
+function latestRunId(repo: E2ERepo): string {
+  return readdirSync(join(repo.dir, ".substrate", "runs")).sort().at(-1)!;
+}
+
+function createdOf(repo: E2ERepo, runId: string): { merge?: boolean; concurrency?: number } {
+  return eventsOf(repo, runId).find((e) => e.type === "run.created")!.data;
+}
+
+describe("R10.3: --concurrency, and the landing and worker count a resume keeps", () => {
+  it("--concurrency 3 runs three independent tasks side by side even when the project setting is 1, and records 3", async () => {
+    const repo = newRepo(1, SEED3);
+    const dir = tempDir("substrate-control-conc-");
+    const scn = scenarioFor([
+      planThree("Three case"),
+      barrierWorker("T1", dir, ["T2", "T3"], 5000, 1500),
+      barrierWorker("T2", dir, ["T1", "T3"], 5000, 1500),
+      barrierWorker("T3", dir, ["T1", "T2"], 5000, 1500),
+    ]);
+    const done = await run(repo, ["run", "--concurrency", "3", ...MODELS, "Three case"], scn.env);
+    expect(done.code, done.stderr + done.stdout).toBe(0);
+    for (const name of ["T1", "T2", "T3"]) expect(barrierMet(dir, name), `barrier ${name}`).toBe(true);
+    expect(maxOverlapOf(["T1", "T2", "T3"].map((n) => spanOf(dir, n)))).toBe(3);
+    expect(createdOf(repo, latestRunId(repo)).concurrency).toBe(3);
+  }, 180000);
+
+  it("--concurrency 1 runs the same plan one at a time even when the project setting is 3, and records 1", async () => {
+    const repo = newRepo(3, SEED3);
+    const dir = tempDir("substrate-control-conc-");
+    const scn = scenarioFor([
+      planThree("One case"),
+      barrierWorker("T1", dir, ["T2", "T3"], 300, 500),
+      barrierWorker("T2", dir, ["T1", "T3"], 300, 500),
+      barrierWorker("T3", dir, ["T1", "T2"], 300, 500),
+    ]);
+    const done = await run(repo, ["run", "--concurrency", "1", ...MODELS, "One case"], scn.env);
+    expect(done.code, done.stderr + done.stdout).toBe(0);
+    for (const name of ["T1", "T2", "T3"]) expect(barrierMet(dir, name), `barrier ${name}`).toBe(false);
+    expect(maxOverlapOf(["T1", "T2", "T3"].map((n) => spanOf(dir, n)))).toBe(1);
+    expect(createdOf(repo, latestRunId(repo)).concurrency).toBe(1);
+  }, 180000);
+
+  it("an invalid --concurrency exits 2 before any run is created, for run and plan", async () => {
+    const repo = newRepo();
+    for (const value of ["0", "17", "abc", "2.5"]) {
+      for (const cmd of ["run", "plan"]) {
+        const done = await run(repo, [cmd, "--concurrency", value, ...MODELS, "Bad value"], process.env as NodeJS.ProcessEnv);
+        expect(done.code, `${cmd} --concurrency ${value}`).toBe(2);
+        expect(done.stderr).toContain("--concurrency must be a whole number from 1 to 16");
+      }
+    }
+    expect(existsSync(join(repo.dir, ".substrate", "runs"))).toBe(false);
+  }, 120000);
+
+  it("a resume without flags keeps the recorded worker count: a run started with --concurrency 1 under a project setting of 3 still runs T2 and T3 one at a time", async () => {
+    const repo = newRepo(3, SEED3);
+    const trace = tempDir("substrate-control-trace-");
+    const after = tempDir("substrate-control-after-");
+    const hold = { task: "T2", edits: { "src/t2.txt": "seed t2\nt2-done\n" }, trace: { dir: trace, name: "T2", wait_for: ["GATE"], timeout_ms: 120000 }, reply: "T2 done\nDONE" };
+    const scn = scenarioFor([
+      planThree("Resume concurrency"),
+      passWorker("T1"),
+      hold,
+      barrierWorker("T2", after, ["T3"], 300, 200),
+      barrierWorker("T3", after, ["T2"], 300, 200),
+    ]);
+    const runner = launch(repo, ["run", "--concurrency", "1", ...MODELS, "Resume concurrency"], scn.env);
+    const workerPid = await heldPid(trace, "T2");
+    const runId = (await waitUntil(() => runIdOfPid(repo, runner.child.pid!) !== undefined, 10000)) ? runIdOfPid(repo, runner.child.pid!)! : "";
+    expect(runId).not.toBe("");
+    const stopped = await run(repo, ["stop", runId], scn.env);
+    expect(stopped.code, stopped.stderr).toBe(0);
+    expect(await runner.exited).toBe(143);
+    expect(await waitUntil(() => !alive(workerPid), 5000)).toBe(true);
+
+    const resumed = await run(repo, ["resume", runId, ...MODELS], scn.env);
+    expect(resumed.code, resumed.stderr + resumed.stdout).toBe(0);
+    expect(createdOf(repo, runId).concurrency, "run.created keeps 1").toBe(1);
+    expect(barrierMet(after, "T2")).toBe(false);
+    expect(barrierMet(after, "T3")).toBe(false);
+    expect(maxOverlapOf(["T2", "T3"].map((n) => spanOf(after, n)))).toBe(1);
+  }, 240000);
+
+  it("a --no-merge run stopped and resumed without flags does not land", async () => {
+    const repo = newRepo();
+    const trace = tempDir("substrate-control-trace-");
+    const scn = scenarioFor([planFor("No merge", ["T1"]), heldWorker("T1", trace), okWorker("T1")]);
+    const runner = launch(repo, ["run", "--no-merge", ...MODELS, "No merge"], scn.env);
+    await heldPid(trace, "T1");
+    const runId = (await waitUntil(() => runIdOfPid(repo, runner.child.pid!) !== undefined, 10000)) ? runIdOfPid(repo, runner.child.pid!)! : "";
+    expect(runId).not.toBe("");
+    expect((await run(repo, ["stop", runId], scn.env)).code).toBe(0);
+    expect(await runner.exited).toBe(143);
+    expect(createdOf(repo, runId).merge).toBe(false);
+
+    const resumed = await run(repo, ["resume", runId, ...MODELS], scn.env);
+    expect(resumed.code, resumed.stderr + resumed.stdout).toBe(0);
+    expect(readFileSync(join(repo.dir, "src", "a.txt"), "utf8")).not.toContain("t1-done");
+    expect(resumed.stdout).toContain("not merged");
+  }, 240000);
+
+  it("the same run resumed with --merge lands", async () => {
+    const repo = newRepo();
+    const trace = tempDir("substrate-control-trace-");
+    const scn = scenarioFor([planFor("Merge later", ["T1"]), heldWorker("T1", trace), okWorker("T1")]);
+    const runner = launch(repo, ["run", "--no-merge", ...MODELS, "Merge later"], scn.env);
+    await heldPid(trace, "T1");
+    const runId = (await waitUntil(() => runIdOfPid(repo, runner.child.pid!) !== undefined, 10000)) ? runIdOfPid(repo, runner.child.pid!)! : "";
+    expect(runId).not.toBe("");
+    expect((await run(repo, ["stop", runId], scn.env)).code).toBe(0);
+    expect(await runner.exited).toBe(143);
+
+    const resumed = await run(repo, ["resume", runId, "--merge", ...MODELS], scn.env);
+    expect(resumed.code, resumed.stderr + resumed.stdout).toBe(0);
+    expect(readFileSync(join(repo.dir, "src", "a.txt"), "utf8")).toContain("t1-done");
+  }, 240000);
+
+  it("a run whose run.created has no merge or concurrency field resumes with the setting, and lands", async () => {
+    const repo = newRepo();
+    const trace = tempDir("substrate-control-trace-");
+    const scn = scenarioFor([planFor("Old log", ["T1"]), heldWorker("T1", trace), okWorker("T1")]);
+    const runner = launch(repo, ["run", ...MODELS, "Old log"], scn.env);
+    await heldPid(trace, "T1");
+    const runId = (await waitUntil(() => runIdOfPid(repo, runner.child.pid!) !== undefined, 10000)) ? runIdOfPid(repo, runner.child.pid!)! : "";
+    expect(runId).not.toBe("");
+    expect((await run(repo, ["stop", runId], scn.env)).code).toBe(0);
+    expect(await runner.exited).toBe(143);
+
+    // An older log: the same events, without the fields R10.3 added to run.created.
+    const file = join(repo.dir, ".substrate", "runs", runId, "events.jsonl");
+    const lines = readFileSync(file, "utf8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+      const ev = JSON.parse(l);
+      if (ev.type === "run.created") {
+        delete ev.data.merge;
+        delete ev.data.concurrency;
+      }
+      return JSON.stringify(ev);
+    });
+    writeFileSync(file, lines.join("\n") + "\n", "utf8");
+
+    const resumed = await run(repo, ["resume", runId, ...MODELS], scn.env);
+    expect(resumed.code, resumed.stderr + resumed.stdout).toBe(0);
+    expect(readFileSync(join(repo.dir, "src", "a.txt"), "utf8")).toContain("t1-done");
   }, 240000);
 });

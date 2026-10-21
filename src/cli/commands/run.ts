@@ -34,6 +34,8 @@ export interface CliGlobalFlags {
   noFollow?: boolean;
   /** Start the run in the background and return at once (R10.3). */
   detach?: boolean;
+  /** Workers that may run at once for this run, 1 to 16 (R10.3). */
+  concurrency?: number;
 }
 
 export interface CliGovernanceFlags {
@@ -155,6 +157,10 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
     overrides.sandbox = { enabled: true };
   }
 
+  if (flags.concurrency !== undefined) {
+    overrides.concurrency = { workers: flags.concurrency };
+  }
+
   return overrides;
 }
 
@@ -178,6 +184,14 @@ export function mergeChoiceOf(flags: { merge?: boolean; noMerge?: boolean }, req
   if (flags.merge === true) return true;
   if (flags.noMerge === true) return false;
   return requestMerge;
+}
+
+/** The --concurrency value must be a whole number from 1 to 16 (R10.3); undefined when it is not given or is valid. */
+export function concurrencyFlagProblem(flags: { concurrency?: number }): string | undefined {
+  if (flags.concurrency === undefined) return undefined;
+  return Number.isInteger(flags.concurrency) && flags.concurrency >= 1 && flags.concurrency <= 16
+    ? undefined
+    : "Error: --concurrency must be a whole number from 1 to 16\n";
 }
 
 /** Refuses --merge with --no-merge, before any side effect (R10.1). */
@@ -290,6 +304,11 @@ export const runCommand: CliCommand = {
   name: "run",
   description: "Execute Substrate run with specified prompt",
   async execute(ctx: CommandContext): Promise<number> {
+    const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
+    if (concurrencyProblem !== undefined) {
+      ctx.stderr.write(concurrencyProblem);
+      return 2;
+    }
     // R10.3: a detached run is started by a child of this CLI, which then runs the same code.
     if (ctx.flags.detach === true) {
       const { detachFrom } = await import(`../detach.js`);
@@ -465,6 +484,8 @@ export const runCommand: CliCommand = {
       cwd: ctx.cwd,
       mode,
       permission_mode,
+      // R10.1/R10.3: the landing the caller chose; the engine records the effective one on run.created.
+      ...(mergeChoiceOf(ctx.flags, requestMerge) !== undefined ? { merge: mergeChoiceOf(ctx.flags, requestMerge) } : {}),
       prompt,
       overrides,
       signal: ctx.signal,

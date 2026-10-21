@@ -37,6 +37,9 @@
       "type": "string",
       "pattern": "^r_[A-Z2-7]{12}$"
     },
+    "merge": {
+      "type": "boolean"
+    },
     "signal": {
       "type": "object"
     },

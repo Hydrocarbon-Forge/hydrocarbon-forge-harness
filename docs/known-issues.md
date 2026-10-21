@@ -352,3 +352,34 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - A live run prints heartbeat lines and the `merged into <branch>` line; both are not journal events, so `watch` shows them only in the summary. `watch --no-follow` on a finished run therefore shows the history without the landing line and without the summary block; a followed or completed watch prints the summary from `summary.txt`.
 - The start line's models are recovered from the roles the run.created event recorded and the settings now on disk, so they can differ from the live line if the settings changed since the run started.
+
+## 53. FIXED (R10.3): a resumed `--no-merge` run landed, because resume took the setting
+
+- Seen (R10.1 caveat): `--no-merge` kept one run on its branch, but a resume without flags read the setting and merged the run.
+- Fixed: `run.created` records the effective `merge` and `concurrency` (`src/engine/engine.ts`, `src/contracts/events.ts`). A resume uses them unless `--merge`/`--no-merge` or `--concurrency` is given again (`src/cli/commands/resume.ts`). A log without the fields uses the setting.
+- Tests: `test/e2e/control.test.ts` ("a --no-merge run stopped and resumed without flags does not land", "the same run resumed with --merge lands", "a resume without flags keeps the recorded worker count", "a run whose run.created has no merge or concurrency field resumes with the setting, and lands").
+
+## 54. OPEN: `stop --force` is tested only with an injected process control
+
+- The CLI handles SIGTERM with a graceful stop that ends in well under 15 s, so no fake-harness run ignores it deterministically. The force path (SIGKILL after the wait, the pid checked again before the kill) is covered by `test/unit/cli/stop.test.ts` with an injected control, not by a run that refuses to stop.
+- Not a defect; a test gap.
+
+## 55. OPEN: `stop` leaves a run whose lock is stale but whose process is alive
+
+- `stop` acts only on a lock whose heartbeat is fresh (`runProcessOf`). A run whose process is alive but whose heartbeat is older than 30 s is reported as `not running (stopped)` and its process is not signalled. A hung CLI of that kind needs `kill` by hand, or `stop` after the process exits.
+- Owner decision needed: signal a live Substrate process whose heartbeat is stale, or keep the refusal.
+
+## 56. OPEN (owner decision): `run --detach` checks the request in the started process
+
+- The brief asked for the preflight to run in the parent before it starts the child. It runs in the child instead, so the errors come back through the child's log tail with exit `2`, a fraction of a second later (248 ms in the test), and no run is created. The messages are the same as a foreground run's (`run --detach` tests in `test/e2e/control.test.ts`).
+- Owner decision: keep this, or move the preflight into the parent.
+
+## 57. OPEN (owner decision): the request has no `concurrency` field
+
+- The request payload has `budget` for money and time limits; a worker count has no natural place in it. `--concurrency` is the only way to set it (run, resume, plan). A caller using only `--request` cannot set a worker count per run.
+- Owner decision: add a request field, or keep the flag only.
+
+## 58. OPEN: `plan --concurrency` is accepted and does nothing
+
+- A plan starts no workers. The flag is validated (1 to 16) and accepted so that one command line works for `run` and `plan`. Nothing records or uses the value.
+

@@ -11,6 +11,8 @@ export interface CliGlobalFlags {
   print?: boolean;
   /** Refused for plan (R10.3): only run and resume start in the background. */
   detach?: boolean;
+  /** Accepted for parity with run; a plan starts no workers (R10.3). */
+  concurrency?: number;
   outputFormat?: "text" | "json" | "stream-json";
   model?: string;
   workerModel?: string;
@@ -60,12 +62,17 @@ export interface CliCommand {
 const { createFormatter } = await import(`../output.js`);
 const { modelPreflight, repoPreflight, reportPreflightError, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
-const { buildSettingsOverrides } = await import(`./run.js`);
+const { buildSettingsOverrides, concurrencyFlagProblem } = await import(`./run.js`);
 
 export const planCommand: CliCommand = {
   name: "plan",
   description: "Plan changes for a goal without executing modifications",
   async execute(ctx: CommandContext): Promise<number> {
+    const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
+    if (concurrencyProblem !== undefined) {
+      ctx.stderr.write(concurrencyProblem);
+      return 2;
+    }
     // R10.3: a plan is not started in the background; the detached start is for run and resume.
     if (ctx.flags.detach === true) {
       ctx.stderr.write("Error: --detach is not supported for plan; use substrate run --detach\n");
