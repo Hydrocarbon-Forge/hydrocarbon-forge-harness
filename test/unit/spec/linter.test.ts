@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Diagnostic } from "../../../src/contracts/index.js";
@@ -24,6 +24,7 @@ describe("plan linter: lintPlan orchestration and aggregation", () => {
     const settings = sampleSettings();
 
     // Create existing files required by the plan
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     writeFileSync(join(repo, "src", "contracts", "index.ts"), "export type Foo = 1;", "utf8");
     writeFileSync(join(repo, "tasks", "T1.md"), "spec", "utf8");
     writeFileSync(join(repo, "tasks", "T2.md"), "spec", "utf8");
@@ -109,6 +110,7 @@ describe("plan linter: lintPlan orchestration and aggregation", () => {
       },
     });
 
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     writeFileSync(join(repo, "src", "contracts", "index.ts"), "export type A = 1;", "utf8");
     writeFileSync(join(repo, "tasks", "T1.md"), "spec", "utf8");
 
@@ -204,6 +206,7 @@ describe("plan linter: semantic check hook point (S001 - S004)", () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     writeFileSync(join(repo, "src", "contracts", "index.ts"), "export type A = 1;", "utf8");
     writeFileSync(join(repo, "tasks", "T1.md"), "spec", "utf8");
 

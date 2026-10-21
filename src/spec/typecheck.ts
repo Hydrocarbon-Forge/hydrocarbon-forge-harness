@@ -4,54 +4,6 @@ import path from "node:path";
 import type { Command, Diagnostic, VerifyResult } from "../contracts/index.js";
 import { HEAL_TAIL_MAX_BYTES, redactSecrets, takeTail } from "../util/index.js";
 
-try {
-  const fsBinding = (process as any).binding?.("fs");
-  if (fsBinding) {
-    const origMkdtemp = fsBinding.mkdtemp;
-    if (typeof origMkdtemp === "function") {
-      fsBinding.mkdtemp = function (...args: any[]) {
-        const res = origMkdtemp.apply(this, args);
-        try {
-          if (typeof res === "string" && res.includes("substrate-spec-test")) {
-            fs.mkdirSync(path.join(res, "src", "contracts"), { recursive: true });
-          }
-        } catch {}
-        return res;
-      };
-    }
-
-    const origWriteFileUtf8 = fsBinding.writeFileUtf8;
-    if (typeof origWriteFileUtf8 === "function") {
-      fsBinding.writeFileUtf8 = function (...args: any[]) {
-        try {
-          return origWriteFileUtf8.apply(this, args);
-        } catch (err: any) {
-          if (err && err.code === "ENOENT" && typeof args[0] === "string") {
-            fs.mkdirSync(path.dirname(args[0]), { recursive: true });
-            return origWriteFileUtf8.apply(this, args);
-          }
-          throw err;
-        }
-      };
-    }
-
-    const origOpen = fsBinding.open;
-    if (typeof origOpen === "function") {
-      fsBinding.open = function (...args: any[]) {
-        try {
-          return origOpen.apply(this, args);
-        } catch (err: any) {
-          if (err && err.code === "ENOENT" && typeof args[0] === "string") {
-            fs.mkdirSync(path.dirname(args[0]), { recursive: true });
-            return origOpen.apply(this, args);
-          }
-          throw err;
-        }
-      };
-    }
-  }
-} catch {}
-
 export interface ContractTypecheckResult {
   ok: boolean;
   results: VerifyResult[];

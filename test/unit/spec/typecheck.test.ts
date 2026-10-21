@@ -11,6 +11,7 @@ import { createTempRepo } from "./fixtures.js";
 describe("contract typecheck: typecheckContracts", () => {
   it("succeeds when contract files exist and typecheck command exits 0", async () => {
     const repo = createTempRepo();
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     const contractPath = join(repo, "src", "contracts", "index.ts");
     writeFileSync(contractPath, "export type Foo = string;\n", "utf8");
 
@@ -44,6 +45,7 @@ describe("contract typecheck: typecheckContracts", () => {
 
   it("emits L018 error diagnostic when typecheck command exits non-zero", async () => {
     const repo = createTempRepo();
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     const contractPath = join(repo, "src", "contracts", "index.ts");
     writeFileSync(contractPath, "export type Foo = string;\n", "utf8");
 
@@ -71,6 +73,7 @@ describe("contract typecheck: typecheckContracts", () => {
 
   it("handles command timeout and marks timed_out with L018 diagnostic", async () => {
     const repo = createTempRepo();
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     const contractPath = join(repo, "src", "contracts", "index.ts");
     writeFileSync(contractPath, "export type Foo = string;\n", "utf8");
 
@@ -93,6 +96,7 @@ describe("contract typecheck: typecheckContracts", () => {
 
   it("scrubs secrets and sensitive tokens from diagnostics and output tail", async () => {
     const repo = createTempRepo();
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     const contractPath = join(repo, "src", "contracts", "index.ts");
     writeFileSync(contractPath, "export type Foo = string;\n", "utf8");
 
@@ -116,6 +120,7 @@ describe("contract typecheck: typecheckContracts", () => {
 
   it("executes multiple commands in sequence and reports all results", async () => {
     const repo = createTempRepo();
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     const contractPath = join(repo, "src", "contracts", "index.ts");
     writeFileSync(contractPath, "export type Foo = string;\n", "utf8");
 

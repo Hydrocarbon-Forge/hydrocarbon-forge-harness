@@ -229,6 +229,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     writeFileSync(join(repo, "src", "contracts", "index.ts"), "types", "utf8");
 
     const t1 = sampleParsedTaskSpec({
@@ -467,6 +468,7 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
   it("L018: emits error when contract typecheck command fails", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
+    mkdirSync(join(repo, "src", "contracts"), { recursive: true });
     writeFileSync(join(repo, "src", "contracts", "index.ts"), "export type A = 1;", "utf8");
 
     const plan = sampleParsedPlan({
