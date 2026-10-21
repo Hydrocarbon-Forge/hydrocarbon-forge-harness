@@ -193,7 +193,9 @@ describe("R9.1: integration verify runs once, after every task has merged", () =
           workerCall("T3", "src/ui.txt", "ui-ok\n"),
         ],
       },
-      settings: { concurrency: { workers: 1 } },
+      // R12.4: repairs run before the culprit search; this test is about the replan of the culprit, so repairs
+      // are off here (test/e2e/integration-repair.test.ts covers the repair path).
+      settings: { concurrency: { workers: 1 }, integration: { repair_attempts: 0 } },
       args: RUN_ARGS,
       timeoutMs: 180000,
     });

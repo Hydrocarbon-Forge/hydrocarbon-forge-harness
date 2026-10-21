@@ -30,6 +30,7 @@ const TABLE: Record<string, string[]> = {
   "worker/task.md": ["spec_path"],
   "test-writer/task.md": ["spec_path"],
   "worker/heal.md": ["failures"],
+  "worker/repair.md": ["attempt", "max_attempts", "request", "check_command", "output_tail", "tasks", "previous"],
   "reviewer/review.md": ["task_specs", "contracts", "diff"],
 };
 

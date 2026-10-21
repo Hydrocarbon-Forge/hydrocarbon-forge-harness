@@ -22,6 +22,7 @@ assets/
     worker/
       task.md            user turn for a worker (spec path)
       heal.md            user turn for the single L0 fix attempt (resumed worker session)
+      repair.md          user turn for one repair attempt of a failed final check (R12.4)
       class/<class>.md   short addendum appended to the worker system prompt for that task class
     test-writer/task.md  user turn for a tests-class task
     reviewer/review.md   user turn for the optional review phase
@@ -37,6 +38,7 @@ assets/
 | Planner, L2 amendment | `agents/planner.md` body + `prompts/planner/format.md` | `prompts/planner/replan-l2.md` |
 | Worker | `agents/worker.md` body + `prompts/worker/class/<class>.md` (if it exists) | `prompts/worker/task.md` |
 | Worker, heal | (same session, resumed) | `prompts/worker/heal.md` |
+| Worker, integration repair (R12.4) | `agents/worker.md` body + `prompts/worker/class/debug.md` | `prompts/worker/repair.md` |
 | Test-writer (class `tests`) | `agents/worker.md` body + `agents/test-writer.md` body + `prompts/worker/class/tests.md` | `prompts/test-writer/task.md` |
 | Reviewer | `agents/reviewer.md` body | `prompts/reviewer/review.md` |
 
@@ -54,6 +56,7 @@ Syntax is `{{name}}` only: no logic, no loops, no conditionals. Code builds ever
 | `planner/replan-l2.md` | `task_id`, `failure_class`, `escalation_reason`, `failure_details`, `worker_summary`, `manifest`, `task_states`, `contracts`, `decisions` |
 | `worker/task.md`, `test-writer/task.md` | `spec_path` (absolute) |
 | `worker/heal.md` | `failures` (failing command, exit code, stdout/stderr tails, capped at 8 KB total) |
+| `worker/repair.md` | `attempt`, `max_attempts`, `request` (the run's request), `check_command`, `output_tail` (the last 60 lines of the check's output), `tasks` (merged tasks, id and title), `previous` (the previous attempt's outcome, or `(none)`) |
 | `reviewer/review.md` | `task_specs`, `contracts`, `diff` |
 
 ## Override order (first match wins)
