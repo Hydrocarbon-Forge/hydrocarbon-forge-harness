@@ -31,6 +31,7 @@ import { runMergeAction } from "./actions/merge.js";
 import { runIntegrateAction } from "./actions/integrate.js";
 import { runApproveAction } from "./actions/approve.js";
 import { runFinishAction, finishAction } from "./actions/finish.js";
+import { getTaskBranch, sweepRunWorkspaces } from "../git/index.js";
 
 export { safeParseManifest, safeLoadPlan } from "./actions/shared.js";
 
@@ -405,7 +406,15 @@ export async function runEffectsLoop(
 
   const settleDependents = (): void => {
     for (const taskId of blockedPendingTasks(state)) {
-      applyEvent(emitLoopEvent("task.blocked", { task_id: taskId }));
+      // The dependent never runs: it is skipped, and the event says which upstream
+      // task failed (or was itself skipped) so the log and the summary can say why.
+      const deps = state.tasks[taskId]?.depends_on ?? [];
+      const failed = deps.filter((d) => state.tasks[d]?.state === "BLOCKED");
+      const skipped = deps.filter((d) => state.tasks[d]?.state === "ABANDONED");
+      const emitter = makeEmitter(ctx, { ...(state as any), _seq: seq } as EngineState);
+      const evt = emitter.emit("task.skipped", { task_id: taskId, reason: "dependency_failed", failed, skipped });
+      seq = evt.seq;
+      applyEvent(evt);
     }
     for (const taskId of promoteReadyTasks(state)) {
       applyEvent(emitLoopEvent("task.ready", { task_id: taskId }));
@@ -434,8 +443,20 @@ export async function runEffectsLoop(
     const actions = nextActions(state, ctx.settings, { concurrency: ctx.concurrency });
     if (actions.length === 0) {
       log.debug("[DEBUG] runEffectsLoop: no actions while state is", state.state);
+      // Nothing can run: a task that failed for good (or was skipped) is the reason, not a
+      // stall. The reason names the failed tasks so a caller reads it in the summary.
+      const failedIds = Object.values(state.tasks)
+        .filter((t) => t.state === "BLOCKED")
+        .map((t) => t.id)
+        .sort((a, b) => a.localeCompare(b));
+      const reason = failedIds.length > 0 ? "tasks_failed" : "stalled";
       applyEvent(
-        emitLoopEvent("run.finished", { exit_code: 1, status: "failed", reason: "stalled" })
+        emitLoopEvent("run.finished", {
+          exit_code: 1,
+          status: "failed",
+          reason,
+          ...(failedIds.length > 0 ? { failed_tasks: failedIds } : {}),
+        })
       );
       break;
     }
@@ -473,6 +494,21 @@ export async function runEffectsLoop(
     }
   }
 
+  if (state.state === "FINISHED" || state.state === "FAILED") {
+    // A finished or failed run leaves no worktree or task branch behind. The work of
+    // every task that did not merge is saved under packets/ first, so it stays evidence.
+    const unmerged = new Map<string, string | undefined>();
+    for (const task of Object.values(state.tasks)) {
+      if (task.state === "MERGED") continue;
+      const generation = task.generation ?? 1;
+      unmerged.set(`${task.id}-g${generation}`, getTaskBranch(ctx.runId, task.id, generation));
+    }
+    try {
+      sweepRunWorkspaces(ctx.repoRoot, ctx.runId, ctx.runDir, unmerged);
+    } catch (err: any) {
+      log.warn(`failed to remove the run's worktrees and task branches: ${err?.message ?? String(err)}`);
+    }
+  }
   if (state.state === "FINISHED" || state.state === "FAILED" || state.state === "CANCELLED") {
     await finishAction(ctx, state);
   }

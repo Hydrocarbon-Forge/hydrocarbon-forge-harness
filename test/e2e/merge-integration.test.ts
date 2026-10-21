@@ -134,7 +134,7 @@ function planCall(files: Record<string, string>, reply = "wrote plan"): Record<s
 
 describe("E2E merge & integration worktree (R3.6)", () => {
   it(
-    "(a) a merge conflict between two tasks sends the loser to L1 (merge.conflict then task.failed with merge_conflict)",
+    "(a) a merge conflict between two tasks drops the loser without a replan (merge.conflict then task.failed with merge_conflict)",
     () => {
       // Both tasks edit the same shared file in parallel
       const t1Spec = taskSpec({
@@ -198,10 +198,11 @@ describe("E2E merge & integration worktree (R3.6)", () => {
         );
         expect(conflictFailed).toBeDefined();
 
-        // Verify that replan was triggered for the loser task
-        expect(types).toContain("replan.started");
-        const replanEvt = eventAt(res, "replan.started");
-        expect(replanEvt?.data.task_id).toBe("T2");
+        // R8.1: the loser's change is dropped, not replanned: it fails for good and the
+        // event names the task it collided with.
+        expect(conflictFailed?.data.can_replan).toBe(false);
+        expect(String(conflictFailed?.data.detail)).toContain("T1");
+        expect(types).not.toContain("replan.started");
       } finally {
         res.cleanup();
       }

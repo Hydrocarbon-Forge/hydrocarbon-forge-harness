@@ -120,12 +120,14 @@ describe("Scenario 09: Merge Conflict -> L1 Replan (§14.5 #9)", () => {
       permission_mode: "bypassPermissions",
     });
 
-    // Invariant: T2 encounters merge conflict and escalates to L1 replan (generation 2)
+    // R8.1: T2's merge conflict drops T2 without a replan. It is failed for good (generation 1),
+    // and the run ends failed with T1 merged on the run branch.
     const events = readEventLog(env.runDir, runId);
     const eventTypes = events.map((e) => e.type);
 
     expect(eventTypes).toContain("merge.conflict");
-    expect(eventTypes).toContain("task.replanned");
-    expect(summary.tasks.T2?.generation).toBeGreaterThanOrEqual(2);
+    expect(eventTypes).not.toContain("task.replanned");
+    expect(summary.tasks.T2?.generation).toBe(1);
+    expect(summary.exit_code).toBe(1);
   });
 });

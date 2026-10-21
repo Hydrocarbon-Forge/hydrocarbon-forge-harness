@@ -21,7 +21,7 @@ import { type EngineState, type RunState, reduce } from "./reducer.js";
 import { type EffectContext, runEffectsLoop } from "./effects.js";
 import { EventStoreImpl } from "../store/event-store.js";
 import { RunLockImpl, RunLockError } from "../store/run-lock.js";
-import { getRunBranch } from "../git/index.js";
+import { ensureGitExclude, getRunBranch, restoreTaskBranch } from "../git/index.js";
 import { runBranchExists } from "../git/workspace.js";
 import { deepMerge } from "../util/merge.js";
 import { createRunId } from "../util/index.js";
@@ -110,9 +110,11 @@ function buildSummary(runId: RunId, state: EngineState, repoRoot: string): RunSu
   > = {};
 
   for (const [id, t] of Object.entries(state.tasks)) {
-    let taskStateStr = t.state;
+    let taskStateStr: string = t.state;
     if (t.state === "MERGED" || t.state === "PASSED") {
       taskStateStr = "PASSED";
+    } else if (t.state === "ABANDONED") {
+      taskStateStr = "SKIPPED";
     } else if (t.failure_class || t.state === "BLOCKED" || t.state === "REPLANNING") {
       taskStateStr = "FAILED";
     }
@@ -185,6 +187,8 @@ export class EngineImpl implements Engine {
 
     const runDir = path.join(repoRoot, ".substrate", "runs", runId);
     fs.mkdirSync(runDir, { recursive: true });
+    // `.substrate/` is the tool's own state; it is kept out of the user's `git status`.
+    ensureGitExclude(repoRoot);
 
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
@@ -274,6 +278,8 @@ export class EngineImpl implements Engine {
 
     const runDir = path.join(repoRoot, ".substrate", "runs", runId);
 
+    ensureGitExclude(repoRoot);
+
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
     const ctx: EffectContext = {
@@ -324,7 +330,14 @@ export class EngineImpl implements Engine {
       // A task killed between task.session.started and task.session.ended is put
       // back in the queue; HEALING tasks keep their state.
       for (const task of Object.values(state.tasks)) {
+        // A PASSED or MERGING task keeps its place when its branch is there, or can be
+        // rebuilt from the run branch (R8.1); otherwise its work is gone and it runs again.
+        const passedWork = task.state === "PASSED" || task.state === "MERGING";
+        if (passedWork && restoreTaskBranch(repoRoot, runId, task.id, task.generation ?? 1)) {
+          continue;
+        }
         if (
+          !passedWork &&
           task.state !== "RUNNING" &&
           task.state !== "SCOPE_CHECK" &&
           task.state !== "VERIFYING"

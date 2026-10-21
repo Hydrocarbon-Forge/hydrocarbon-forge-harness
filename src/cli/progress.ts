@@ -205,6 +205,13 @@ export class RunProgress {
         const reason = typeof data.message === "string" && data.message !== "" ? `: ${data.message}` : "";
         return [`${taskLabel} failed: ${data.failure_class ?? "-"}${reason}`];
       }
+      case "task.skipped": {
+        // R8.1: a dependent never runs; the line names the upstream task that stopped it.
+        const failed: string[] = Array.isArray(data.failed) ? data.failed : [];
+        const skipped: string[] = Array.isArray(data.skipped) ? data.skipped : [];
+        const upstream = failed.length > 0 ? `${failed.join(", ")}, which failed` : `${skipped.join(", ")}, which was skipped`;
+        return [`${taskLabel} skipped (depends on ${upstream})`];
+      }
       case "replan.started":
         this.setPhase(`replanning ${tid}`.trimEnd(), at);
         return [];

@@ -57,3 +57,10 @@ This changes A3 in one respect. Profile slots still hold each provider's default
 `run` and `plan` also need a git repository before anything else starts. An empty directory is initialised with one empty commit. A non-empty directory that is not a repository exits 2 before any spend.
 
 Supersedes the R6.4 rule that a named planner forces `plan` in auto mode: with both models mandatory, a named planner carries no signal. The router decides plan vs solo in auto; `--mode plan` forces planning.
+
+## Note 2026-10-21 (R8.1): graceful failure, changes two rows above
+
+- `.substrate/` in git (table above, "does not add `.substrate/` to `.git/info/exclude`") is changed. `.substrate/` is now added to the repository's local exclude file at run start, so a run never shows as untracked in the user's checkout. The owner approved this for graceful failure (criterion a).
+- Failed tasks are no longer kept for a human to resume by default. A task that the replan ladder cannot continue, with no QUESTIONS.md, is failed for good (`task.failed` with `can_replan: false`); its dependents are skipped (`task.skipped`); the run ends failed (exit 1). A pause with exit 3 remains only for real questions and for the permission and rate-limit pauses. The planner-questions row above is unchanged.
+- A merge conflict drops the conflicting task without a replan (`merge_conflict`, `can_replan: false`); the message names the tasks it collided with.
+- A finished (merged or failed) run removes its worktrees and task branches; the run branch and the failed work's evidence (`packets/<task>-g<n>.patch` and the attempt reports) are kept under the run directory.

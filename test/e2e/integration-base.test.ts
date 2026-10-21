@@ -127,11 +127,12 @@ describe("R7.11: integration verify on the base commit and on the merged result"
         "Create the hello file",
       ]);
       // The batch verify and the culprit bisect run the same command on the same tree, so the
-      // culprit (T1) carries the failure; the run pauses for needs_human (exit 3) as any
-      // integration failure does here.
-      expect(res.status, diag(res)).toBe(3);
+      // culprit (T1) carries the failure. No question is asked, so the run fails with exit 1
+      // and its reason names the command (R8.1); it no longer pauses for needs_human.
+      expect(res.status, diag(res)).toBe(1);
       expect(res.stdout, diag(res)).toContain(`[task T1] failed: integration_failed: ${failing} exited 1\n`);
       expect(res.stdout, diag(res)).toContain(`Reason:     integration_failed: ${failing} exited 1\n`);
+      expect(res.stdout, diag(res)).toContain("Status:     failed\n");
       expect(res.stdout, diag(res)).not.toContain("Merged:     yes");
       expect(existsSync(join(s.project, "src", "hello.txt"))).toBe(false);
     } finally {

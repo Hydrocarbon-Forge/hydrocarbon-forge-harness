@@ -130,7 +130,17 @@ class TextFormatter implements OutputFormatter {
     this.out.write(`Session ID: ${sessionId}\n`);
     this.out.write(`Status:     ${summary.status}\n`);
     this.out.write(`Branch:     ${summary.branch ?? "(none, planning failed)"}\n`);
-    this.out.write(`Tasks:      ${passed} passed / ${taskKeys.length} total\n`);
+    // R8.1: the summary names every task's outcome, so a partial run reads as what it is.
+    const countState = (state: string): number =>
+      Object.values(tasks).filter((t) => (t as { state: string }).state === state).length;
+    const failedCount = countState("FAILED");
+    const skippedCount = countState("SKIPPED");
+    const breakdown = [
+      `${passed} passed`,
+      ...(failedCount > 0 ? [`${failedCount} failed`] : []),
+      ...(skippedCount > 0 ? [`${skippedCount} skipped`] : []),
+    ].join(", ");
+    this.out.write(`Tasks:      ${breakdown} / ${taskKeys.length} total\n`);
     this.out.write(`Total Cost: $${totalCost}\n`);
     this.out.write(`Exit Code:  ${summary.exit_code}\n`);
     // The run command lands the run before the summary, so `merged` is known. A summary without
@@ -140,6 +150,13 @@ class TextFormatter implements OutputFormatter {
     const landed = summary.merged !== undefined;
     if (landed && summary.drafts_dir === undefined && summary.branch !== undefined) {
       this.writeResult(summary);
+    }
+    if (summary.exit_code !== 0 && summary.branch !== undefined && passed > 0 && !summary.merged) {
+      // A partial run lands nothing: the passed work stays on the run branch (R8.1).
+      this.out.write(
+        `NOT merged: ${failedCount + skippedCount} of ${taskKeys.length} tasks failed or were skipped; ` +
+          `the ${passed} passed ${passed === 1 ? "task stays" : "tasks stay"} on branch ${summary.branch}\n`,
+      );
     }
     if (summary.drafts_dir !== undefined || (!landed && summary.exit_code !== 0)) {
       this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);

@@ -24,9 +24,9 @@ Copied from SUBSTRATE-PLAN.md section 4.6:
 | Code | Meaning |
 |---|---|
 | `0` | success |
-| `1` | run failed |
+| `1` | run failed: a task failed for good, the integration verify failed, or the run could not go on without an answer that does not exist (see Failed and partial runs) |
 | `2` | usage/config error |
-| `3` | needs human (approval at Substrate's permission gate, or escalation L3). Exit `3` for approval depends on the gate, not on a harness denial |
+| `3` | needs human: the planner left questions (`QUESTIONS.md`), or a run paused for approval at Substrate's permission gate, a permission denial or a rate limit. Exit `3` for approval depends on the gate, not on a harness denial. An escalation with no question is not `3`: it fails the task and the run with exit `1` |
 | `4` | budget exhausted |
 | `130` | SIGINT (Ctrl+C) |
 | `143` | SIGTERM |
@@ -406,3 +406,15 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 - The cost of each attempt is a constant per arm: A `0.5`, B `0.1`, C `0.3` and D `0.01` USD. The printed costs and rates therefore are not measurements.
 - Only the task globs reach the command. `--dry-run` is not passed through, so it does not prevent the attempts. The other bench options (`--arms`, `--repetitions`, `--format`, `--output`, `--max-budget`, `--concurrency`, `--tasks`, `--top-model`, `--cheap-model`, `--local-model`) are dropped by the dispatcher. A value after one of them is read as a task glob, which fails with `No benchmark tasks found matching pattern(s)`.
 - Exit `0` on success, `1` on error.
+
+## Failed and partial runs (R8.1)
+
+- **Independent tasks keep going.** A failed task does not stop its siblings. Each dependent of a failed task is skipped: its event is `task.skipped` with `reason: dependency_failed`, `failed` (the direct dependencies that failed) and `skipped`, and its progress line reads `[task T3] skipped (depends on T2, which failed)`.
+- **The summary counts every outcome.** `Tasks:` reads `N passed, M failed, K skipped / T total`, the failed-task count and the skipped count appear only when they are not zero, and a partial run prints `NOT merged: <failed or skipped> of <total> tasks failed or were skipped; the <n> passed tasks stay on branch <run branch>`. With the merge flag nothing lands from a run that did not finish with exit `0`.
+- **The run ends failed, with its reason.** Once nothing can run, `run.finished` carries `exit_code: 1`, `reason: tasks_failed` and `failed_tasks` (the ids of the failed tasks). `Reason:` names the failure of the task that failed last, for example `integration_failed: <command> exited <n>` or `worker_crashed: ...`.
+- **Merge conflicts drop the task.** The conflicting task fails with `merge_conflict` and `can_replan: false`; its detail names the tasks it collided with. The tasks merged before it stay on the run branch.
+- **Cleanup.** A run that finishes (`FINISHED` or `FAILED`) removes its task worktrees, its integration worktree and every task branch `substrate/tasks/<run>/*`. The run branch `substrate/runs/<run>` is kept. A paused run keeps them, because resume needs them.
+- **Evidence.** The work of each task that did not merge is kept under the run directory: `.substrate/runs/<run>/packets/<task>-g<n>.patch` (what the task changed) and the attempt reports `packets/<task>-g<n>-attempt<k>.json` (the verify results of each attempt, with the output of the last one), plus the failure packet `packets/<task>-g<n>.json` when the ladder ran.
+- **The checkout stays clean.** `.substrate/` is added to the repository's `.git/info/exclude` at run start, so `git status` in your checkout never shows it. A run without the merge flag changes nothing outside `.substrate/`.
+- **A dirty checkout** at merge time refuses the merge: the run stays on its branch and the summary says why. Commit or stash the listed files first. (The refusal is still reported as a failed run; see known issue 35.)
+

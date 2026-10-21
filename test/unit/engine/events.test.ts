@@ -56,6 +56,7 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "task.passed": { task_id: "T1" },
   "task.merged": { task_id: "T1" },
   "task.blocked": { task_id: "T1" },
+  "task.skipped": { task_id: "T2", reason: "dependency_failed", failed: ["T1"], skipped: [] },
   "task.failed": { failure_class: "verify_failed" },
   "task.replanned": { task_id: "T1", generation: 2 },
   "tasks.invalidated": { task_ids: ["T1"] },

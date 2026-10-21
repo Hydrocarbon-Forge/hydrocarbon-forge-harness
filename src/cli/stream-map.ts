@@ -35,6 +35,7 @@ export const STREAM_TYPE: Record<EventType, string> = {
   "task.passed": "task.passed",
   "task.merged": "task.merged",
   "task.blocked": "task.blocked",
+  "task.skipped": "task.skipped",
   "task.failed": "task.failed",
   "task.replanned": "task.replanned",
   "tasks.invalidated": "tasks.invalidated",

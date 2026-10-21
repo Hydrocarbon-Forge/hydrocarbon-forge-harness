@@ -99,6 +99,7 @@ export const RunFinishedEvent = member(
       status: z.string().optional(),
       reason: z.string().optional(),
       files: z.array(z.string()).optional(),
+      failed_tasks: z.array(z.string()).optional(),
     })
     .strict()
 );
@@ -372,6 +373,22 @@ export const TaskBlockedEvent = member(
     .strict()
 );
 
+/**
+ * A PENDING task whose dependency failed or was skipped: it never runs (R8.1). `depends_on`
+ * lists the direct dependencies that failed (BLOCKED) or were skipped (ABANDONED).
+ */
+export const TaskSkippedEvent = member(
+  "task.skipped",
+  z
+    .object({
+      task_id: z.string(),
+      reason: z.literal("dependency_failed"),
+      failed: z.array(z.string()),
+      skipped: z.array(z.string()),
+    })
+    .strict()
+);
+
 export const TaskFailedEvent = member(
   "task.failed",
   z
@@ -524,6 +541,7 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   TaskPassedEvent,
   TaskMergedEvent,
   TaskBlockedEvent,
+  TaskSkippedEvent,
   TaskFailedEvent,
   TaskReplannedEvent,
   TasksInvalidatedEvent,
@@ -571,6 +589,7 @@ export const EVENT_TYPES = [
   "task.passed",
   "task.merged",
   "task.blocked",
+  "task.skipped",
   "task.failed",
   "task.replanned",
   "tasks.invalidated",

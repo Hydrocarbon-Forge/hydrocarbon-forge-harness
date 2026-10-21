@@ -550,7 +550,7 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
       expect(result.revisedPlan).toBeDefined();
     });
 
-    it("escalates to L3 pause with needs_human when L2 count reaches l2_per_run cap", async () => {
+    it("reaching the l2_per_run cap with no question fails the task instead of pausing (R8.1)", async () => {
       const runId = makeRunId();
       const collector = createEventCollector();
       // State already has l2_count = 2 (equal to cap l2_per_run = 2)
@@ -606,11 +606,13 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
       });
 
       expect(result.level).toBe("L3");
-      expect(result.status).toBe("paused");
-      expect(result.pauseReason).toBe("needs_human");
+      expect(result.status).toBe("failed");
 
-      const pausedEvent = collector.first("run.paused");
-      expect(pausedEvent).toBeDefined();
+      // No question exists, so nothing waits for a person: the task is failed, not paused.
+      expect(collector.first("run.paused")).toBeUndefined();
+      const failedEvent = collector.first("task.failed");
+      expect(failedEvent).toBeDefined();
+      expect((failedEvent!.data as { can_replan?: boolean }).can_replan).toBe(false);
     });
   });
 });

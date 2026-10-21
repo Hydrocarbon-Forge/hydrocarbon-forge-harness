@@ -157,12 +157,15 @@ describe("E2E worker core: the built CLI runs the worker path (R3.3)", () => {
       expect(eventTypes(res)).toContain("task.passed");
       expect(res.exitCode).toBe(0);
 
-      const branch = `substrate/tasks/${runId}/T1-g1`;
-      const messages = gitIn(res.repoDir, ["log", "--format=%s", branch]).split("\n");
+      // The task branch is removed when the run finishes (R8.1); its commit is read from the
+      // run branch, which holds it as the second parent of the `merge: task T1` commit.
+      const taskCommit = gitIn(res.repoDir, ["log", "-1", "--format=%H", "--grep=feat(task): T1", `substrate/runs/${runId}`]);
+      expect(taskCommit).not.toBe("");
+      const messages = gitIn(res.repoDir, ["log", "--format=%s", "-1", taskCommit]).split("\n");
       expect(messages[0]).toBe("feat(task): T1");
 
       // The commit contains only the allowed path.
-      const changed = gitIn(res.repoDir, ["show", "--stat", "--format=", branch]).split("\n");
+      const changed = gitIn(res.repoDir, ["show", "--stat", "--format=", taskCommit]).split("\n");
       expect(changed.some((line) => line.includes("src/feature.txt"))).toBe(true);
     } finally {
       res.cleanup();
@@ -206,11 +209,12 @@ describe("E2E worker core: the built CLI runs the worker path (R3.3)", () => {
       expect(scope).toBeDefined();
       expect((scope?.violations as string[]) ?? []).toContain("src/other.txt");
 
-      // The out-of-scope file is back at its base content in the worktree, and the
-      // verify command ran against that state, so the task passed.
+      // The out-of-scope file is back at its base content, and the verify command ran against
+      // that state, so the task passed. The finished run removes the worktree (R8.1), so the
+      // reverted file is read from the run branch.
       const worktree = join(res.repoDir, ".substrate", "worktrees", runId, "T1-g1");
-      expect(existsSync(worktree)).toBe(true);
-      expect(readFileSync(join(worktree, "src", "other.txt"), "utf8")).toBe("base\n");
+      expect(existsSync(worktree)).toBe(false);
+      expect(gitIn(res.repoDir, ["show", `substrate/runs/${runId}:src/other.txt`])).toBe("base");
       expect(eventTypes(res)).toContain("task.passed");
     } finally {
       res.cleanup();
@@ -277,8 +281,9 @@ describe("E2E worker core: the built CLI runs the worker path (R3.3)", () => {
       expect(path).toContain(runId);
       expect(path).toContain("T1-g1");
 
-      const branch = gitIn(res.repoDir, ["branch", "--list", `substrate/tasks/${runId}/T1-g1`]);
-      expect(branch).toContain(`substrate/tasks/${runId}/T1-g1`);
+      // The run branch is what a finished run keeps (R8.1); the task branch is removed.
+      const branch = gitIn(res.repoDir, ["branch", "--list", `substrate/runs/${runId}`]);
+      expect(branch).toContain(`substrate/runs/${runId}`);
     } finally {
       res.cleanup();
     }

@@ -111,6 +111,12 @@ export function ensureGitExclude(repoRoot: string): void {
     currentExclude = readFileSync(excludePath, "utf8");
   }
   const linesToAdd: string[] = [];
+  // The whole .substrate/ directory is the tool's own state (runs, worktrees, settings),
+  // so a run never shows as untracked in the user's checkout (R8.1).
+  const excluded = new Set(currentExclude.split("\n").map((line) => line.trim()));
+  if (!excluded.has(".substrate/")) {
+    linesToAdd.push(".substrate/");
+  }
   if (!currentExclude.includes(".substrate/worktrees/")) {
     linesToAdd.push(".substrate/worktrees/");
   }

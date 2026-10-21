@@ -215,3 +215,57 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 
 - UNVERIFIED (R7.12): the planner, test-writer and worker prompts now decide when tests are written and how many, instead of asking for a test per behaviour. Changed: `assets/agents/planner.md` (step 6, "When tests earn their place", Verification), `assets/agents/test-writer.md` (rule 2), `assets/prompts/planner/format.md` (Behavior, Edge cases and Out of scope for tests tasks, worked example), and `assets/prompts/worker/class/*.md`. Lint L028 (`ruleL028` in `src/spec/rules.ts`) warns when a tests task lists more than 10 test targets; it never blocks a plan.
 - The baseline is the real snake run: about 726 lines of test code for about 490 lines of game code. These are prompt changes. Their effect on a real planner is measured only by a live run, which has not happened. Until one shows fewer, sharper test targets and a plan that still passes the format lint, this entry stays UNVERIFIED.
+
+## 29. Finished runs left worktrees and task branches behind (FIXED, R8.1)
+
+- Seen: after a successful 3-task run the `substrate/tasks/<run>/<task>-g1` branches and `.substrate/worktrees/<run>/` remained. Nothing called the removal functions.
+- Fixed: `sweepRunWorkspaces` in `src/git/cleanup.ts` runs when a run reaches FINISHED or FAILED (`src/engine/effects.ts`). It removes every worktree and task branch of the run and the integration worktree. The run branch is kept. Work of tasks that did not merge is saved first as `packets/<task>-g<n>.patch`, with the attempt reports beside it. A paused run keeps its workspaces, because resume needs them.
+- Test: `test/e2e/graceful-cleanup.test.ts`, `test/e2e/graceful-failure.test.ts`.
+
+## 30. `.substrate/` showed as untracked in the user's checkout (FIXED, R8.1)
+
+- Seen: `git status` showed `?? .substrate/` after a run. `ensureGitExclude` covered only `.substrate/worktrees/`.
+- Fixed: `.substrate/` is in `.git/info/exclude`, written at run and resume start (`src/git/workspace.ts`, `src/engine/engine.ts`). The DECISIONS row that said otherwise is amended by a dated note.
+
+## 31. A failed final integration verify paused the run with exit 3 and no questions (FIXED, R8.1)
+
+- Seen: a single-task run whose integration verify failed ended `paused` with `needs_human`, exit 3, and no questions.
+- Cause: the replan ladder's L3 and the L2 dead ends called `pause(needs_human)` with no QUESTIONS.md.
+- Fixed: `giveUp` in `src/engine/replan.ts` fails the task (`can_replan: false`) and the run ends failed, exit 1, with the task's own failure message as `Reason` (for example `integration_failed: sh -c 'test -f src/never.txt' exited 1`). A `needs_human` pause remains only with a QUESTIONS.md file.
+
+## 32. A worker crash was treated as a verify failure (FIXED, R8.1)
+
+- Seen: a harness that exited without a result was run through verify, healed and then replanned, and the run paused.
+- Fixed: a typed `error` event of kind `crash` makes the attempt `worker_crashed` (`src/roles/worker.ts`).
+
+## 33. A failed task stopped the whole run, and its dependents were marked blocked silently (FIXED, R8.1)
+
+- Seen: once a task was BLOCKED the run paused, so independent siblings never ran. Dependents got a `task.blocked` with no reason.
+- Fixed: independent tasks keep running. Dependents get `task.skipped` (`reason: dependency_failed`, `failed`, `skipped`), progress reads `[task T3] skipped (depends on T2, which failed)`, and the summary counts passed, failed and skipped tasks. The run ends failed with `run.finished` `reason: tasks_failed` and `failed_tasks`.
+
+## 34. A merge conflict replanned the task instead of dropping it (FIXED, R8.1)
+
+- Seen: the second task of a batch that conflicted went to the replan ladder.
+- Fixed: `src/engine/actions/merge.ts` fails it with `merge_conflict` and `can_replan: false`, and names the colliding tasks (matched by their write and create patterns, else the earlier tasks of the batch). The first task's merge stays.
+
+## 35. OPEN: a dirty user checkout fails a successful run that `substrate merge` will not land
+
+- Evidence: with `--merge` and a modified tracked file in the user's checkout, the merge is refused. The summary says `Tasks: 0 passed ... 1 total` although the task passed, `Reason: failed`, and nothing tells the caller to commit or stash. The run is `failed`, and `substrate merge` refuses a run that did not finish with exit 0, so no next command lands the work.
+- Direction: the refusal needs its own status (or the merge needs a retry path) and a message that names the files. Owner decision: whether a dirty checkout should end the run as finished-but-not-landed.
+
+## 36. OPEN: no command lands the passed part of a partial run
+
+- Evidence: a run with one failed task ends `failed`, and the summary says `NOT merged: N of M tasks failed or were skipped; the passed tasks stay on branch ...`. `substrate merge` refuses failed runs, so the passed work can only be reached by hand.
+- Direction: owner decision on a deliberate partial landing command, or on resume re-running only the failed tasks.
+
+## 37. OPEN: failed tasks still go through the replan ladder before they fail
+
+- Each failed task spends planner sessions (L1, then L2) before it is failed for good. A crash is not healed first. This is the existing R3.5 policy, kept as is. Cost and retry shape are an owner decision.
+
+## 38. OPEN: duplicate progress line for a failed task
+
+- A task that fails its last attempt prints `failed: <class>` twice: once for the attempt and once when the ladder gives up. Cosmetic.
+
+## 39. OPEN: scenario 9 (concurrent tasks cannot see each other's edits) is not yet tested
+
+- Not done in R8.1. The worktrees are separate directories, so the isolation is expected, but no test asserts it yet.

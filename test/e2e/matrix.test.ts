@@ -304,8 +304,9 @@ const row04: MatrixRow = {
       const scope = ofType(res, "scope.checked")[0];
       expect(scope).toBeDefined();
       expect((scope?.data.violations as string[]) ?? []).toContain("src/b.txt");
-      const worktree = join(res.repoDir, ".substrate", "worktrees", runIdOf(res), "T1-g1");
-      expect(readFileSync(join(worktree, "src", "b.txt"), "utf8")).toBe("seed b\n");
+      // The finished run removes its worktrees (R8.1), so the reverted file is read from the
+      // run branch, which holds what the task committed.
+      expect(gitIn(res.repoDir, ["show", `substrate/runs/${runIdOf(res)}:src/b.txt`])).toBe("seed b");
       expect(ofType(res, "task.passed")).toHaveLength(1);
     } finally {
       res.cleanup();
@@ -468,7 +469,7 @@ const row08: MatrixRow = {
 // Scenario 9: two tasks edit the same file; the second merge conflicts and goes to L1.
 const row09: MatrixRow = {
   id: "S09",
-  name: "merge conflict: merge.conflict then task.failed merge_conflict then replan.started",
+  name: "merge conflict: merge.conflict then task.failed merge_conflict, no replan, the run fails with exit 1 (R8.1)",
   dialects: ALL_DIALECTS,
   async run(ctx) {
     const t1 = taskSpec({ id: "T1", write: ["src/shared.txt"], verify: "grep -q t1-marker src/shared.txt" });
@@ -487,7 +488,11 @@ const row09: MatrixRow = {
       expect(ofType(res, "merge.conflict")[0]?.data.task_id).toBe("T2");
       const failed = ofType(res, "task.failed").find((e) => e.data.task_id === "T2");
       expect(failed?.data.failure_class).toBe("merge_conflict");
-      expect(ofType(res, "replan.started")[0]?.data.task_id).toBe("T2");
+      // The conflicting change is dropped: no replan, and the failure names T1 (R8.1).
+      expect(failed?.data.can_replan).toBe(false);
+      expect(String(failed?.data.detail)).toContain("T1");
+      expect(ofType(res, "replan.started")).toHaveLength(0);
+      expect(res.exitCode).toBe(1);
     } finally {
       res.cleanup();
     }

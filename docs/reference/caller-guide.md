@@ -106,9 +106,9 @@ The output has `rows`, one per model, and `totals`. Each row has `group` (the mo
 ## Exit codes
 
 - `0`: success.
-- `1`: run failed.
+- `1`: run failed. Some tasks may have merged: the run branch keeps them, but with the merge flag nothing lands from a run that failed. Dependents of a failed task are skipped and listed as `skipped`. Read `Reason` and `failed_tasks`; the failed work is under `.substrate/runs/<run>/packets/`.
 - `2`: usage or config error.
-- `3`: needs human (approval at Substrate's permission gate, or escalation L3). Exit `3` for approval depends on the gate, not on a harness denial.
+- `3`: needs human: the planner left questions (`needs_input`), or a run paused for approval at Substrate's permission gate, a permission denial or a rate limit. Exit `3` for approval depends on the gate, not on a harness denial. A task the engine cannot finish without an answer that does not exist is failed, not paused: that is exit `1`.
 - `4`: budget exhausted.
 - `130`: interrupted (SIGINT).
 - `143`: terminated (SIGTERM).

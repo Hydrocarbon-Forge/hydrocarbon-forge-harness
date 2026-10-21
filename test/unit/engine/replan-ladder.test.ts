@@ -242,7 +242,7 @@ describe("R3.5 escalation ladder", () => {
     }
   });
 
-  it("reaching the L2 cap blocks the task and pauses for a human", async () => {
+  it("reaching the L2 cap with no question fails the task without pausing (R8.1)", async () => {
     const runId = createRunId();
     const runDir = mkdtempSync(join(tmpdir(), "substrate-l3-cap-"));
 
@@ -263,9 +263,9 @@ describe("R3.5 escalation ladder", () => {
       });
 
       expect(result.level).toBe("L3");
-      expect(result.pauseReason).toBe("needs_human");
-      expect(events.map((e) => e.type)).toEqual(["task.blocked", "run.paused"]);
-      expect((events[1].data as { reason: string }).reason).toBe("needs_human");
+      expect(result.status).toBe("failed");
+      expect(events.map((e) => e.type)).toEqual(["task.failed"]);
+      expect((events[0].data as { can_replan: boolean }).can_replan).toBe(false);
 
       const blocked = reduce(state, events[0]);
       expect(blocked.tasks["T1"].state).toBe("BLOCKED");

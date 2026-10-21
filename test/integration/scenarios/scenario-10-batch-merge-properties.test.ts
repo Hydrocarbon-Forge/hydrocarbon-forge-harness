@@ -199,7 +199,9 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     for (const [i, taskId] of ["T1", "T2", "T3"].entries()) {
       const [sha, firstParent, secondParent] = chain[i] ?? [];
       expect(firstParent).toBe(previous);
-      expect(secondParent).toBe(env.testRepo.git(["rev-parse", `substrate/tasks/${runId}/${taskId}-g1`]));
+      // The finished run removes the task branches (R8.1); the second parent is still the
+      // task's commit, which must exist.
+      expect(env.testRepo.git(["cat-file", "-t", secondParent ?? ""])).toBe("commit");
       previous = sha ?? "";
     }
     expect(previous).toBe(runHead);
@@ -304,14 +306,21 @@ describe("Scenario 10b: live batch merge properties (merge.ts over merger.ts)", 
     expect((conflictEvt?.data as any).task_id).toBe("T2");
     expect((conflictEvt?.data as any).conflict_files).toEqual(["src/shared.ts"]);
 
-    // (c) the conflicted batch never advanced the run ref: no batch or task merged in the run,
-    // and the run ref is still the contract commit the batch started from.
-    expect(run.events.filter((e) => e.type === "batch.merged" || e.type === "task.merged")).toEqual([]);
-    expect(env.testRepo.git(["rev-parse", run.runRef])).toBe(run.contractsSha);
+    // (c) the conflicting task is dropped without a replan: failed for merge_conflict, and
+    // the run goes on with the task that merged first (R8.1).
+    const failed = run.events.find((e) => e.type === "task.failed" && (e.data as any).task_id === "T2");
+    expect((failed?.data as any).failure_class).toBe("merge_conflict");
+    expect((failed?.data as any).can_replan).toBe(false);
+    expect((failed?.data as any).detail).toContain("T1");
+    expect(run.events.filter((e) => e.type === "task.merged").map((e) => (e.data as any).task_id)).toEqual(["T1"]);
+    const runSubjects = env.testRepo
+      .git(["log", "--first-parent", "--reverse", "--format=%s", `${run.contractsSha}..${run.runRef}`])
+      .split("\n");
+    expect(runSubjects).toEqual(["merge: task T1"]);
 
-    // The conflicted batch halted before its integration verify: only the base check ran,
-    // in a worktree at main (which holds the committed shared file).
-    expect(run.verifyRuns).toEqual([{ ref: run.contractsSha, files: ["shared.ts"] }]);
+    // The base check ran at main, which holds the committed shared file; the conflicting
+    // batch itself never reached its integration verify.
+    expect(run.verifyRuns[0]).toEqual({ ref: run.contractsSha, files: ["shared.ts"] });
 
     // (d) the user's checkout keeps HEAD and the untracked file.
     expect(env.testRepo.git(["rev-parse", "HEAD"])).toBe(headBefore);

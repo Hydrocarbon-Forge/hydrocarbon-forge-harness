@@ -225,20 +225,14 @@ describe("E2E replan: the built CLI walks the escalation ladder (R3.5)", () => {
         expect(packet.verify_output[0].exit_code).not.toBe(0);
         expect(packet.dependents).toEqual([]);
 
-        // Generation 2 uses the revised spec, not the one the plan started with.
-        const gen2TaskFile = join(
-          res.repoDir,
-          ".substrate",
-          "worktrees",
-          runId,
-          "T1-g2",
-          ".substrate-task",
-          "TASK.md",
-        );
-        expect(existsSync(gen2TaskFile)).toBe(true);
-        const used = readFileSync(gen2TaskFile, "utf8");
-        expect(used).toContain("REVISED-SPEC-MARKER-7731");
-        expect(used).toContain("grep -q revised-marker src/feature.txt");
+        // Generation 2 runs the revised spec the planner wrote into the run directory. The
+        // generation 2 worktree that held its TASK.md is removed when the run ends (R8.1).
+        const revisedSpec = readFileSync(join(res.runDir as string, "tasks", "T1.md"), "utf8");
+        expect(revisedSpec).toContain("REVISED-SPEC-MARKER-7731");
+        expect(revisedSpec).toContain("grep -q revised-marker src/feature.txt");
+        expect(
+          events(res).some((e) => e.type === "task.worktree.created" && String(e.data.path).includes("T1-g2")),
+        ).toBe(true);
       } finally {
         res.cleanup();
       }
@@ -430,7 +424,7 @@ describe("E2E replan: the built CLI walks the escalation ladder (R3.5)", () => {
   );
 
   it(
-    "(d) reaching L3 blocks the failed task and pauses the run with exit code 3",
+    "(d) reaching L3 with no question fails the task and the run with exit code 1 (R8.1)",
     () => {
       const spec = taskSpec({
         id: "T1",
@@ -471,18 +465,17 @@ describe("E2E replan: the built CLI walks the escalation ladder (R3.5)", () => {
         const types = events(res).map((e) => e.type);
         expect(types).toContain("task.failed");
 
-        const blocked = eventAt(res, "task.blocked");
-        expect(blocked).toBeDefined();
-        expect(blocked?.data.task_id).toBe("T1");
+        // No question was asked, so nothing waits for a person: the task is failed for
+        // good (no replan), and the run ends failed with the reason in its last event.
+        const failed = events(res).filter((e) => e.type === "task.failed").pop();
+        expect(failed?.data.can_replan).toBe(false);
+        expect(types).not.toContain("run.paused");
 
-        const paused = eventAt(res, "run.paused");
-        expect(paused?.data.reason).toBe("needs_human");
+        const finished = eventAt(res, "run.finished");
+        expect(finished?.data.exit_code).toBe(1);
+        expect(finished?.data.failed_tasks).toEqual(["T1"]);
 
-        // The task is blocked before the run pauses, so a reader of the log sees the
-        // blocked task ahead of the pause.
-        expect(types.indexOf("task.blocked")).toBeLessThan(types.indexOf("run.paused"));
-
-        expect(res.exitCode).toBe(3);
+        expect(res.exitCode).toBe(1);
       } finally {
         res.cleanup();
       }

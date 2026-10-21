@@ -44,6 +44,8 @@ export interface TaskRuntimeState {
   attempt: number;
   session_id?: SessionId;
   failure_class?: FailureClass;
+  /** The message or detail of the last task.failed: the reason a caller reads (R8.1). */
+  failure_message?: string;
   depends_on?: TaskId[];
   write?: string[];
   create?: string[];
@@ -390,6 +392,7 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       const taskId = data.task_id;
       if (!taskId) return state;
       const current = state.tasks[taskId] ?? { id: taskId, generation: 1, attempt: 1 };
+      const message = typeof data.message === "string" ? data.message : typeof data.detail === "string" ? data.detail : undefined;
       let nextState: TaskState;
       if (data.can_replan === false) {
         nextState = "BLOCKED";
@@ -403,6 +406,7 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         ...current,
         state: nextState,
         failure_class: data.failure_class ?? current.failure_class,
+        ...(message !== undefined ? { failure_message: message } : {}),
       };
       return {
         ...state,
@@ -456,6 +460,18 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       return {
         ...state,
         tasks: nextTasks,
+      };
+    }
+
+    case "task.skipped": {
+      // A task that never runs because a dependency failed (R8.1). ABANDONED is the state
+      // the scheduler reads as "upstream will not merge"; it is reported as SKIPPED.
+      const taskId = data.task_id;
+      if (!taskId) return state;
+      const current = state.tasks[taskId] ?? { id: taskId, generation: 1, attempt: 1 };
+      return {
+        ...state,
+        tasks: { ...state.tasks, [taskId]: { ...current, state: "ABANDONED" } },
       };
     }
 

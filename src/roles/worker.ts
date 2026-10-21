@@ -238,6 +238,9 @@ async function runAttempt(
   let verifyResults: VerifyResult[] = [];
   let denials: string[] = [];
   let finalMessage = "";
+  // A harness that died without a result reports a typed crash error (R8.1). It is a
+  // failed attempt, not a verify failure: the work it left is not what the task asked for.
+  let crashDetail: string | undefined;
 
   // The session id recorded for the attempt is the id the adapter reports. The
   // engine passes the id a new session should use, so the session is recorded in
@@ -327,6 +330,9 @@ async function runAttempt(
 
   try {
     for await (const event of handle.events) {
+      if (event.type === "error" && event.kind === "crash") {
+        crashDetail = event.message;
+      }
       if (event.type === "session.started" && event.session_id) {
         sessionId = event.session_id;
         recordSessionStarted();
@@ -381,6 +387,7 @@ async function runAttempt(
       throw new AttemptStopped(decision);
     }
 
+    if (crashDetail !== undefined) return fail("worker_crashed", crashDetail);
     if (!sessionId) return fail("worker_crashed", "adapter reported no session id");
 
     if (timedOut || res.killed_for === "timeout") {

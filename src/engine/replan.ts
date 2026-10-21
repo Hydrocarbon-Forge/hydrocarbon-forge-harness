@@ -88,7 +88,8 @@ export interface ReplanExecutionOptions {
 
 export interface ReplanResult {
   level: "L0" | "L1" | "L2" | "L3";
-  status: "replan_ready" | "paused" | "healed";
+  /** `failed`: the ladder has no step left for this task and no question for a person (R8.1). */
+  status: "replan_ready" | "paused" | "healed" | "failed";
   action: EscalationAction;
   revisedSpec?: ParsedTaskSpec;
   revisedPlan?: ParsedPlan;
@@ -179,6 +180,9 @@ export async function executeReplan(
   }
 
   if (action.level === "L3") {
+    if (action.reason === "needs_human") {
+      return giveUp(opts, emit, "replan budget exhausted: no step left and no question to ask", action);
+    }
     return pause(opts, emit, action.reason, action);
   }
 
@@ -253,6 +257,31 @@ async function runL1(
   return escalateToL2(opts, emit, reason, action.generation);
 }
 
+/**
+ * The ladder cannot continue the task and there is no question for a person to answer:
+ * the task is failed for good (`can_replan: false`, so it is BLOCKED and its dependents
+ * are skipped), and the run ends failed once nothing else can run. A pause that waits
+ * for a human is kept only for real questions (QUESTIONS.md), see `pause` (R8.1).
+ */
+function giveUp(
+  opts: ReplanExecutionOptions,
+  emit: TypedEmit,
+  reason: string,
+  action: EscalationAction,
+): ReplanResult {
+  // The failure the task carried is the reason a caller reads (an integration command,
+  // a verify command); the ladder's own dead end is only the fallback.
+  const original = opts.state.tasks[opts.taskId]?.failure_message;
+  emit("task.failed", {
+    task_id: opts.taskId,
+    generation: opts.packet.generation,
+    failure_class: opts.packet.failure_class,
+    can_replan: false,
+    detail: original ?? `replan gave up: ${reason}`,
+  });
+  return { level: action.level, status: "failed", action, packet: opts.packet };
+}
+
 /** Records the reason in `replan.started`, then takes L2 when the cap still allows it. */
 function escalateToL2(
   opts: ReplanExecutionOptions,
@@ -266,7 +295,7 @@ function escalateToL2(
       : { level: "L3", action: "pause", reason: "needs_human" };
 
   if (action.level === "L3") {
-    return Promise.resolve(pause(opts, emit, "needs_human", action));
+    return Promise.resolve(giveUp(opts, emit, reason, action));
   }
 
   // Rule 5: the escalation from L1 is recorded with the reason it happened, so the run
@@ -328,39 +357,27 @@ async function runL2(
   const line = finishLine(outcome.result.final_text);
 
   if (line === NEEDS_INPUT) {
+    // A pause waits for a person only when the planner left questions to answer.
     const questionsPath = path.join(opts.runDir, "QUESTIONS.md");
-    return pause(
-      opts,
-      emit,
-      "needs_human",
-      action,
-      fs.existsSync(questionsPath) ? questionsPath : undefined,
-    );
+    if (!fs.existsSync(questionsPath)) {
+      return giveUp(opts, emit, "planner asked for input but wrote no QUESTIONS.md", action);
+    }
+    return pause(opts, emit, "needs_human", action, questionsPath);
   }
 
   if (line !== L2_FINISH) {
-    return {
-      level: "L2",
-      status: "paused",
-      action,
-      packet: opts.packet,
-      pauseReason: "needs_human",
-      diagnostics: [{ code: "REPLAN", severity: "error", message: `Invalid L2 finish line: ${line}` }],
-    };
+    return giveUp(opts, emit, `invalid L2 finish line: ${line}`, action);
   }
 
   const plan = currentPlan(opts);
   const diagnostics = await lintRunPlan(opts);
   if (plan && diagnostics.length > 0) {
-    return {
-      level: "L2",
-      status: "paused",
+    return giveUp(
+      opts,
+      emit,
+      `L2 amendment does not lint: ${diagnostics.map((d) => `[${d.code}] ${d.message}`).join("; ")}`,
       action,
-      packet: opts.packet,
-      pauseReason: "needs_human",
-      revisedPlan: plan,
-      diagnostics,
-    };
+    );
   }
 
   if (plan) {
@@ -368,15 +385,12 @@ async function runL2(
       cwd: opts.runDir,
     });
     if (!typecheck.ok) {
-      return {
-        level: "L2",
-        status: "paused",
+      return giveUp(
+        opts,
+        emit,
+        `L2 contracts do not typecheck: ${typecheck.diagnostics.map((d) => d.message).join("; ")}`,
         action,
-        packet: opts.packet,
-        pauseReason: "needs_human",
-        revisedPlan: plan,
-        diagnostics: typecheck.diagnostics,
-      };
+      );
     }
 
     const commitSha = await commitContractStubs(
