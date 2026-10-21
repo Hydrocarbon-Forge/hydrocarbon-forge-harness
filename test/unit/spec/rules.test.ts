@@ -56,7 +56,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     expect(badIdResult.diagnostics.some((d) => d.code === "L002" && d.severity === "error")).toBe(true);
   });
 
-  it("L003: emits error when spec file is missing on disk or orphan exists", async () => {
+  it("L003: emits error when a declared spec file is missing, and a warning when an orphan spec exists", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -79,7 +79,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
       }),
     });
     const resultOrphan = await lintPlan(validPlan, repo, settings);
-    expect(resultOrphan.diagnostics.some((d) => d.code === "L003" && d.severity === "error")).toBe(true);
+    expect(resultOrphan.diagnostics.some((d) => d.code === "L003" && d.severity === "warn")).toBe(true);
   });
 
   it("L004: emits error when depends_on references an unknown task ID", async () => {
@@ -139,7 +139,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     expect(mutualResult.diagnostics.some((d) => d.code === "L005" && d.severity === "error")).toBe(true);
   });
 
-  it("L006: emits error when path escapes repository root", async () => {
+  it("L006: emits warning when path escapes repository root", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -164,10 +164,14 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     const result = await lintPlan(plan, repo, settings);
     const diags = result.diagnostics.filter((d) => d.code === "L006");
     expect(diags.length).toBeGreaterThan(0);
-    expect(diags.every((d) => d.severity === "error")).toBe(true);
+    // A contract file outside the repository is a blocker; every other unsafe path is a warning.
+    expect(diags.find((d) => d.path === "../../outside.ts")?.severity).toBe("error");
+    expect(diags.find((d) => d.path === "../escaped.txt")?.severity).toBe("warn");
+    expect(diags.find((d) => d.path === "/etc/passwd")?.severity).toBe("warn");
+    expect(diags.filter((d) => d.path !== "../../outside.ts").every((d) => d.severity === "warn")).toBe(true);
   });
 
-  it("L007: emits error when spec.write pattern matches no existing files at base", async () => {
+  it("L007: emits warning when spec.write pattern matches no existing files at base", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -185,7 +189,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L007");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
   it("L008: emits warning when concurrent DAG-ready tasks have overlapping write/create sets", async () => {
@@ -225,7 +229,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     expect(diag?.severity).toBe("warn");
   });
 
-  it("L009: emits error when task write/create intersects another task protected patterns", async () => {
+  it("L009: emits warning when task write/create intersects another task protected patterns", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -259,10 +263,10 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L009");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
-  it("L010: emits error when verify command is empty or missing", async () => {
+  it("L010: emits warning when verify command is empty or missing", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -280,12 +284,12 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L010");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 });
 
 describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)", () => {
-  it("L011: emits error when verify binary cannot be resolved or verify.cwd does not exist", async () => {
+  it("L011: emits warning when verify binary cannot be resolved or verify.cwd does not exist", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -300,7 +304,7 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
       specs: [specBadBin],
     });
     const resBadBin = await lintPlan(planBadBin, repo, settings);
-    expect(resBadBin.diagnostics.some((d) => d.code === "L011" && d.severity === "error")).toBe(true);
+    expect(resBadBin.diagnostics.some((d) => d.code === "L011" && d.severity === "warn")).toBe(true);
 
     const specBadCwd = sampleParsedTaskSpec({
       frontmatter: sampleTaskSpecFrontmatter({
@@ -313,10 +317,10 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
       specs: [specBadCwd],
     });
     const resBadCwd = await lintPlan(planBadCwd, repo, settings);
-    expect(resBadCwd.diagnostics.some((d) => d.code === "L011" && d.severity === "error")).toBe(true);
+    expect(resBadCwd.diagnostics.some((d) => d.code === "L011" && d.severity === "warn")).toBe(true);
   });
 
-  it("L012: emits error when verify references uncreated and non-existent test path", async () => {
+  it("L012: emits warning when verify references uncreated and non-existent test path", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -334,10 +338,10 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L012");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
-  it("L013: emits error when placeholder tokens appear in Interface or Behavior", async () => {
+  it("L013: emits warning when placeholder tokens appear in Interface or Behavior", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -353,10 +357,10 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L013");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
-  it("L014: emits error when any required section is missing or empty", async () => {
+  it("L014: emits warning when any required section is missing or empty", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -372,7 +376,7 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L014");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
   it("L015 is retired (R7.7): a class with no routing entry is routed by the fallback and lints clean", async () => {
@@ -447,7 +451,7 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     expect(result.diagnostics.filter((d) => d.code === "L016" && d.severity === "error")).toEqual([]);
   });
 
-  it("L017: emits error when task read set exceeds context budget cap", async () => {
+  it("L017: emits warning when task read set exceeds context budget cap", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -471,10 +475,10 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L017");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
-  it("L018: emits error when contract typecheck command fails", async () => {
+  it("L018: emits warning when contract typecheck command fails", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
     mkdirSync(join(repo, "src", "contracts"), { recursive: true });
@@ -492,10 +496,10 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L018");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
-  it("L019: emits error when Interface references undeclared contract file", async () => {
+  it("L019: emits warning when Interface references undeclared contract file", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -514,7 +518,7 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L019");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 
   it("L020: emits diagnostic when code fence contains implementation bodies", async () => {
@@ -608,7 +612,7 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     expect(diag?.severity).toBe("gate");
   });
 
-  it("L023: emits warning or error when verify passes at base ref (red-check)", async () => {
+  it("L023: emits a warning, in every mode, when verify passes at base ref (red-check)", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -623,17 +627,11 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
       specs: [spec],
     });
 
-    // Default mode: severity warn
-    const warnResult = await lintPlan(plan, repo, settings, { redCheck: false });
+    // L023 is a warning: a guess about the base never blocks a plan (it was an error under redCheck).
+    const warnResult = await lintPlan(plan, repo, settings);
     const warnDiag = warnResult.diagnostics.find((d) => d.code === "L023");
     expect(warnDiag).toBeDefined();
     expect(warnDiag?.severity).toBe("warn");
-
-    // redCheck mode: severity error
-    const errResult = await lintPlan(plan, repo, settings, { redCheck: true });
-    const errDiag = errResult.diagnostics.find((d) => d.code === "L023");
-    expect(errDiag).toBeDefined();
-    expect(errDiag?.severity).toBe("error");
   });
 
   it("L024: emits warning when class tests writes non-test or non-tests writes tests", async () => {
@@ -721,7 +719,7 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     expect(diag?.severity).toBe("warn");
   });
 
-  it("L027: emits error when protected path does not exist at base and not created earlier", async () => {
+  it("L027: emits warning when protected path does not exist at base and not created earlier", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -739,7 +737,7 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     const result = await lintPlan(plan, repo, settings);
     const diag = result.diagnostics.find((d) => d.code === "L027");
     expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("error");
+    expect(diag?.severity).toBe("warn");
   });
 });
 

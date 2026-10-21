@@ -249,7 +249,8 @@ export const ruleL002: LintRule = (ctx) => {
   return diags;
 };
 
-// L003: Spec file missing or orphan spec file in tasks/
+// L003: a declared spec file that is missing on disk is a blocker (the task cannot be read). An orphan
+// spec file under tasks/ is a warning: no task reads it, so scheduling is unaffected.
 export const ruleL003: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
   const declaredSpecs = new Set<string>();
@@ -286,7 +287,7 @@ export const ruleL003: LintRule = (ctx) => {
           if (!declaredSpecs.has(rel)) {
             diags.push({
               code: "L003",
-              severity: "error",
+              severity: "warn",
               path: rel,
               message: `Orphan spec file found in tasks directory: ${rel}`,
             });
@@ -386,16 +387,19 @@ export const ruleL005: LintRule = (ctx) => {
   return diags;
 };
 
-// L006: Path safety validation
+// L006: Path safety validation. A contract file outside the repository is a blocker: the stub commit adds
+// every contract file to the run branch's index, and git refuses such a path. Every other unsafe path is a
+// warning: the engine's scope check (a change outside the write set is dropped at merge) and the verify
+// commands decide what a task may touch.
 export const ruleL006: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
 
-  const check = (p: string | undefined, task?: TaskId) => {
+  const check = (p: string | undefined, severity: "error" | "warn", task?: TaskId) => {
     if (typeof p !== "string" || !p) return;
     if (!isSafePath(ctx.repoRoot, p)) {
       diags.push({
         code: "L006",
-        severity: "error",
+        severity,
         task,
         path: p,
         message: `Path escapes repository root or is unsafe: ${p}`,
@@ -403,17 +407,17 @@ export const ruleL006: LintRule = (ctx) => {
     }
   };
 
-  for (const f of ctx.plan.manifest?.contracts?.files ?? []) check(f);
-  for (const cmd of ctx.plan.manifest?.contracts?.typecheck ?? []) check(cmd.cwd);
-  for (const cmd of ctx.plan.manifest?.setup ?? []) check(cmd.cwd);
-  for (const cmd of ctx.plan.manifest?.integration_verify ?? []) check(cmd.cwd);
+  for (const f of ctx.plan.manifest?.contracts?.files ?? []) check(f, "error");
+  for (const cmd of ctx.plan.manifest?.contracts?.typecheck ?? []) check(cmd.cwd, "warn");
+  for (const cmd of ctx.plan.manifest?.setup ?? []) check(cmd.cwd, "warn");
+  for (const cmd of ctx.plan.manifest?.integration_verify ?? []) check(cmd.cwd, "warn");
 
   for (const [id, spec] of ctx.plan.specs) {
-    for (const p of spec.frontmatter?.read ?? []) check(p, id);
-    for (const p of spec.frontmatter?.write ?? []) check(p, id);
-    for (const p of spec.frontmatter?.create ?? []) check(p, id);
-    for (const p of spec.frontmatter?.protected ?? []) check(p, id);
-    for (const cmd of spec.frontmatter?.verify ?? []) check(cmd.cwd, id);
+    for (const p of spec.frontmatter?.read ?? []) check(p, "warn", id);
+    for (const p of spec.frontmatter?.write ?? []) check(p, "warn", id);
+    for (const p of spec.frontmatter?.create ?? []) check(p, "warn", id);
+    for (const p of spec.frontmatter?.protected ?? []) check(p, "warn", id);
+    for (const cmd of spec.frontmatter?.verify ?? []) check(cmd.cwd, "warn", id);
   }
 
   return diags;
@@ -429,7 +433,7 @@ export const ruleL007: LintRule = (ctx) => {
       if (!patternMatchesAny(pat, ctx.repoRoot, allFiles)) {
         diags.push({
           code: "L007",
-          severity: "error",
+          severity: "warn",
           task: id,
           path: pat,
           message: `Write pattern '${pat}' matches no existing files at base (use 'create' for new files)`,
@@ -532,7 +536,7 @@ export const ruleL009: LintRule = (ctx) => {
             if (isSelf) {
               diags.push({
                 code: "L009",
-                severity: "error",
+                severity: "warn",
                 task: idA,
                 path: target,
                 message: `Task ${idA} modifies path '${target}' that it protects itself; remove '${target}' from its write/create lists or from its protected list`,
@@ -543,7 +547,7 @@ export const ruleL009: LintRule = (ctx) => {
             if (!authoringTests) {
               diags.push({
                 code: "L009",
-                severity: "error",
+                severity: "warn",
                 task: idA,
                 path: target,
                 message: `Task ${idA} modifies path '${target}' protected by task ${idB}; make ${idA} a dependency of ${idB} (depends_on) or remove '${target}' from ${idB}'s protected list`,
@@ -566,7 +570,7 @@ export const ruleL010: LintRule = (ctx) => {
     if (!spec.frontmatter?.verify || spec.frontmatter.verify.length === 0) {
       diags.push({
         code: "L010",
-        severity: "error",
+        severity: "warn",
         task: id,
         message: `Task ${id} has empty or missing verify command`,
       });
@@ -602,7 +606,7 @@ export const ruleL011: LintRule = (ctx) => {
       if (bin !== undefined && !isBinaryResolvable(bin, ctx.repoRoot) && !planCreates(bin, ctx.plan)) {
         diags.push({
           code: "L011",
-          severity: "error",
+          severity: "warn",
           task: id,
           message: `Verify binary '${bin}' cannot be resolved on PATH: ${cmd.run}`,
         });
@@ -614,7 +618,7 @@ export const ruleL011: LintRule = (ctx) => {
           if (!fs.existsSync(fullCwd) || !fs.statSync(fullCwd).isDirectory()) {
             diags.push({
               code: "L011",
-              severity: "error",
+              severity: "warn",
               task: id,
               path: cmd.cwd,
               message: `verify.cwd directory '${cmd.cwd}' does not exist`,
@@ -623,7 +627,7 @@ export const ruleL011: LintRule = (ctx) => {
         } catch {
           diags.push({
             code: "L011",
-            severity: "error",
+            severity: "warn",
             task: id,
             path: cmd.cwd,
             message: `verify.cwd directory '${cmd.cwd}' does not exist`,
@@ -670,7 +674,7 @@ export const ruleL012: LintRule = (ctx) => {
           if (!isProvided) {
             diags.push({
               code: "L012",
-              severity: "error",
+              severity: "warn",
               task: id,
               path: tPath,
               message: `Verify command references test path '${tPath}' that nothing provides; create it in this task or a dependency, or fix the path`,
@@ -697,7 +701,7 @@ export const ruleL013: LintRule = (ctx) => {
         if (placeholderRegex.test(stripped)) {
           diags.push({
             code: "L013",
-            severity: "error",
+            severity: "warn",
             task: id,
             message: `Placeholder token found in ${secName} section outside code fences`,
           });
@@ -727,7 +731,7 @@ export const ruleL014: LintRule = (ctx) => {
       if (!spec.sections.has(req) || spec.sections.get(req)!.trim().length === 0) {
         diags.push({
           code: "L014",
-          severity: "error",
+          severity: "warn",
           task: id,
           message: `Task ${id} is missing required section '${req}' or section is empty`,
         });
@@ -793,7 +797,7 @@ export const ruleL017: LintRule = (ctx) => {
     if (matchedFiles.size > maxFiles || totalBytes > maxBytes) {
       diags.push({
         code: "L017",
-        severity: "error",
+        severity: "warn",
         task: id,
         message: `Task ${id} read set exceeds budget: ${matchedFiles.size} files (cap ${maxFiles}), ${totalBytes} bytes (cap ${maxBytes})`,
       });
@@ -807,13 +811,26 @@ export const ruleL017: LintRule = (ctx) => {
 // the planner wrote and checked the stubs there. The repository root is not used because
 // safeLoadPlan writes placeholder files there (`export {};`), and a placeholder package.json
 // is not valid JSON, so Node fails with ERR_INVALID_PACKAGE_CONFIG (R7.7).
+// A type error and a checker that cannot run are both warnings (the plan still runs), and neither costs a
+// planner retry: the stubs are a hint to the workers, and the task verify commands are the real gate.
 export const ruleL018: LintRule = async (ctx) => {
   const diags: Diagnostic[] = [];
   if (!ctx.plan.manifest?.contracts) return diags;
 
   const runDir = path.dirname(path.resolve(ctx.repoRoot, ctx.plan.manifestPath));
-  const res = await typecheckContracts(runDir, ctx.plan.manifest.contracts);
-  return res.diagnostics.filter((d) => d.code === "L018");
+  try {
+    const res = await typecheckContracts(runDir, ctx.plan.manifest.contracts);
+    for (const d of res.diagnostics) {
+      if (d.code === "L018") diags.push({ ...d, severity: "warn" });
+    }
+  } catch (err: any) {
+    diags.push({
+      code: "L018",
+      severity: "warn",
+      message: `Contract typecheck could not run: ${err?.message ?? String(err)}`,
+    });
+  }
+  return diags;
 };
 
 // L019: Missing contract files or undeclared contracts in Interface
@@ -826,7 +843,7 @@ export const ruleL019: LintRule = (ctx) => {
     if (!fs.existsSync(full)) {
       diags.push({
         code: "L019",
-        severity: "error",
+        severity: "warn",
         path: f,
         message: `Contract file does not exist on disk: ${f}`,
       });
@@ -841,7 +858,7 @@ export const ruleL019: LintRule = (ctx) => {
       if (!declaredFiles.has(m) || !fs.existsSync(full)) {
         diags.push({
           code: "L019",
-          severity: "error",
+          severity: "warn",
           task: id,
           path: m,
           message: `Interface references undeclared or non-existent contract file: ${m}`,
@@ -911,9 +928,10 @@ export const ruleL022: LintRule = (ctx) => {
 };
 
 // L023: Verify passes at base ref (red-check)
+// L023 is always a warning: a verify that passes before the change is a guess about the base, and the
+// engine's own verify decides each task.
 export const ruleL023: LintRule = async (ctx) => {
   const diags: Diagnostic[] = [];
-  const isRedCheck = ctx.options.redCheck === true;
 
   for (const [id, spec] of ctx.plan.specs) {
     for (const cmd of spec.frontmatter?.verify ?? []) {
@@ -922,7 +940,7 @@ export const ruleL023: LintRule = async (ctx) => {
       if (res.exitCode === 0) {
         diags.push({
           code: "L023",
-          severity: isRedCheck ? "error" : "warn",
+          severity: "warn",
           task: id,
           message: `Verify command '${cmd.run}' passed at base ref before modifications (expected red/failing)`,
         });
@@ -1028,7 +1046,7 @@ export const ruleL027: LintRule = (ctx) => {
         if (!createdByDep) {
           diags.push({
             code: "L027",
-            severity: "error",
+            severity: "warn",
             task: id,
             path: prot,
             message: `Protected path '${prot}' does not exist at base and is not created by an earlier dependency task`,

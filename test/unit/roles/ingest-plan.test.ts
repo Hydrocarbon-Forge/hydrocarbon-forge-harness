@@ -74,15 +74,19 @@ describe("R10.5: ingestPlanDraft accepts a complete draft exactly as the planner
     if (!res.ok) expect(res.diagnostics.join("\n")).toContain("Spec file for task T1 does not exist: tasks/T1.md");
   });
 
-  it("a spec missing a required heading is rejected", async () => {
+  it("a spec missing a required heading is accepted with an L014 warning (R12.3)", async () => {
     writeDraft({
       "manifest.yaml": manifestWith(),
       "tasks/T1.md": sampleValidTaskSpecMarkdown().replace("## Guardrails", "## Notes"),
       "contracts/types.ts": sampleValidContractStub(),
     });
     const res = await ingest();
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.diagnostics.join("\n")).toContain("missing required heading: ## Guardrails");
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const l014 = res.warnings.find((d) => d.code === "L014");
+      expect(l014?.severity).toBe("warn");
+      expect(l014?.message).toContain("Guardrails");
+    }
   });
 
   it("a format lint error (a dependency on a task the plan does not have) is rejected", async () => {
@@ -96,7 +100,7 @@ describe("R10.5: ingestPlanDraft accepts a complete draft exactly as the planner
     if (!res.ok) expect(res.diagnostics.length).toBeGreaterThan(0);
   });
 
-  it("a contract typecheck error is rejected with the typecheck diagnostic", async () => {
+  it("a contract typecheck error is a warning: the plan is accepted and the typecheck diagnostic is returned", async () => {
     writeDraft({
       "manifest.yaml": manifestWith({
         contracts: { files: ["contracts/types.ts"], typecheck: [{ run: "node -e 'process.exit(1)'", timeout_s: 30 }] },
@@ -105,8 +109,8 @@ describe("R10.5: ingestPlanDraft accepts a complete draft exactly as the planner
       "contracts/types.ts": sampleValidContractStub(),
     });
     const res = await ingest();
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.diagnostics.join("\n")).toMatch(/L018|typecheck/);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.warnings.map((d) => d.code)).toContain("L018");
   });
 
   it("an edited dependency that names an existing task is accepted (the edit takes effect)", async () => {

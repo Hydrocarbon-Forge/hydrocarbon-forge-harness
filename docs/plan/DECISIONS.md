@@ -125,3 +125,13 @@ The owner's rule (2026-10-21): a check that cannot run is a warning, never a fai
 - Bisect runs only for a `failed` verdict.
 
 Code and tests: `src/engine/verify-outcome.ts`, `src/engine/verify-markers.ts`, `test/unit/engine/verify-outcome.test.ts`, `test/e2e/integration-setup.test.ts`; known issue 71.
+
+## Note 2026-10-21 (R12.3): plan lint blocks only a plan that cannot run
+
+The owner's policy (2026-10-21): plan-lint false positives rejected valid plans twice (L009 and L012 on the first snake run, L011 on `d=$(mktemp -d)`), and each rejection cost a paid planner retry or a failed run. A check that cannot run, or a rule that only guesses, must not block. The engine already enforces scope (a change outside a task's write set is dropped at merge), each task's verify and the final verify, so most pre-flight lint rules were redundant gates. The rule now:
+- A blocker is the only error. It refuses the plan and costs a planner format retry. A blocker is a plan that cannot be scheduled or would corrupt the engine's state: a manifest that does not parse or fails its schema; a task spec that is missing, outside the run directory, unreadable or unparsable; a duplicate or invalid task id; `depends_on` naming an unknown task; a dependency cycle; a contract file outside the repository. The table in `docs/reference/plan-lint.md` lists each rule's severity.
+- Every other rule is a warning: write-set and scope overlap, protected paths, verify binary and cwd, the read set, the contract typecheck (a type error and a checker that cannot run alike), placeholder tokens, required sections, budgets, class and route checks, test structure and style. A warning never refuses a plan and never costs a retry. Warnings are recorded and shown to the reviewer (R12.3 outputs, see the cli reference).
+- Unknown task classes are not a blocker: routing has a fallback for every class.
+- L022 (the estimate above the approval threshold) stays a `gate`. It was never a blocker and does not refuse or retry; the approval pause is decided by the run's estimate.
+
+Code and tests: `src/spec/rules.ts`, `src/roles/planner.ts` (`ingestPlanDraft`), `test/unit/spec/lint-severity.test.ts`, `test/e2e/planner-retry-post-contract.test.ts`; known issue 24.

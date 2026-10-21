@@ -3,7 +3,6 @@ import type { ParsedPlan } from "./parser.js";
 import { ALL_RULES, type RuleContext } from "./rules.js";
 
 export interface LintOptions {
-  redCheck?: boolean;
   semanticHook?: SemanticCheckHook;
   maxTasks?: number;
   contextBudgetBytes?: number;

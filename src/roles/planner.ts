@@ -174,7 +174,7 @@ export function withoutRootPaths(text: string, roots: string[]): string {
  * rejection with the others and nothing reaches the run branch (R7.7).
  */
 /** A plan the ingest accepted: the parsed manifest and specs, ready for contracts and plan.produced. */
-export type IngestedPlan = { ok: true; manifest: Manifest; plan: ParsedPlan };
+export type IngestedPlan = { ok: true; manifest: Manifest; plan: ParsedPlan; warnings: Diagnostic[] };
 export type IngestRejected = { ok: false; diagnostics: string[] };
 
 /**
@@ -182,9 +182,10 @@ export type IngestRejected = { ok: false; diagnostics: string[] };
  * own turns (runPlanner) and for a resume that reuses a complete draft from an earlier planning session, so
  * both accept a plan by the same rules. The checks run in order and the first failing one returns its
  * diagnostics: the manifest is present and parses; every task spec is inside the run directory, present,
- * parses and has the required headings; format lint (the run-directory suppression of L003/L019/L027);
- * contract typecheck; approval lint on the plan as the approval step will read it. Nothing is written or
- * committed here; the caller commits the contract stubs and emits plan.produced.
+ * parses; format lint, where only a blocker (error severity) refuses the plan and every other diagnostic is
+ * returned as a warning (the run-directory suppression of L003/L019/L027 applies to both); approval lint on
+ * the plan as the approval step will read it. Nothing is written or committed here; the caller commits the
+ * contract stubs and emits plan.produced.
  */
 export async function ingestPlanDraft(opts: {
   runDir: string;
@@ -234,12 +235,8 @@ export async function ingestPlanDraft(opts: {
     }
 
     try {
+      // Required headings are not checked here: lint rule L014 reports a missing or empty one, as a warning.
       const parsedSpec = parseTaskSpec(rawSpec, task.spec);
-      for (const heading of REQUIRED_HEADINGS) {
-        if (!parsedSpec.sections.has(heading)) {
-          problems.push(`Task spec ${task.spec} missing required heading: ## ${heading}`);
-        }
-      }
       specs.set(task.id, parsedSpec);
     } catch (err: any) {
       problems.push(`Failed to parse task spec ${task.spec}: ${err.message}`);
@@ -252,38 +249,19 @@ export async function ingestPlanDraft(opts: {
 
   const parsedPlan: ParsedPlan = { manifest, specs, rawManifest, manifestPath };
 
+  // Only a blocker refuses the plan (and costs a planner retry). Every other lint diagnostic is a warning.
   const lintResult = await lintPlan(parsedPlan, opts.repoRoot, opts.settings);
-  const errors = lintResult.diagnostics.filter(
-    (d) => d.severity === "error" && !isSuppressedForRunDir(opts.runDir, d)
-  );
+  const live = lintResult.diagnostics.filter((d) => !isSuppressedForRunDir(opts.runDir, d));
+  const errors = live.filter((d) => d.severity === "error");
   if (errors.length > 0) {
     return {
       ok: false,
       diagnostics: errors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`),
     };
   }
+  const warnings = live.filter((d) => d.severity === "warn");
 
-  let typecheckRes;
-  try {
-    typecheckRes = await typecheckContracts(opts.runDir, manifest.contracts, { cwd: opts.runDir });
-  } catch (err: any) {
-    typecheckRes = {
-      ok: false,
-      results: [],
-      diagnostics: [{ code: "L018", severity: "error", message: err.message }],
-    };
-  }
-
-  const typecheckErrors = typecheckRes.diagnostics.filter((d) => d.severity === "error");
-  if (!typecheckRes.ok || typecheckErrors.length > 0) {
-    return {
-      ok: false,
-      diagnostics: typecheckErrors.length > 0
-        ? typecheckErrors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`)
-        : ["Contract typecheck failed with a non-zero exit code"],
-    };
-  }
-
+  // The contract typecheck runs inside lintPlan (rule L018), where a failure is a warning.
   // Approval lint: the plan as the approval step re-reads it from the run directory.
   let loaded: Awaited<ReturnType<typeof safeLoadPlan>>;
   try {
@@ -304,7 +282,7 @@ export async function ingestPlanDraft(opts: {
     return { ok: false, diagnostics: approvalErrors };
   }
 
-  return { ok: true, manifest, plan: parsedPlan };
+  return { ok: true, manifest, plan: parsedPlan, warnings };
 }
 
 /**

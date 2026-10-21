@@ -36,9 +36,9 @@ function planOf(
   });
 }
 
-async function errorsFor(code: string, plan: ReturnType<typeof planOf>) {
+async function warningsFor(code: string, plan: ReturnType<typeof planOf>) {
   const result = await lintPlan(plan, createTempRepo(), sampleSettings());
-  return result.diagnostics.filter((d) => d.code === code && d.severity === "error");
+  return result.diagnostics.filter((d) => d.code === code && d.severity === "warn");
 }
 
 describe("L009: ancestors and the protecting task's descendants", () => {
@@ -47,7 +47,7 @@ describe("L009: ancestors and the protecting task's descendants", () => {
       { id: "T1", class: "feature", create: [TEST_PATH] },
       { id: "T2", depends_on: ["T1"], protected: [TEST_PATH] },
     ]);
-    expect(await errorsFor("L009", plan)).toEqual([]);
+    expect(await warningsFor("L009", plan)).toEqual([]);
   });
 
   it("L009 is not raised for a transitive ancestor creator", async () => {
@@ -56,7 +56,7 @@ describe("L009: ancestors and the protecting task's descendants", () => {
       { id: "T2", depends_on: ["T1"] },
       { id: "T3", depends_on: ["T2"], protected: [TEST_PATH] },
     ]);
-    expect(await errorsFor("L009", plan)).toEqual([]);
+    expect(await warningsFor("L009", plan)).toEqual([]);
   });
 
   it("L009 is still raised for a concurrent task that is not an ancestor, with an actionable message", async () => {
@@ -64,7 +64,7 @@ describe("L009: ancestors and the protecting task's descendants", () => {
       { id: "T1", protected: [TEST_PATH] },
       { id: "T2", create: [TEST_PATH] },
     ]);
-    const diags = await errorsFor("L009", plan);
+    const diags = await warningsFor("L009", plan);
     expect(diags).toHaveLength(1);
     expect(diags[0].task).toBe("T2");
     expect(diags[0].message).toBe(
@@ -78,13 +78,13 @@ describe("L009: ancestors and the protecting task's descendants", () => {
       { id: "T2", depends_on: ["T1"], protected: [TEST_PATH] },
       { id: "T3", depends_on: ["T2"], write: [TEST_PATH] },
     ]);
-    const diags = await errorsFor("L009", plan);
+    const diags = await warningsFor("L009", plan);
     expect(diags.map((d) => d.task)).toEqual(["T3"]);
   });
 
   it("L009 is raised when a task modifies a path it protects itself", async () => {
     const plan = planOf([{ id: "T1", create: [TEST_PATH], protected: [TEST_PATH] }]);
-    const diags = await errorsFor("L009", plan);
+    const diags = await warningsFor("L009", plan);
     expect(diags).toHaveLength(1);
     expect(diags[0].message).toContain("protects itself");
   });
@@ -94,14 +94,14 @@ describe("L009: ancestors and the protecting task's descendants", () => {
       { id: "T1", protected: [TEST_PATH] },
       { id: "T2", class: "tests", create: [TEST_PATH] },
     ]);
-    expect(await errorsFor("L009", plan)).toEqual([]);
+    expect(await warningsFor("L009", plan)).toEqual([]);
   });
 });
 
 describe("L012: verify test paths provided by the task or its dependencies", () => {
   it("L012 is not raised for a test path the same task creates", async () => {
     const plan = planOf([{ id: "T1", create: [TEST_PATH], run: `node --check ${TEST_PATH}` }]);
-    expect(await errorsFor("L012", plan)).toEqual([]);
+    expect(await warningsFor("L012", plan)).toEqual([]);
   });
 
   it("L012 is not raised for a test path a dependency creates", async () => {
@@ -109,7 +109,7 @@ describe("L012: verify test paths provided by the task or its dependencies", () 
       { id: "T1", create: [TEST_PATH] },
       { id: "T2", depends_on: ["T1"], run: `node --test ${TEST_PATH}` },
     ]);
-    expect(await errorsFor("L012", plan)).toEqual([]);
+    expect(await warningsFor("L012", plan)).toEqual([]);
   });
 
   it("L012 is raised for a test path only an unrelated task creates", async () => {
@@ -117,13 +117,13 @@ describe("L012: verify test paths provided by the task or its dependencies", () 
       { id: "T1", create: [TEST_PATH] },
       { id: "T2", run: `node --test ${TEST_PATH}` },
     ]);
-    const diags = await errorsFor("L012", plan);
+    const diags = await warningsFor("L012", plan);
     expect(diags.map((d) => d.task)).toEqual(["T2"]);
   });
 
   it("L012 is raised for a test path nobody creates, with an actionable message", async () => {
     const plan = planOf([{ id: "T1", run: `node --test ${TEST_PATH}` }]);
-    const diags = await errorsFor("L012", plan);
+    const diags = await warningsFor("L012", plan);
     expect(diags).toHaveLength(1);
     expect(diags[0].message).toBe(
       `Verify command references test path '${TEST_PATH}' that nothing provides; create it in this task or a dependency, or fix the path`

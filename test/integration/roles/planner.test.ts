@@ -262,7 +262,7 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
       expect(correction).toContain("here is my draft");
     });
 
-    it("linter errors become format diagnostics as [code] message", async () => {
+    it("a lint warning does not cost a retry: L007 (a write pattern matching no file) is accepted on the first attempt", async () => {
       const adapter = adapterFor([
         {
           reply: "PLAN READY",
@@ -278,10 +278,7 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
 
       const outcome = await runPlanner(options(adapter));
       expect(outcome.kind).toBe("plan_ready");
-      const correction = adapter.spawnedRequests[1].prompt;
-      // L007 is no longer suppressed: a write pattern must match a file at base.
-      expect(correction).toContain("[L007]");
-      expect(correction).toContain("src/nothing-matches.ts");
+      expect(adapter.spawnedRequests.length).toBe(1);
     });
 
     it("L003, L019 and L027 are suppressed only because the plan files live in the run directory", async () => {
@@ -420,7 +417,7 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
       expect((usageEvents[0]?.data as { role?: string }).role).toBe("planner");
     });
 
-    it("a failing contract typecheck is a format error and creates no run branch", async () => {
+    it("a failing contract typecheck is a warning (R12.3): the plan is accepted on the first attempt", async () => {
       const adapter = adapterFor([
         {
           reply: "PLAN READY",
@@ -437,26 +434,19 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
         },
       ]);
 
-      let caught: unknown;
-      try {
-        await runPlanner(
-          options(adapter, {
-            settings: {
-              ...DEFAULT_SETTINGS,
-              budgets: { ...DEFAULT_SETTINGS.budgets, planner_format_retries: 1 },
-            },
-          })
-        );
-      } catch (err) {
-        caught = err;
-      }
+      const outcome = await runPlanner(
+        options(adapter, {
+          settings: {
+            ...DEFAULT_SETTINGS,
+            budgets: { ...DEFAULT_SETTINGS.budgets, planner_format_retries: 1 },
+          },
+        })
+      );
 
-      expect(caught).toBeInstanceOf(PlannerFailure);
-      expect((caught as PlannerFailure).reason).toBe("format");
-      expect(adapter.spawnedRequests.length).toBe(2);
-
-      // Invariant: a plan that failed the typecheck is not committed.
-      expect(() => repo.git(["rev-parse", "--verify", `substrate/runs/${runId}`])).toThrow();
+      // The typecheck is advisory (rule L018 is a warning): no retry, and the plan's stubs are committed.
+      expect(outcome.kind).toBe("plan_ready");
+      expect(adapter.spawnedRequests.length).toBe(1);
+      expect(repo.git(["rev-parse", "--verify", `substrate/runs/${runId}`])).toMatch(/^[0-9a-f]{40}$/);
     });
 
     it("commitContractStubs passes the ref value it read as the expected old value", async () => {
