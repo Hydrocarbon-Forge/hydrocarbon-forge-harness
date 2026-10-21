@@ -19,6 +19,8 @@ import { DEFAULT_SETTINGS } from "../config/index.js";
 import { createAdapters, type AdapterMap } from "../backends/registry.js";
 import { endStaleWorkers } from "../backends/worker-pids.js";
 import { type EngineState, type RunState, reduce } from "./reducer.js";
+import { commitContractStubs, ingestPlanDraft, planTasksForEvent } from "../roles/planner.js";
+import { resolveBaseRef } from "../git/base-ref.js";
 import { failRunOnInternalError, isInterruption, notifyObserver, observerCrashed } from "./internal-error.js";
 import { type EffectContext, runEffectsLoop } from "./effects.js";
 import { EventStoreImpl } from "../store/event-store.js";
@@ -156,6 +158,26 @@ export function endedFailed(events: EngineEvent[]): boolean {
     }
   }
   return false;
+}
+
+/** The run-directory files a planning session writes; an abandoned draft is these, moved aside together. */
+const DRAFT_ITEMS = ["manifest.yaml", "tasks", "contracts", "QUESTIONS.md"];
+
+/**
+ * R10.5: moves an abandoned planning draft to `drafts-<n>/` in the run directory (moved, never deleted).
+ * Returns the directory's name, or undefined when the run directory holds no draft.
+ */
+export function setAsideDraft(runDir: string): string | undefined {
+  const items = DRAFT_ITEMS.filter((item) => fs.existsSync(path.join(runDir, item)));
+  if (items.length === 0) return undefined;
+  let n = 1;
+  while (fs.existsSync(path.join(runDir, `drafts-${n}`))) n++;
+  const name = `drafts-${n}`;
+  fs.mkdirSync(path.join(runDir, name));
+  for (const item of items) {
+    fs.renameSync(path.join(runDir, item), path.join(runDir, name, item));
+  }
+  return name;
 }
 
 /**
@@ -356,6 +378,8 @@ export class EngineImpl implements Engine {
     let state: EngineState | undefined;
     try {
       try {
+        // R10.5: a torn last line from a killed CLI is dropped before this resume appends anything.
+        store.repairTornTail();
         const existingEvents = await store.readAll();
         state = {
           run_id: runId,
@@ -385,21 +409,62 @@ export class EngineImpl implements Engine {
           state = reduce(state, resumedEvt);
         }
 
+        // R10.5: a run with no accepted plan (planning was stopped, or planning failed). A complete draft the
+        // earlier session left in the run directory is ingested and accepted as if the planner had just
+        // produced it, and the planner is not called. Any other draft is moved to drafts-<n>/ and the run is
+        // planned again. A run that asked the user a question is left to the planner's own answer path.
+        const appended: EngineEvent[] = [];
+        const emit = async (type: EngineEvent["type"], data: Record<string, unknown>): Promise<void> => {
+          lastSeq += 1;
+          const evt = { v: 1, seq: lastSeq, ts: new Date().toISOString(), run_id: runId, type, data } as EngineEvent;
+          await store.append(evt);
+          appended.push(evt);
+          notifyObserver(ctx, evt);
+          state = reduce(state as EngineState, evt);
+        };
+        let keptDraft: string | undefined;
+        const askedQuestions = existingEvents.some(
+          (e) => e.type === "run.paused" && (e.data as { reason?: unknown } | undefined)?.reason === "needs_human",
+        );
+        if (!existingEvents.some((e) => e.type === "plan.produced") && !askedQuestions) {
+          const ingested = fs.existsSync(path.join(runDir, "manifest.yaml"))
+            ? await ingestPlanDraft({ runDir, repoRoot, settings })
+            : undefined;
+          if (ingested?.ok) {
+            const base = resolveBaseRef(repoRoot, ingested.manifest.base_ref);
+            const commitSha = await commitContractStubs(
+              repoRoot,
+              runId,
+              base.sha,
+              ingested.manifest.contracts,
+              runDir,
+            );
+            await emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });
+            await emit("plan.produced", {
+              manifest: ingested.manifest,
+              tasks: planTasksForEvent(ingested.manifest, ingested.plan.specs),
+              commit_sha: commitSha,
+              source: "draft",
+            });
+          } else {
+            keptDraft = setAsideDraft(runDir);
+            // A run that did not end failed is reopened here; a failed one is reopened below, which names the kept draft.
+            if (!endedFailed(existingEvents)) {
+              await emit("run.reopened", {
+                reason: "planning",
+                ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
+              });
+            }
+          }
+        }
+
         // R10.4 (known issue 41, reversed): a run that ended failed is reopened, not refused. Planning
         // is not repeated when a plan was accepted; the failed tasks retry as a new generation.
-        if (endedFailed(existingEvents)) {
-          const reopenedEvt: EngineEvent = {
-            v: 1,
-            seq: lastSeq + 1,
-            ts: new Date().toISOString(),
-            run_id: runId,
-            type: "run.reopened",
-            data: reopenData(existingEvents, state),
-          };
-          await store.append(reopenedEvt);
-          lastSeq = reopenedEvt.seq;
-          notifyObserver(ctx, reopenedEvt);
-          state = reduce(state, reopenedEvt);
+        if (endedFailed(existingEvents) && !appended.some((e) => e.type === "run.reopened")) {
+          await emit("run.reopened", {
+            ...reopenData([...existingEvents, ...appended], state),
+            ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
+          });
         }
 
         // A task killed between task.session.started and task.session.ended is put

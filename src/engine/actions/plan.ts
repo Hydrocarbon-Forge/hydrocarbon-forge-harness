@@ -2,10 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { EventData, EventType } from "../../contracts/events.js";
-import type { Question, SpawnRequest, TaskId } from "../../contracts/index.js";
+import type { Question, SpawnRequest } from "../../contracts/index.js";
 import {
   PlannerFailure,
+  PLANNER_PID_TASK,
   commitContractStubs,
+  ingestPlanDraft,
   withoutRootPaths,
   finishLine,
   formatRejectedData,
@@ -19,14 +21,7 @@ import {
 } from "../../roles/planner.js";
 import { resolvePlannerRoute } from "../../roles/router.js";
 import { resolveBaseRef } from "../../git/base-ref.js";
-import {
-  lintPlan,
-  parseManifest,
-  parseTaskSpec,
-  typecheckContracts,
-  type ParsedPlan,
-  type ParsedTaskSpec,
-} from "../../spec/index.js";
+import { clearWorkerPid, recordWorkerPid } from "../../backends/worker-pids.js";
 import { toDelta, type UsageTotals } from "../../ledger/usage.js";
 import { loadTemplate } from "../../prompts/index.js";
 import { render } from "../../prompts/render.js";
@@ -185,6 +180,9 @@ export async function runPlanAction(
       };
 
       const handle = adapter.spawn(spawnReq);
+      // R10.5: recorded like a worker's pid until the session ends (see endStaleWorkers).
+      const pidRecord = { task_id: PLANNER_PID_TASK, generation: 0, attempt, pid: handle.pid, backend: route.backend };
+      recordWorkerPid(ctx.runDir, pidRecord);
       const unbind = bindAbort(ctx.signal, handle);
       let sawUsageEvent = false;
       let harnessError: string | undefined;
@@ -212,6 +210,7 @@ export async function runPlanAction(
           return await handle.result();
         } finally {
           unbind();
+          clearWorkerPid(ctx.runDir, pidRecord);
         }
       })();
       if (res.session_id) currentSessionId = res.session_id;
@@ -283,70 +282,12 @@ export async function runPlanAction(
         continue;
       }
 
-      const manifestPath = path.resolve(ctx.runDir, "manifest.yaml");
-      if (!fs.existsSync(manifestPath)) {
-        diagnostics = ["manifest.yaml is missing from the run directory"];
+      const ingested = await ingestPlanDraft({ runDir: ctx.runDir, repoRoot: ctx.repoRoot, settings: ctx.settings });
+      if (!ingested.ok) {
+        diagnostics = ingested.diagnostics;
         continue;
       }
-
-      let rawManifest = "";
-      try {
-        rawManifest = fs.readFileSync(manifestPath, "utf8");
-      } catch (err: any) {
-        diagnostics = [`Failed to read manifest.yaml: ${err.message}`];
-        continue;
-      }
-
-      let manifest: any;
-      try {
-        manifest = parseManifest(rawManifest, manifestPath);
-      } catch (err: any) {
-        diagnostics = [`Failed to parse manifest.yaml: ${err.message}`];
-        continue;
-      }
-
-      const specs = new Map<TaskId, ParsedTaskSpec>();
-      let specErrors = false;
-      for (const task of manifest.tasks) {
-        const specPath = path.resolve(ctx.runDir, task.spec);
-        if (!fs.existsSync(specPath)) {
-          diagnostics = [`Spec file for task ${task.id} does not exist: ${task.spec}`];
-          specErrors = true;
-          break;
-        }
-        const rawSpec = fs.readFileSync(specPath, "utf8");
-        specs.set(task.id, parseTaskSpec(rawSpec, task.spec));
-      }
-      if (specErrors) continue;
-
-      const parsedPlan: ParsedPlan = { manifest, specs, rawManifest, manifestPath };
-      const lintResult = await lintPlan(parsedPlan, ctx.repoRoot, ctx.settings);
-      const errors = lintResult.diagnostics.filter(
-        (d) => d.severity === "error" && !isSuppressedForRunDir(ctx.runDir, d)
-      );
-      if (errors.length > 0) {
-        diagnostics = errors.map((d: any) => `[${d.code}] ${withoutRootPaths(d.message, [ctx.runDir, ctx.repoRoot])}`);
-        continue;
-      }
-
-      let typecheckRes: any;
-      try {
-        typecheckRes = await typecheckContracts(ctx.runDir, manifest.contracts, {
-          cwd: ctx.runDir,
-        });
-      } catch (err: any) {
-        typecheckRes = {
-          ok: false,
-          diagnostics: [{ code: "L018", severity: "error", message: err.message }],
-        };
-      }
-      const typecheckErrors = (typecheckRes.diagnostics ?? []).filter((d: any) => d.severity === "error");
-      if (!typecheckRes.ok || typecheckErrors.length > 0) {
-        diagnostics = typecheckErrors.length > 0
-          ? typecheckErrors.map((d: any) => `[${d.code}] ${withoutRootPaths(d.message, [ctx.runDir, ctx.repoRoot])}`)
-          : ["Contract typecheck failed with a non-zero exit code"];
-        continue;
-      }
+      const { manifest, plan: parsedPlan } = ingested;
 
       const base = resolveBaseRef(ctx.repoRoot, manifest.base_ref);
       const commitSha = await commitContractStubs(
@@ -360,7 +301,7 @@ export async function runPlanAction(
       emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });
       emit("plan.produced", {
         manifest,
-        tasks: planTasksForEvent(manifest, specs),
+        tasks: planTasksForEvent(manifest, parsedPlan.specs),
         commit_sha: commitSha,
       });
       return;

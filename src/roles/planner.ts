@@ -31,6 +31,7 @@ import {
 import type { UsageTotals } from "../ledger/usage.js";
 import { toDelta } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
+import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { resolveBaseRef } from "../git/base-ref.js";
 import { boundedMessage } from "../util/index.js";
 import { buildPlannerPrompt, buildCorrectionPrompt } from "./prompts/planner.js";
@@ -170,21 +171,138 @@ export function withoutRootPaths(text: string, roots: string[]): string {
  * before it commits the contract stubs, so a plan the approval lint refuses is a format
  * rejection with the others and nothing reaches the run branch (R7.7).
  */
-async function approvalLintDiagnostics(opts: PlannerRunOptions, manifestPath: string): Promise<string[]> {
+/** A plan the ingest accepted: the parsed manifest and specs, ready for contracts and plan.produced. */
+export type IngestedPlan = { ok: true; manifest: Manifest; plan: ParsedPlan };
+export type IngestRejected = { ok: false; diagnostics: string[] };
+
+/**
+ * R10.5: the one place a plan the planner wrote into a run directory is checked. It runs for the planner's
+ * own turns (runPlanner) and for a resume that reuses a complete draft from an earlier planning session, so
+ * both accept a plan by the same rules. The checks run in order and the first failing one returns its
+ * diagnostics: the manifest is present and parses; every task spec is inside the run directory, present,
+ * parses and has the required headings; format lint (the run-directory suppression of L003/L019/L027);
+ * contract typecheck; approval lint on the plan as the approval step will read it. Nothing is written or
+ * committed here; the caller commits the contract stubs and emits plan.produced.
+ */
+export async function ingestPlanDraft(opts: {
+  runDir: string;
+  repoRoot: string;
+  settings: Settings;
+}): Promise<IngestedPlan | IngestRejected> {
+  const manifestPath = path.resolve(opts.runDir, MANIFEST_FILE);
+  if (!fs.existsSync(manifestPath)) {
+    return { ok: false, diagnostics: [`${MANIFEST_FILE} is missing from the run directory`] };
+  }
+
+  let rawManifest = "";
+  try {
+    rawManifest = fs.readFileSync(manifestPath, "utf8");
+  } catch (err: any) {
+    return { ok: false, diagnostics: [`Failed to read ${MANIFEST_FILE}: ${err.message}`] };
+  }
+
+  let manifest: Manifest;
+  try {
+    manifest = parseManifest(rawManifest, manifestPath);
+  } catch (err: any) {
+    return { ok: false, diagnostics: [`Failed to parse ${MANIFEST_FILE}: ${err.message}`] };
+  }
+
+  const specs = new Map<TaskId, ParsedTaskSpec>();
+  const problems: string[] = [];
+
+  for (const task of manifest.tasks) {
+    if (!isSafeRelativePath(task.spec)) {
+      problems.push(`Task spec path resolves outside the run directory: ${task.spec}`);
+      continue;
+    }
+
+    const specPath = path.resolve(opts.runDir, task.spec);
+    if (!fs.existsSync(specPath)) {
+      problems.push(`Spec file for task ${task.id} does not exist: ${task.spec}`);
+      continue;
+    }
+
+    let rawSpec = "";
+    try {
+      rawSpec = fs.readFileSync(specPath, "utf8");
+    } catch (err: any) {
+      problems.push(`Failed to read task spec ${task.spec}: ${err.message}`);
+      continue;
+    }
+
+    try {
+      const parsedSpec = parseTaskSpec(rawSpec, task.spec);
+      for (const heading of REQUIRED_HEADINGS) {
+        if (!parsedSpec.sections.has(heading)) {
+          problems.push(`Task spec ${task.spec} missing required heading: ## ${heading}`);
+        }
+      }
+      specs.set(task.id, parsedSpec);
+    } catch (err: any) {
+      problems.push(`Failed to parse task spec ${task.spec}: ${err.message}`);
+    }
+  }
+
+  if (problems.length > 0) {
+    return { ok: false, diagnostics: problems };
+  }
+
+  const parsedPlan: ParsedPlan = { manifest, specs, rawManifest, manifestPath };
+
+  const lintResult = await lintPlan(parsedPlan, opts.repoRoot, opts.settings);
+  const errors = lintResult.diagnostics.filter(
+    (d) => d.severity === "error" && !isSuppressedForRunDir(opts.runDir, d)
+  );
+  if (errors.length > 0) {
+    return {
+      ok: false,
+      diagnostics: errors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`),
+    };
+  }
+
+  let typecheckRes;
+  try {
+    typecheckRes = await typecheckContracts(opts.runDir, manifest.contracts, { cwd: opts.runDir });
+  } catch (err: any) {
+    typecheckRes = {
+      ok: false,
+      results: [],
+      diagnostics: [{ code: "L018", severity: "error", message: err.message }],
+    };
+  }
+
+  const typecheckErrors = typecheckRes.diagnostics.filter((d) => d.severity === "error");
+  if (!typecheckRes.ok || typecheckErrors.length > 0) {
+    return {
+      ok: false,
+      diagnostics: typecheckErrors.length > 0
+        ? typecheckErrors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`)
+        : ["Contract typecheck failed with a non-zero exit code"],
+    };
+  }
+
+  // Approval lint: the plan as the approval step re-reads it from the run directory.
   let loaded: Awaited<ReturnType<typeof safeLoadPlan>>;
   try {
     loaded = await safeLoadPlan(manifestPath, opts.repoRoot, opts.settings.budgets?.task?.max_usd);
   } catch (err: any) {
-    return [`Failed to load the plan for lint: ${err.message}`];
+    return { ok: false, diagnostics: [`Failed to load the plan for lint: ${err.message}`] };
   }
+  let approvalErrors: string[];
   try {
     const result = await lintPlan(loaded, opts.repoRoot, opts.settings);
-    return result.diagnostics
+    approvalErrors = result.diagnostics
       .filter((d) => d.severity === "error")
       .map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`);
   } finally {
     loaded.cleanup();
   }
+  if (approvalErrors.length > 0) {
+    return { ok: false, diagnostics: approvalErrors };
+  }
+
+  return { ok: true, manifest, plan: parsedPlan };
 }
 
 /**
@@ -209,6 +327,8 @@ const PLAN_READY = "PLAN READY";
 const NEEDS_INPUT = "NEEDS INPUT";
 const QUESTIONS_FILE = "QUESTIONS.md";
 const MANIFEST_FILE = "manifest.yaml";
+/** The task name a planner session's pid record is kept under (R10.5). */
+export const PLANNER_PID_TASK = "planner";
 const ZERO_OID = "0000000000000000000000000000000000000000";
 
 export const REQUIRED_HEADINGS = [
@@ -555,6 +675,10 @@ export async function runPlanner(
     };
 
     const handle = opts.adapter.spawn(spawnReq);
+    // R10.5: the planner session is recorded like a worker's until it ends, so a resume after a
+    // killed CLI ends it before planning again (see endStaleWorkers).
+    const pidRecord = { task_id: PLANNER_PID_TASK, generation: 0, attempt: attempt, pid: handle.pid, backend: route.backend };
+    recordWorkerPid(opts.runDir, pidRecord);
     const unbind = bindAbort(opts.signal, handle);
 
     let sawUsageEvent = false;
@@ -578,6 +702,7 @@ export async function runPlanner(
       res = await handle.result();
     } finally {
       unbind();
+      clearWorkerPid(opts.runDir, pidRecord);
     }
     if (res.session_id) sessionId = res.session_id;
 
@@ -656,100 +781,12 @@ export async function runPlanner(
       }
     }
 
-    let rawManifest = "";
-    try {
-      rawManifest = fs.readFileSync(manifestPath, "utf8");
-    } catch (err: any) {
-      diagnostics = [`Failed to read ${MANIFEST_FILE}: ${err.message}`];
+    const ingested = await ingestPlanDraft({ runDir: opts.runDir, repoRoot: opts.repoRoot, settings });
+    if (!ingested.ok) {
+      diagnostics = ingested.diagnostics;
       continue;
     }
-
-    let manifest: Manifest;
-    try {
-      manifest = parseManifest(rawManifest, manifestPath);
-    } catch (err: any) {
-      diagnostics = [`Failed to parse ${MANIFEST_FILE}: ${err.message}`];
-      continue;
-    }
-
-    const specs = new Map<TaskId, ParsedTaskSpec>();
-    const problems: string[] = [];
-
-    for (const task of manifest.tasks) {
-      if (!isSafeRelativePath(task.spec)) {
-        problems.push(`Task spec path resolves outside the run directory: ${task.spec}`);
-        continue;
-      }
-
-      const specPath = path.resolve(opts.runDir, task.spec);
-      if (!fs.existsSync(specPath)) {
-        problems.push(`Spec file for task ${task.id} does not exist: ${task.spec}`);
-        continue;
-      }
-
-      let rawSpec = "";
-      try {
-        rawSpec = fs.readFileSync(specPath, "utf8");
-      } catch (err: any) {
-        problems.push(`Failed to read task spec ${task.spec}: ${err.message}`);
-        continue;
-      }
-
-      try {
-        const parsedSpec = parseTaskSpec(rawSpec, task.spec);
-        for (const heading of REQUIRED_HEADINGS) {
-          if (!parsedSpec.sections.has(heading)) {
-            problems.push(`Task spec ${task.spec} missing required heading: ## ${heading}`);
-          }
-        }
-        specs.set(task.id, parsedSpec);
-      } catch (err: any) {
-        problems.push(`Failed to parse task spec ${task.spec}: ${err.message}`);
-      }
-    }
-
-    if (problems.length > 0) {
-      diagnostics = problems;
-      continue;
-    }
-
-    const parsedPlan: ParsedPlan = { manifest, specs, rawManifest, manifestPath };
-
-    const lintResult = await lintPlan(parsedPlan, opts.repoRoot, settings);
-    const errors = lintResult.diagnostics.filter(
-      (d) => d.severity === "error" && !isSuppressedForRunDir(opts.runDir, d)
-    );
-    if (errors.length > 0) {
-      diagnostics = errors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`);
-      continue;
-    }
-
-    let typecheckRes;
-    try {
-      typecheckRes = await typecheckContracts(opts.runDir, manifest.contracts, {
-        cwd: opts.runDir,
-      });
-    } catch (err: any) {
-      typecheckRes = {
-        ok: false,
-        results: [],
-        diagnostics: [{ code: "L018", severity: "error", message: err.message }],
-      };
-    }
-
-    const typecheckErrors = typecheckRes.diagnostics.filter((d) => d.severity === "error");
-    if (!typecheckRes.ok || typecheckErrors.length > 0) {
-      diagnostics = typecheckErrors.length > 0
-        ? typecheckErrors.map((d) => `[${d.code}] ${withoutRootPaths(d.message, [opts.runDir, opts.repoRoot])}`)
-        : ["Contract typecheck failed with a non-zero exit code"];
-      continue;
-    }
-
-    const approvalErrors = await approvalLintDiagnostics(opts, manifestPath);
-    if (approvalErrors.length > 0) {
-      diagnostics = approvalErrors;
-      continue;
-    }
+    const { manifest, plan: parsedPlan } = ingested;
 
     const base = resolveBaseRef(opts.repoRoot, manifest.base_ref);
     const commitSha = await commitContractStubs(

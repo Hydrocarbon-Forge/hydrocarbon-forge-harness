@@ -142,7 +142,12 @@ export class RunProgress {
       case "run.reopened": {
         // R10.4: a run that did not finish says what the resume runs again, and what it keeps.
         this.setPhase("resuming", at);
-        if (data.reason === "planning") return ["no plan was accepted; planning again (planning costs again)"];
+        if (data.reason === "planning") {
+          // R10.5: an abandoned draft is kept, not deleted; the line names where it went.
+          return typeof data.draft_dir === "string"
+            ? ["no plan was accepted; planning again (planning costs again)", `abandoned draft kept in ${data.draft_dir}/`]
+            : ["no plan was accepted; planning again (planning costs again)"];
+        }
         if (data.reason === "setup") return ["setup did not finish; running setup again"];
         const failed: string[] = Array.isArray(data.failed_tasks) ? data.failed_tasks : [];
         const kept: string[] = Array.isArray(data.kept_tasks) ? data.kept_tasks : [];
@@ -173,6 +178,11 @@ export class RunProgress {
         return [];
       }
       case "plan.produced": {
+        // R10.5: a complete draft from an earlier planning session was accepted; the planner did not run.
+        if (data.source === "draft") {
+          this.pendingPlan = Array.isArray(data.tasks) ? data.tasks.filter((t: any) => t && typeof t.id === "string") : [];
+          return ["found a complete plan draft from the earlier planning session; using it"];
+        }
         const lines = [`planner attempt ${this.plannerAttempt} finished, ${formatCost(this.plannerAttemptCostUsd)}`];
         this.plannerAttemptCostUsd = 0;
         this.pendingPlan = Array.isArray(data.tasks)

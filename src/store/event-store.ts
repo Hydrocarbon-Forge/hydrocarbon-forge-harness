@@ -67,6 +67,26 @@ export class EventStoreImpl implements EventStore {
     return this.readAllSync();
   }
 
+  /**
+   * R10.5: drops an unparseable last line left by a killed CLI (a torn write), so that appends made by a
+   * resume sit on a valid log. A torn line is tolerated by readAllSync only while it is the last line; once
+   * a resume appends after it, the line would be a corruption error. Returns true when a line was dropped.
+   */
+  repairTornTail(): boolean {
+    if (!fs.existsSync(this.logPath)) return false;
+    const lines = fs.readFileSync(this.logPath, "utf8").split("\n");
+    if (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+    if (lines.length === 0) return false;
+    try {
+      JSON.parse(lines[lines.length - 1]);
+      return false;
+    } catch {
+      lines.pop();
+    }
+    fs.writeFileSync(this.logPath, lines.map((l) => l + "\n").join(""), "utf8");
+    return true;
+  }
+
   readAllSync(): EngineEvent[] {
     if (!fs.existsSync(this.logPath)) {
       return [];

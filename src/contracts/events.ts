@@ -111,6 +111,8 @@ export const RunReopenedEvent = member(
       failed_tasks: z.array(z.string()).optional(),
       skipped_tasks: z.array(z.string()).optional(),
       kept_tasks: z.array(z.string()).optional(),
+      // R10.5: the run-directory name (drafts-<n>) an abandoned planning draft was moved to.
+      draft_dir: z.string().optional(),
     })
     .strict()
 );
@@ -178,6 +180,8 @@ export const PlanProducedEvent = member(
       manifest: z.unknown().optional(),
       tasks: z.array(PlanTaskEntry).optional(),
       commit_sha: z.string().optional(),
+      // R10.5: where the accepted plan came from. `draft` is a complete draft a resume reused (the planner did not run).
+      source: z.enum(["planner", "draft", "review"]).optional(),
     })
     .strict()
 );
