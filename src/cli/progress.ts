@@ -1,5 +1,6 @@
 import type { EngineEvent, Settings } from "../contracts/index.js";
 import { resolvePlannerRoute } from "../roles/router.js";
+import { PLAN_WARNINGS_FILE } from "../roles/planner.js";
 
 /** Seconds of silence after which a progress output writes a heartbeat. */
 export const DEFAULT_HEARTBEAT_MS = 15_000;
@@ -45,6 +46,23 @@ function oneLine(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max - 3)}...` : flat;
 }
 
+/** The warnings of a plan for the progress note: the total and the first warning (R12.3). */
+interface PlanWarningSummary {
+  count: number;
+  first: { id: string; message: string };
+}
+
+/** The progress summary of a plan.produced event's warnings, or undefined when the plan has none. */
+function planWarningsSummary(data: Record<string, any>): PlanWarningSummary | undefined {
+  const count = typeof data.warning_count === "number" ? data.warning_count : 0;
+  if (count <= 0 || !Array.isArray(data.warnings) || data.warnings.length === 0) return undefined;
+  const first = data.warnings[0] as { id?: unknown; message?: unknown };
+  return {
+    count,
+    first: { id: String(first.id ?? ""), message: oneLine(String(first.message ?? ""), 300) },
+  };
+}
+
 function diagnosticText(d: unknown): string {
   if (typeof d === "string") return oneLine(d, 300);
   if (d && typeof d === "object") {
@@ -84,6 +102,8 @@ export class RunProgress {
   // repeats the failure a task already printed, and only the first line is shown.
   private readonly failedTasks = new Map<string, string>();
   private pendingPlan: PlanTaskView[] | undefined;
+  /** R12.3: the warnings of the plan just produced, noted once `plan ready` prints. */
+  private pendingWarnings: PlanWarningSummary | undefined;
 
   constructor(
     private readonly models: ProgressModels,
@@ -183,6 +203,7 @@ export class RunProgress {
         return [];
       }
       case "plan.produced": {
+        this.pendingWarnings = planWarningsSummary(data);
         // R10.5: a plan reviewed after a plan-only run is accepted: its tasks are listed when the run is ready.
         if (data.source === "review") {
           this.pendingPlan = Array.isArray(data.tasks) ? data.tasks.filter((t: any) => t && typeof t.id === "string") : [];
@@ -207,9 +228,19 @@ export class RunProgress {
         this.setPhase("setup", at);
         const plan = this.pendingPlan;
         this.pendingPlan = undefined;
+        const warnings = this.pendingWarnings;
+        this.pendingWarnings = undefined;
         if (plan === undefined) return [];
         const n = plan.length;
         const lines = [`plan ready: ${n} ${n === 1 ? "task" : "tasks"}`];
+        // R12.3: the warnings never refused the plan; the reviewer is told where they are, and the first one.
+        if (warnings !== undefined) {
+          lines.push(
+            `note: the plan has ${warnings.count} warnings ` +
+              `(see .substrate/runs/${this.runId ?? "<run>"}/${PLAN_WARNINGS_FILE}); ` +
+              `the first: ${warnings.first.id} ${warnings.first.message}`,
+          );
+        }
         for (const t of plan as PlanTaskView[]) {
           const title = t.title ? `  ${t.title}` : "";
           const cls = t.class ? `  [${t.class}]` : "";

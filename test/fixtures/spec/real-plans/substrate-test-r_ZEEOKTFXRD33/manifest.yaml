@@ -1,0 +1,21 @@
+version: 1
+run_id: r_ZEEOKTFXRD33
+goal: Port the Java Swing hello-world app to TypeScript (canvas GUI in the browser plus a Node --text CLI).
+base_ref: 97863ae0c9b7b67f9576a2f1b85c0e5c0cd2a4ae
+ecosystem: node-ts
+setup:
+  - run: npm install --no-save typescript@5 @types/node@20
+    timeout_s: 300
+contracts:
+  files: []
+  typecheck: []
+integration_verify:
+  - run: npx tsc -p tsconfig.json && node dist/cli.js --text | grep -qx 'Hello, World!' && test ! -e src/Main.java
+    timeout_s: 180
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+budget:
+  max_usd: 1

@@ -19,6 +19,17 @@ A task class needs no rule: any class name routes. An unknown class takes the `w
 
 The contract typecheck, the required sections, the verify commands and the scope rules are not blockers.
 
+## Warnings
+
+When the planner's plan is accepted, its warnings are kept, so the reviewer can read them:
+
+- `.substrate/runs/<id>/plan-warnings.txt` holds every warning, one per line: the rule id, the task (`-` for a plan-wide warning) and the message, tab-separated. The file is removed when the plan has none.
+- The `plan.produced` event carries `warnings` (the first 20, each message at most 300 characters) and `warning_count` (the total).
+- A text run, `substrate plan` and a resume that accepts an edited plan print one note after `plan ready`: `note: the plan has <n> warnings (see .substrate/runs/<id>/plan-warnings.txt); the first: <id> <message>`.
+- The json result and `result.json` carry `plan_warnings` (the count) when the plan has warnings.
+
+A resume refuses an edited plan only for a blocker, with exit 2 and no spawn. Warnings pass.
+
 ## Rules
 
 Severity is what the rule reports. "Retry" is whether a finding of that severity costs a planner format retry. Before R12.3, every error cost one; now only the blockers do.

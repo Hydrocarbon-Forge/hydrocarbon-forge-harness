@@ -1,0 +1,31 @@
+version: 1
+run_id: r_FI22FE7MVNJW
+goal: Build a playable browser Snake game (vanilla HTML/CSS/JS, no dependencies) with a tested pure rules module.
+base_ref: c8c76959e3fad4d19d07d93f6d9be054026960e9
+ecosystem: other
+setup: []
+contracts:
+  files:
+    - src/game.js
+  typecheck:
+    - run: node --check src/game.js
+      timeout_s: 30
+    - run: |-
+        node -e 'const g=require("./src/game.js");for(const k of ["createGame","setDirection","step","placeFood","tickInterval"])if(typeof g[k]!=="function"){console.error("missing export "+k);process.exit(1)}'
+      timeout_s: 30
+integration_verify:
+  - run: node --test test/game.test.js
+    timeout_s: 120
+  - run: node --check src/game.js
+    timeout_s: 30
+  - run: node --check src/main.js
+    timeout_s: 30
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+  - id: T3
+    spec: tasks/T3.md
+budget:
+  max_usd: 2

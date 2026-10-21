@@ -78,9 +78,13 @@ export function summaryPayload(summary: RunSummary, sessionId: string, events: E
   const lastPaused = [...events].reverse().find((e) => e.type === "run.paused");
   const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
   const isNeedsInput = summary.pause_reason === "needs_human" && questions !== undefined;
+  // R12.3: the accepted plan's lint warnings (the total of the last plan.produced); absent when there are none.
+  const planProduced = [...events].reverse().find((e) => e.type === "plan.produced");
+  const planWarnings = Number((planProduced?.data as { warning_count?: unknown } | undefined)?.warning_count ?? 0);
   return {
     ...summary,
     ...(isNeedsInput ? { subtype: "needs_input", run_id: summary.run_id, questions } : {}),
+    ...(planWarnings > 0 ? { plan_warnings: planWarnings } : {}),
     session_id: sessionId,
     events,
   };

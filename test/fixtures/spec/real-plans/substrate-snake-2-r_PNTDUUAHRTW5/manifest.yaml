@@ -1,0 +1,33 @@
+version: 1
+run_id: r_PNTDUUAHRTW5
+goal: Build a dependency-free browser Snake game with pure, unit-tested game logic and a canvas front end.
+base_ref: 669d0c1474c1b892bd11c2cf30d1b5c329be26b8
+ecosystem: other
+setup: []
+contracts:
+  files:
+    - package.json
+    - src/game.js
+    - src/input.js
+    - src/render.js
+  typecheck:
+    - run: node --check src/game.js
+      timeout_s: 30
+    - run: node --check src/input.js
+      timeout_s: 30
+    - run: node --check src/render.js
+      timeout_s: 30
+    - run: node -e "Promise.all(['./src/game.js','./src/input.js','./src/render.js'].map((p)=>import(p))).then(([g,i,r])=>{const ok=['createGame','placeFood','setDirection','togglePause','step','tickDelayMs'].every((n)=>typeof g[n]==='function')&&typeof i.keyToAction==='function'&&typeof r.render==='function'&&g.DEFAULT_COLS===20&&g.DEFAULT_ROWS===20;process.exit(ok?0:1)})"
+      timeout_s: 30
+integration_verify:
+  - run: npm test
+    timeout_s: 120
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+  - id: T3
+    spec: tasks/T3.md
+budget:
+  max_usd: 1.5

@@ -128,6 +128,10 @@ To read the plan before any worker runs, start the run with `--review` (the plan
 
 **A stop during planning.** A resume of a run that was stopped while planning reuses the complete plan draft the planner left, when it passes the same checks, and then does not call the planner again. It prints `found a complete plan draft from the earlier planning session; using it`. If there is no draft that passes, it prints `no plan was accepted; planning again (planning costs again)` and keeps the old draft in `drafts-<n>/`.
 
+## Plan warnings (R12.3)
+
+A plan's lint warnings never refuse it, and a warning never costs a planner retry. When the accepted plan had warnings, the json result carries `plan_warnings` (their count), and the run directory has `plan-warnings.txt`, one warning per line (rule id, task, message). Read it when you review the plan. Only a blocker refuses a plan.
+
 ## Exit codes
 
 - `0`: success. A run whose final check could not run also exits `0`; check `verification` (see above).

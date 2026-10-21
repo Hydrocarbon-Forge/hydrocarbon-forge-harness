@@ -19,7 +19,14 @@ import { DEFAULT_SETTINGS } from "../config/index.js";
 import { createAdapters, type AdapterMap } from "../backends/registry.js";
 import { endStaleWorkers } from "../backends/worker-pids.js";
 import { type EngineState, type RunState, reduce } from "./reducer.js";
-import { commitContractStubs, ingestPlanDraft, planTasksForEvent } from "../roles/planner.js";
+import {
+  commitContractStubs,
+  ingestPlanDraft,
+  planTasksForEvent,
+  planWarningsEventData,
+  planWarningsOf,
+  writePlanWarnings,
+} from "../roles/planner.js";
 import { resolveBaseRef } from "../git/base-ref.js";
 import { failRunOnInternalError, isInterruption, notifyObserver, observerCrashed } from "./internal-error.js";
 import { type EffectContext, runEffectsLoop } from "./effects.js";
@@ -486,11 +493,14 @@ export class EngineImpl implements Engine {
               runDir,
             );
             await emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });
+            const draftWarnings = planWarningsOf(ingested.warnings, runDir, repoRoot);
+            writePlanWarnings(runDir, draftWarnings);
             await emit("plan.produced", {
               manifest: ingested.manifest,
               tasks: planTasksForEvent(ingested.manifest, ingested.plan.specs),
               commit_sha: commitSha,
               source: "draft",
+              ...planWarningsEventData(draftWarnings),
             });
           } else {
             keptDraft = setAsideDraft(runDir);
@@ -528,11 +538,14 @@ export class EngineImpl implements Engine {
           const base = resolveBaseRef(repoRoot, reviewed.manifest.base_ref);
           const commitSha = await commitContractStubs(repoRoot, runId, base.sha, reviewed.manifest.contracts, runDir);
           await emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });
+          const reviewWarnings = planWarningsOf(reviewed.warnings, runDir, repoRoot);
+          writePlanWarnings(runDir, reviewWarnings);
           await emit("plan.produced", {
             manifest: reviewed.manifest,
             tasks: planTasksForEvent(reviewed.manifest, reviewed.plan.specs),
             commit_sha: commitSha,
             source: "review",
+            ...planWarningsEventData(reviewWarnings),
           });
         }
 

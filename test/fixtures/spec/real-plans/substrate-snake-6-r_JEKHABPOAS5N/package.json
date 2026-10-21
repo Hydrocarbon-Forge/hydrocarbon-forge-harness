@@ -1,0 +1,11 @@
+{
+  "name": "snake",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Snake game for the browser: pure game logic in src/game.js, canvas UI in src/main.js.",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "test": "node --test test/"
+  }
+}

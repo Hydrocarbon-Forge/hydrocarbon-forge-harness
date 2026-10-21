@@ -1,0 +1,34 @@
+version: 1
+run_id: r_JEKHABPOAS5N
+goal: Build a zero-dependency browser Snake game with pure, tested game logic and a canvas UI.
+base_ref: d93f3d3ea2a62a1ea41f02703751638d01aa890e
+ecosystem: other
+setup: []
+contracts:
+  files:
+    - package.json
+    - src/game.js
+  typecheck:
+    - run: node --check src/game.js
+      timeout_s: 30
+    - run: node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"
+      timeout_s: 30
+integration_verify:
+  - run: npm test
+    timeout_s: 120
+  - run: node --check src/main.js
+    timeout_s: 30
+  - run: node --check src/render.js
+    timeout_s: 30
+  - run: |
+      node --input-type=module -e "import fs from 'node:fs'; import * as g from './src/game.js'; for (const f of ['src/main.js','src/render.js']) { const s = fs.readFileSync(f,'utf8'); for (const m of s.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/game\.js'/g)) for (const n of m[1].split(',').map(x=>x.trim().split(/\s+as\s+/)[0]).filter(Boolean)) if (!(n in g)) { console.error('missing export', n); process.exit(1); } }"
+    timeout_s: 30
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+  - id: T3
+    spec: tasks/T3.md
+budget:
+  max_usd: 1.5

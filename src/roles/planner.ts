@@ -87,6 +87,8 @@ export type PlannerOutcome =
       plan: ParsedPlan;
       usage: UsageRecord;
       commitSha: string;
+      /** The lint warnings of the accepted plan (R12.3); they never refused it. */
+      warnings: PlanWarning[];
       /** Set when the planner's base_ref was ignored (see resolveBaseRef). */
       baseNote?: string;
       sessionId: string;
@@ -283,6 +285,59 @@ export async function ingestPlanDraft(opts: {
   }
 
   return { ok: true, manifest, plan: parsedPlan, warnings };
+}
+
+/** A lint warning of an accepted plan (R12.3): the rule id, the task it names, and one line of text. */
+export interface PlanWarning {
+  id: string;
+  task?: string;
+  message: string;
+}
+
+/** The run-directory file that holds every warning of the accepted plan, one per line (R12.3). */
+export const PLAN_WARNINGS_FILE = "plan-warnings.txt";
+
+/** The most warnings plan.produced carries; plan-warnings.txt holds all of them (R12.3). */
+export const MAX_EVENT_WARNINGS = 20;
+
+/**
+ * Lint diagnostics as plan warnings: the run directory and the repository root taken out of the
+ * message, and the message on one line.
+ */
+export function planWarningsOf(diags: Diagnostic[], runDir: string, repoRoot: string): PlanWarning[] {
+  return diags.map((d) => {
+    const message = withoutRootPaths(d.message, [runDir, repoRoot]).replace(/\s+/g, " ").trim();
+    return { id: d.code, ...(d.task !== undefined ? { task: d.task } : {}), message };
+  });
+}
+
+/**
+ * Writes plan-warnings.txt in the run directory: `id<TAB>task<TAB>message` per line, `-` for a plan-wide
+ * warning. With no warnings the file is removed, so a stale list from an earlier plan never stays.
+ */
+export function writePlanWarnings(runDir: string, warnings: PlanWarning[]): void {
+  const file = path.join(runDir, PLAN_WARNINGS_FILE);
+  if (warnings.length === 0) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
+  const lines = warnings.map((w) => `${w.id}\t${w.task ?? "-"}\t${w.message}`);
+  fs.writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
+}
+
+/** The warning fields of plan.produced: the first MAX_EVENT_WARNINGS, messages at most 300 characters, and the total. */
+export function planWarningsEventData(warnings: PlanWarning[]): {
+  warnings: Array<{ id: string; task?: string; message: string }>;
+  warning_count: number;
+} {
+  return {
+    warnings: warnings.slice(0, MAX_EVENT_WARNINGS).map((w) => ({
+      id: w.id,
+      ...(w.task !== undefined ? { task: w.task } : {}),
+      message: w.message.slice(0, 300),
+    })),
+    warning_count: warnings.length,
+  };
 }
 
 /**
@@ -785,11 +840,14 @@ export async function runPlanner(
       opts.runDir,
     );
 
+    const warnings = planWarningsOf(ingested.warnings, opts.runDir, opts.repoRoot);
+    writePlanWarnings(opts.runDir, warnings);
     return {
       kind: "plan_ready",
       plan: parsedPlan,
       usage: usageRecord(route, totals),
       commitSha,
+      warnings,
       baseNote: base.note,
       sessionId,
     };

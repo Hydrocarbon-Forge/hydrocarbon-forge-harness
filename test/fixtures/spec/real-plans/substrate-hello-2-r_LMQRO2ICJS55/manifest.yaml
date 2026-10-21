@@ -1,0 +1,15 @@
+version: 1
+run_id: r_LMQRO2ICJS55
+goal: Add a Java hello world program.
+base_ref: 3c0f5bb999505e770a506866a8fecf96c7ea02ee
+ecosystem: other
+setup: []
+contracts:
+  files: []
+  typecheck: []
+integration_verify:
+  - run: mkdir -p build/hw_out && javac -d build/hw_out src/main/java/HelloWorld.java && java -cp build/hw_out HelloWorld | grep -qx 'Hello, World!'
+    timeout_s: 60
+tasks:
+  - id: T1
+    spec: tasks/T1.md

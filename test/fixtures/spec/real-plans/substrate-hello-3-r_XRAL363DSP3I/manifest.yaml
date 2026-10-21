@@ -1,0 +1,17 @@
+version: 1
+run_id: r_XRAL363DSP3I
+goal: Add a Hello World program in Java.
+base_ref: 47f30a86f0493dc7111b80fb4ca986b6d61621dd
+ecosystem: other
+setup: []
+contracts:
+  files: []
+  typecheck: []
+integration_verify:
+  - run: mkdir -p build/hello_out && javac -d build/hello_out src/Main.java && java -cp build/hello_out Main | grep -Fx "Hello, World!"
+    timeout_s: 120
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+budget:
+  max_usd: 0.2

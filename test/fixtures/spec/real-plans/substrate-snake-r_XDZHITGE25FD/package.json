@@ -1,0 +1,11 @@
+{
+  "name": "substrate-snake",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Snake game for the browser, written in dependency-free ES modules",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "test": "node --test test/"
+  }
+}

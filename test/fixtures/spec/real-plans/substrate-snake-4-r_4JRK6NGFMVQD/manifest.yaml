@@ -1,0 +1,40 @@
+version: 1
+run_id: r_4JRK6NGFMVQD
+goal: Build a browser-based Snake game (canvas UI plus a pure, tested game-logic module) with no dependencies.
+base_ref: e60e20e4149f62f998a66e3595726eea4f323008
+ecosystem: other
+setup: []
+contracts:
+  files:
+    - src/game.js
+  typecheck:
+    - run: node --check src/game.js
+      timeout_s: 30
+    - run: node -e "const g=require('./src/game.js'); for (const k of ['DEFAULT_WIDTH','DEFAULT_HEIGHT']) if (typeof g[k] !== 'number') process.exit(1); for (const k of ['createGame','turn','step','randomFreeCell','tickDelayMs']) if (typeof g[k] !== 'function') process.exit(1)"
+      timeout_s: 30
+integration_verify:
+  - run: node --test test/game.test.js
+    timeout_s: 120
+  - run: node --check src/main.js
+    timeout_s: 30
+  - run: |
+      node -e '
+      const fs = require("fs");
+      const html = fs.readFileSync("index.html", "utf8");
+      const js = fs.readFileSync("src/main.js", "utf8");
+      const need = ["board", "score", "best", "overlay", "message"];
+      const bad = need.filter((id) => !html.includes("id=\"" + id + "\"") || !js.includes("getElementById(\"" + id + "\")"));
+      const a = html.indexOf("src/game.js");
+      const b = html.indexOf("src/main.js");
+      if (bad.length || a < 0 || b < 0 || a > b) { console.error("wiring problems", bad, a, b); process.exit(1); }
+      '
+    timeout_s: 30
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+  - id: T3
+    spec: tasks/T3.md
+budget:
+  max_usd: 1.5

@@ -1,0 +1,30 @@
+version: 1
+run_id: r_XDZHITGE25FD
+goal: Build a dependency-free browser Snake game (pure-logic module, keyboard controls, canvas UI) with a node:test suite.
+base_ref: 19b0b43682b7aa427e41e52b6e245e3f7faa27ce
+ecosystem: other
+setup: []
+contracts:
+  files:
+    - package.json
+    - src/game.js
+    - src/controls.js
+  typecheck:
+    - run: node --input-type=module -e "import { existsSync } from 'node:fs'; if (existsSync('src/game.js')) { const g = await import('./src/game.js'); for (const n of ['createGame','placeFood','setDirection','step','tickInterval']) if (typeof g[n] !== 'function') throw new Error(n); }"
+      timeout_s: 30
+    - run: node --input-type=module -e "import { existsSync } from 'node:fs'; if (existsSync('src/controls.js')) { const c = await import('./src/controls.js'); for (const n of ['keyToDirection','keyToCommand']) if (typeof c[n] !== 'function') throw new Error(n); }"
+      timeout_s: 30
+    - run: node --input-type=module -e "import { existsSync, readFileSync } from 'node:fs'; if (existsSync('package.json') && JSON.parse(readFileSync('package.json', 'utf8')).type !== 'module') throw new Error('type');"
+      timeout_s: 30
+integration_verify:
+  - run: sh -c 'if [ -f src/main.js ]; then npm test; fi'
+    timeout_s: 180
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+  - id: T3
+    spec: tasks/T3.md
+budget:
+  max_usd: 2

@@ -190,6 +190,15 @@ export const PlanStartedEvent = member("plan.started", z.object({}).strict());
 // One entry of a plan's task list. id and spec are the manifest's fields; title, class
 // and depends_on come from the task spec's frontmatter and are there so progress
 // output can show the plan without reading files.
+/** One lint warning of an accepted plan (R12.3): its rule id, the task it names, and one line of text. */
+export const PlanWarningEntry = z
+  .object({
+    id: z.string(),
+    task: z.string().optional(),
+    message: z.string().max(300),
+  })
+  .strict();
+
 export const PlanTaskEntry = z
   .object({
     id: z.string(),
@@ -209,6 +218,10 @@ export const PlanProducedEvent = member(
       commit_sha: z.string().optional(),
       // R10.5: where the accepted plan came from. `draft` is a complete draft a resume reused (the planner did not run).
       source: z.enum(["planner", "draft", "review"]).optional(),
+      // R12.3: the lint warnings of the accepted plan, at most 20 (the first ones), each message at most 300
+      // characters. warning_count is the total; the whole list is in plan-warnings.txt in the run directory.
+      warnings: z.array(PlanWarningEntry).max(20).optional(),
+      warning_count: z.number().int().nonnegative().optional(),
     })
     .strict()
 );

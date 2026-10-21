@@ -107,13 +107,14 @@ Non-ASCII transliteration (for example `é` to `e`), locale rules and length lim
 ```
 Three targets are enough for this helper. A longer list is a sign that the spec tests internals; keep to about 3-5 targets for a small helper and never more than about 10.
 
-### Pre-flight checklist (the linter enforces these)
+### Pre-flight checklist (the linter reports these)
+Lint refuses a plan only when it cannot run, such as a missing task spec, a duplicate task id, an unknown dependency or a dependency cycle. Every other item below is a warning: the reviewer sees it, and the plan still runs.
 1. Task ids are unique and match the pattern; every task in `manifest.yaml` has a spec file and every spec file is listed.
 2. `depends_on` names existing tasks and has no cycles.
 3. Every `write` path exists in the repository; new files use `create`. No path escapes the repository.
 4. No two tasks that can run at the same time write or create the same file.
-5. A file that a task lists under `protected` may be created or written only by the `tests` task that owns it, or by a task the protecting task depends on (directly or transitively) and so runs before it. Any other task that writes or creates it, and the protecting task or its descendants, is an error. The fix is to add `depends_on` to the protecting task or remove the path from its `protected` list.
-6. Every task has at least one `verify` command whose binary exists and whose test paths exist at base or are created by the same task (in its `create` or `write`) or by a task it depends on, directly or transitively. A test path that nothing provides is an error: create it in this task or a dependency, or fix the path.
+5. A file that a task lists under `protected` may be created or written only by the `tests` task that owns it, or by a task the protecting task depends on (directly or transitively) and so runs before it. Any other task that writes or creates it, and the protecting task or its descendants, is a warning. The fix is to add `depends_on` to the protecting task or remove the path from its `protected` list.
+6. Every task has at least one `verify` command whose binary exists and whose test paths exist at base or are created by the same task (in its `create` or `write`) or by a task it depends on, directly or transitively. A test path that nothing provides is a warning: create it in this task or a dependency, or fix the path.
 7. All seven sections are present and non-empty; no placeholder text in Interface or Behavior.
 8. Every `class` is one of the classes listed in the request.
 9. `read` stays small (a handful of files); if it does not, the task is too large.

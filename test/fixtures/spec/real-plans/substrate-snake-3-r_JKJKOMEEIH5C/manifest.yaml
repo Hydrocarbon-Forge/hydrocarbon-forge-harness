@@ -1,0 +1,30 @@
+version: 1
+run_id: r_JKJKOMEEIH5C
+goal: Build a dependency-free browser Snake game (vanilla ES modules on a canvas) with unit tests on Node's built-in test runner.
+base_ref: 62d310be615e64d873a06b66b717a963c842c649
+ecosystem: other
+setup: []
+contracts:
+  files:
+    - src/game.js
+    - src/ui.js
+    - src/app.js
+  typecheck:
+    - run: node --check src/game.js
+      timeout_s: 30
+    - run: node --check src/ui.js
+      timeout_s: 30
+    - run: node --check src/app.js
+      timeout_s: 30
+integration_verify:
+  - run: "sh -c 'if grep -q CONTRACT_STUB src/game.js; then echo contract-stubs-still-present-skipping-tests; else node --test test/*.test.js; fi'"
+    timeout_s: 180
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+  - id: T2
+    spec: tasks/T2.md
+  - id: T3
+    spec: tasks/T3.md
+budget:
+  max_usd: 3

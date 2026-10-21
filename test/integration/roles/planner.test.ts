@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -279,6 +279,29 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
       const outcome = await runPlanner(options(adapter));
       expect(outcome.kind).toBe("plan_ready");
       expect(adapter.spawnedRequests.length).toBe(1);
+    });
+
+    it("an accepted plan's warnings are returned and written to plan-warnings.txt in the run directory (R12.3)", async () => {
+      const adapter = adapterFor([
+        {
+          reply: "PLAN READY",
+          files: {
+            ...planFiles(runId),
+            "tasks/T1.md": sampleValidTaskSpecMarkdown({
+              frontmatter: { write: ["src/nothing-matches.ts"] },
+            }),
+          },
+        },
+      ]);
+
+      const outcome = await runPlanner(options(adapter));
+      expect(outcome.kind).toBe("plan_ready");
+      if (outcome.kind !== "plan_ready") return;
+      const l007 = outcome.warnings.find((w) => w.id === "L007");
+      expect(l007?.task).toBe("T1");
+      expect(l007?.message).toContain("src/nothing-matches.ts");
+      const lines = readFileSync(join(runDir, "plan-warnings.txt"), "utf8").trimEnd().split("\n");
+      expect(lines.some((l) => l.startsWith("L007\tT1\t") && l.includes("src/nothing-matches.ts"))).toBe(true);
     });
 
     it("L003, L019 and L027 are suppressed only because the plan files live in the run directory", async () => {

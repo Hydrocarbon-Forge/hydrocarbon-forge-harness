@@ -1,0 +1,15 @@
+version: 1
+run_id: r_AAMVRRTGBCUT
+goal: Add a polished animated Swing GUI to the Java hello world app.
+base_ref: 33f7f844d51f7ace66eafb57bc9672374ec179a1
+ecosystem: other
+setup: []
+contracts:
+  files: []
+  typecheck: []
+integration_verify:
+  - run: d=$(mktemp -d) && javac -d "$d" src/*.java && java -cp "$d" Main --text | grep -qx 'Hello, World!'
+    timeout_s: 120
+tasks:
+  - id: T1
+    spec: tasks/T1.md

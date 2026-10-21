@@ -1,0 +1,15 @@
+version: 1
+run_id: r_SH6PM3VRD4S6
+goal: Add a Java Hello World program.
+base_ref: c31e5cb4db355ee2a14a60da096d243be1256a25
+ecosystem: other
+setup: []
+contracts:
+  files: []
+  typecheck: []
+integration_verify:
+  - run: d=$(mktemp -d) && javac -d "$d" src/Main.java && java -cp "$d" Main | grep -qx 'Hello, World!'
+    timeout_s: 120
+tasks:
+  - id: T1
+    spec: tasks/T1.md

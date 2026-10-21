@@ -12,11 +12,14 @@ import {
   finishLine,
   formatRejectedData,
   planTasksForEvent,
+  planWarningsEventData,
+  planWarningsOf,
   plannerBudgetMessage,
   plannerFailureMessage,
   plannerSpawnBudgetUsd,
   runPlanner,
   sessionFailureMessage,
+  writePlanWarnings,
   type PlannerEmit,
 } from "../../roles/planner.js";
 import { resolvePlannerRoute } from "../../roles/router.js";
@@ -291,6 +294,9 @@ export async function runPlanAction(
         continue;
       }
       const { manifest, plan: parsedPlan } = ingested;
+      // R12.3: the warnings of the accepted plan are kept in the run directory and carried by plan.produced.
+      const warnings = planWarningsOf(ingested.warnings, ctx.runDir, ctx.repoRoot);
+      writePlanWarnings(ctx.runDir, warnings);
 
       const base = resolveBaseRef(ctx.repoRoot, manifest.base_ref);
       const commitSha = await commitContractStubs(
@@ -306,6 +312,7 @@ export async function runPlanAction(
         manifest,
         tasks: planTasksForEvent(manifest, parsedPlan.specs),
         commit_sha: commitSha,
+        ...planWarningsEventData(warnings),
       });
       return;
     }
@@ -408,5 +415,6 @@ export async function runPlanAction(
     manifest: outcome.plan.manifest,
     tasks: planTasksForEvent(outcome.plan.manifest, outcome.plan.specs),
     commit_sha: outcome.commitSha,
+    ...planWarningsEventData(outcome.warnings),
   });
 }

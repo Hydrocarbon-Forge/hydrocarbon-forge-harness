@@ -1,0 +1,17 @@
+version: 1
+run_id: r_E43YCFQYPLFP
+goal: Add a Hello World program in Java.
+base_ref: d10dfe01894dde42dcf0eeff2c4262a57c06c2aa
+ecosystem: other
+setup: []
+contracts:
+  files: []
+  typecheck: []
+integration_verify:
+  - run: javac -d build/hello_build src/Main.java && java -cp build/hello_build Main | grep -x 'Hello, World!'
+    timeout_s: 120
+tasks:
+  - id: T1
+    spec: tasks/T1.md
+budget:
+  max_usd: 0.2
