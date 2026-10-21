@@ -438,6 +438,14 @@ export const resumeCommand: CliCommand = {
         events: runEvents,
       });
       const summary = landed.summary;
+      // R10.5: a resumed run that ends planned again names the review step, as `plan` does (status.ts agrees).
+      if (summary.status === "planned") {
+        summary.next = [
+          recorded.worker !== undefined
+            ? `substrate resume ${summary.run_id}`
+            : `substrate resume ${summary.run_id} --work <provider:model[:effort]>`,
+        ];
+      }
       if (forked) {
         await sessionStore.addRun(forked.sessionId, summary.run_id);
         formatter.onSummary(summary, forked.sessionId);

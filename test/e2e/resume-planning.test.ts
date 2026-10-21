@@ -125,10 +125,15 @@ function alive(pid: number): boolean {
 }
 
 /** Starts a run whose planner is held open (the fake hangs and writes its pid); kills the CLI and the planner. */
-async function killDuringPlanning(repoDir: string, scenario: string, calls: unknown[]): Promise<{ runId: string; plannerPid: number }> {
+async function killDuringPlanning(
+  repoDir: string,
+  scenario: string,
+  calls: unknown[],
+  args: string[] = [...RUN_ARGS, "Plan it"],
+): Promise<{ runId: string; plannerPid: number }> {
   writeFileSync(scenario, JSON.stringify({ calls }), "utf8");
   const pidFile = `${scenario}.pid`;
-  const { child } = startCli(repoDir, [...RUN_ARGS, "Plan it"], scenario);
+  const { child } = startCli(repoDir, args, scenario);
   await waitFor(() => existsSync(pidFile), "the held planner's pid");
   const plannerPid = Number(readFileSync(pidFile, "utf8"));
   planners.push(plannerPid);
@@ -216,6 +221,69 @@ describe("R10.5: a resume after a stop during planning", () => {
       // Moved, not deleted: the abandoned manifest is in drafts-1.
       expect(existsSync(join(runDir, "drafts-1", "manifest.yaml"))).toBe(true);
       expect(eventsIn(runDir).filter((e) => e.type === "plan.started").length).toBe(2);
+    } finally {
+      repo.cleanup();
+    }
+  }, 180000);
+
+  it("(B1) a plan-only run killed after its complete plan: resume --work reuses the draft, ends planned, and names the review step", async () => {
+    const repo = createE2ERepo(SEED);
+    writeSettings(repo.dir);
+    try {
+      const scenario = join(mkdtempSync(join(tmpdir(), "resume-planning-b1-")), "scenario.json");
+      const planArgs = ["plan", "--plan", "claude:claude-sonnet-5-5", "Plan it"];
+      const { runId } = await killDuringPlanning(repo.dir, scenario, [{ ...planCall(oneTaskPlan()), failure: "hang" }], planArgs);
+      const runDir = join(repo.dir, ".substrate", "runs", runId);
+
+      const out = cliSync(repo.dir, ["resume", runId, "--work", "claude:haiku"], []);
+      expect(out.status, out.stderr).toBe(0);
+      expect(out.stdout).toContain("found a complete plan draft from the earlier planning session; using it");
+      expect(out.stdout).toContain("Status:     planned");
+      expect(out.stdout).toContain(`review or edit the plan in .substrate/runs/${runId}/`);
+      expect(out.stdout).toContain(`then run: substrate resume ${runId} --work <provider:model[:effort]>`);
+      expect(out.stdout).not.toContain("substrate merge");
+      const summaryTxt = readFileSync(join(runDir, "summary.txt"), "utf8");
+      expect(summaryTxt).toContain("review or edit the plan");
+      expect(summaryTxt).not.toContain("substrate merge");
+      const result = JSON.parse(readFileSync(join(runDir, "result.json"), "utf8"));
+      expect(result.next).toEqual([`substrate resume ${runId} --work <provider:model[:effort]>`]);
+    } finally {
+      repo.cleanup();
+    }
+  }, 180000);
+
+  it("(B2) the same resume with --output-format json: next names the resume, not merge", async () => {
+    const repo = createE2ERepo(SEED);
+    writeSettings(repo.dir);
+    try {
+      const scenario = join(mkdtempSync(join(tmpdir(), "resume-planning-b2-")), "scenario.json");
+      const planArgs = ["plan", "--plan", "claude:claude-sonnet-5-5", "Plan it"];
+      const { runId } = await killDuringPlanning(repo.dir, scenario, [{ ...planCall(oneTaskPlan()), failure: "hang" }], planArgs);
+
+      const out = cliSync(repo.dir, ["resume", runId, "--work", "claude:haiku", "--output-format", "json"], []);
+      expect(out.status, out.stderr).toBe(0);
+      expect(out.stdout).not.toContain("substrate merge");
+      expect(out.stdout).toContain(`substrate resume ${runId} --work <provider:model[:effort]>`);
+      expect(out.stdout).toContain("\"status\":\"planned\"");
+    } finally {
+      repo.cleanup();
+    }
+  }, 180000);
+
+  it("(B3) run --review killed after its complete plan: a bare resume ends planned and names the bare resume", async () => {
+    const repo = createE2ERepo(SEED);
+    writeSettings(repo.dir);
+    try {
+      const scenario = join(mkdtempSync(join(tmpdir(), "resume-planning-b3-")), "scenario.json");
+      const reviewArgs = ["run", "--review", "--plan", "claude:claude-sonnet-5-5", "--work", "claude:haiku", "Plan it"];
+      const { runId } = await killDuringPlanning(repo.dir, scenario, [{ ...planCall(oneTaskPlan()), failure: "hang" }], reviewArgs);
+
+      const out = cliSync(repo.dir, ["resume", runId], []);
+      expect(out.status, out.stderr).toBe(0);
+      expect(out.stdout).toContain("Status:     planned");
+      expect(out.stdout).toContain(`then run: substrate resume ${runId}\n`);
+      expect(out.stdout).not.toContain("--work <provider:model[:effort]>");
+      expect(out.stdout).not.toContain("substrate merge");
     } finally {
       repo.cleanup();
     }
