@@ -154,6 +154,22 @@ substrate runs [--output-format json]
 
 Lists the runs in this project, newest first, one line each: id, status, start time (how long ago, and ISO), cost, `passed/total` tasks, `merged yes|no`, and the first 60 characters of the request. The status is `running` only while the run's process holds the run lock; a run with no terminal event and no live process shows `stopped`; the others are `finished`, `failed`, `paused`, `interrupted` (a Ctrl+C) and `cancelled`. With no runs it prints `No runs yet` and exits `0`. `--output-format json` prints one JSON array of objects (`run_id`, `status`, `started_at`, `cost_usd`, `passed`, `total`, `merged`, `request` up to 200 characters). `history` lists archived runs and is unchanged.
 
+## stop
+
+```text
+substrate stop [--force] [run-id]
+```
+
+Stops a running run from any terminal. The run's process is sent SIGTERM, the same graceful path as Ctrl+C: its workers are killed with their process groups, and the run is `paused` with reason `user_cancel`, so `substrate resume <run-id>` continues it (tasks that passed are not run again). Output: `stopping run <id> (pid <n>)...`, then `run <id> stopped. Resume with: substrate resume <id>`, exit `0`.
+
+- **Which run.** With a run id, that run. Without one, the one run that is running in this project; when two or more are running, `stop` exits `2`, lists them, and names `substrate stop <run-id>`.
+- **Waiting.** `stop` waits up to 15 seconds for the process to exit. If it has not, it exits `1` with `run <id> did not stop within 15 s; use: substrate stop --force <id>`.
+- **--force.** After that wait, `stop --force` sends SIGKILL to the same process. Workers the run recorded are ended by the next `substrate resume`, as after any SIGKILL (see Interrupt and resume).
+- **Safety.** The pid comes from the run's lock file. It is signalled only when its command line names `substrate`; otherwise `stop` exits `1` with `pid <n> is not a Substrate process (stale lock); not signalling it` and sends nothing.
+- **A run that is not running** exits `0` and says so: `run <id> is not running (it ended finished)` for a run that finished or failed, or `run <id> is not running (stopped). Resume with: substrate resume <id>` for a run whose process went without a clean stop. With no run running in the project it prints `no run is running in this project`.
+- An unknown run id exits `2` with `No such run: <id>`.
+- `--output-format json` prints one object: `run_id`, `stopped` (true when the process ended), `pid` (the run's process, or null), and `next` (the command that continues the run, or null).
+
 ## run
 
 ```text
@@ -482,6 +498,7 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 - **Exit codes.** SIGINT exits `130` and SIGTERM exits `143`. A second signal forces the exit at once. The summary of an interrupted run says `Status: paused` and `Exit Code:` with the signal's code.
 - **The checkout is untouched.** An interrupted run merges nothing and leaves your checkout as it was. Its task worktrees stay on disk, because resume needs them.
 - **Resume** continues the run: tasks that passed are not run again, and the models of the run are used (see resume).
+- **substrate stop** (from any terminal) sends SIGTERM to the run's process and waits up to 15 s. It takes this same graceful path, so a run started in another terminal stops the same way; resume it afterwards. See [stop](#stop).
 - **SIGKILL** (no chance to clean up) writes no `run.paused` event and can leave a harness process behind. The next `substrate resume` ends the recorded process before it continues; a run lock left by the killed CLI does not block the resume.
 
 ## Budget stop and refused landings (R8.2)

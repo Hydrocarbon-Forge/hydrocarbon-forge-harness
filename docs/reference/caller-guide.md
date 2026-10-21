@@ -80,6 +80,7 @@ If you cannot keep `substrate run`'s stdout open (a second terminal, a script th
 - To poll, run `substrate status <id> --output-format json` and read `status` (`running`, `stopped`, `finished`, `failed`, `paused` or `interrupted`), `phase`, `counts` and `next`. `status` never changes anything, so it is safe to call often.
 - When `status` says the run has ended, read `result.json` in `.substrate/runs/<id>/`. `summary.txt` in the same directory holds the summary block that text mode prints.
 - `stopped` means the process that started the run has gone. Resume it with `substrate resume <id>`.
+- To end a running run from another terminal, run `substrate stop <id>`. It sends the same graceful stop as Ctrl+C and waits up to 15 seconds; it exits `0` with `run <id> stopped. Resume with: substrate resume <id>`. Resume continues the run without running passed tasks again. `substrate stop` with no id stops the only running run of the project and refuses (exit `2`) when there are two.
 
 ## Handle needs_input
 

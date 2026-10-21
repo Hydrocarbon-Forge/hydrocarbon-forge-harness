@@ -100,6 +100,7 @@ await import(`./commands/charter.js`);
 await import(`./commands/gc.js`);
 await import(`./commands/watch.js`);
 await import(`./commands/runs.js`);
+await import(`./commands/stop.js`);
 await import(`./bench.js`);
 
 const CLI_OPTIONS = {
