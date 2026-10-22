@@ -23,6 +23,7 @@ export interface AgyAdapterOptions {
   bin?: string;
   pricing: PricingTable;
   maxConcurrency?: number;
+  versionPin?: string;
 }
 
 const execFileAsync = promisify(execFile);
@@ -222,16 +223,15 @@ export class AgyAdapter implements HarnessAdapter {
       }
 
       const version = res.stdoutTail.trim();
-      const pinMatches = version === this.capabilities.version_pin;
+      const pin = this.options.versionPin ?? this.capabilities.version_pin;
+      const pinMatches = version === pin;
       return {
         ok: true,
         version,
         pin_matches: pinMatches,
         problems: pinMatches
           ? []
-          : [
-              `agy version mismatch: expected ${this.capabilities.version_pin}, found ${version}`,
-            ],
+          : [`agy version mismatch: expected ${pin}, found ${version}`],
       };
     } catch {
       return {

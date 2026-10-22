@@ -66,6 +66,7 @@ export function createAdapters(
     }),
     agy: new AgyAdapter({
       bin: agyConf?.["bin"] ?? "agy",
+      versionPin: agyConf?.["version_pin"],
       pricing: pricingTableFor(settings),
       maxConcurrency: agyConf?.["max_concurrency"],
     }),
