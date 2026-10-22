@@ -48,7 +48,8 @@ export function recordedRunOptions(events: readonly EngineEvent[]): RecordedRun 
 /**
  * The settings overrides a recorded run implies. They sit above the project settings and below the
  * overrides a resume is given, so a resume without a flag keeps what the run was started with, and
- * `--max-budget-usd` (or the request's budget) on a resume replaces it.
+ * `--max-budget-usd` (or the request's budget) on a resume replaces it. Only schema-valid keys: the
+ * run-level lists and the history flag are in recordedRunLists.
  */
 export function recordedSettingsOverrides(recorded: RecordedRun): Partial<Settings> {
   const out: Record<string, unknown> = {};
@@ -57,13 +58,23 @@ export function recordedSettingsOverrides(recorded: RecordedRun): Partial<Settin
   // R11.2: a recorded limit is in seconds; the setting is in minutes. A run recorded with no limit takes the setting.
   if (typeof recorded.time_limit_s === "number") run.max_wall_min = recorded.time_limit_s / 60;
   if (Object.keys(run).length > 0) out.budgets = { run };
-  if (recorded.verify !== undefined) out.verify = recorded.verify;
-  if (recorded.context !== undefined) out.context = recorded.context;
   if (recorded.permissions !== undefined) out.permissions = recorded.permissions;
   if (recorded.sandbox === true) out.sandbox = { enabled: true };
   if (typeof recorded.concurrency === "number") out.concurrency = { workers: recorded.concurrency };
-  if (recorded.history_all === true) out.historyAll = true;
   return out as Partial<Settings>;
+}
+
+/**
+ * The recorded run-level keys the Settings schema does not have (verify, context, historyAll). The engine
+ * merges them into its in-memory settings on resume, so a resumed run keeps its lists; they never go
+ * through loadSettings.
+ */
+export function recordedRunLists(recorded: RecordedRun): { verify?: string[]; context?: string[]; historyAll?: true } {
+  const out: { verify?: string[]; context?: string[]; historyAll?: true } = {};
+  if (Array.isArray(recorded.verify)) out.verify = recorded.verify;
+  if (Array.isArray(recorded.context)) out.context = recorded.context;
+  if (recorded.history_all === true) out.historyAll = true;
+  return out;
 }
 
 /**
