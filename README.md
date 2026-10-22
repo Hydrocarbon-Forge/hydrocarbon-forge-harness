@@ -65,6 +65,8 @@ Settings come from several layers. The layers, their order and every settings ke
 
 If you are an agent that calls Substrate, read [docs/reference/caller-guide.md](docs/reference/caller-guide.md) first. It shows how to check readiness, choose models, send a request, answer questions from a paused run, read usage, and what each exit code means.
 
+Hermes and other agents that manage Substrate projects on a user's behalf should also read [docs/reference/hermes-guide.md](docs/reference/hermes-guide.md).
+
 ## Contributing
 
 Contributors start at [START-HERE.md](START-HERE.md). Binding design decisions are in [docs/plan/DECISIONS.md](docs/plan/DECISIONS.md).
