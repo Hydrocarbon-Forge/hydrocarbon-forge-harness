@@ -4,52 +4,93 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Substrate</title>
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-  <header class="topbar">
-    <strong class="brand">substrate</strong>
-    <span id="conn" class="conn" aria-live="polite">connecting</span>
-    <button id="theme" type="button" class="ghost" title="Toggle light or dark">theme: system</button>
-  </header>
-  <div class="layout">
-    <nav class="sidebar" aria-label="Jobs">
-      <section>
-        <h2>Running <span id="count-running" class="count"></span></h2>
-        <ul id="list-running" class="jobs"></ul>
-      </section>
-      <section>
-        <h2>Past <span id="count-past" class="count"></span></h2>
-        <ul id="list-past" class="jobs"></ul>
-      </section>
-    </nav>
-    <main id="main" class="main">
-      <p id="empty" class="empty">Choose a job on the left.</p>
-      <article id="job" class="job" hidden>
-        <header class="job-head">
-          <h1 id="job-request"></h1>
-          <p id="job-meta" class="meta"></p>
-          <p id="job-status" class="status-line"></p>
-          <div class="actions">
-            <button id="btn-stop" type="button">Stop</button>
-            <button id="btn-resume" type="button">Resume</button>
-            <span id="action-msg" class="action-msg" role="status"></span>
+  <a class="skip" href="#pane-scroll">Skip to the transcript</a>
+  <div class="app">
+    <header class="topbar">
+      <button id="btn-drawer" class="ghost drawer-btn" type="button" aria-controls="sidebar" aria-expanded="false">Jobs</button>
+      <strong class="brand">substrate</strong>
+      <label class="sr" for="project-select">Project</label>
+      <select id="project-select" class="project-select"></select>
+      <span class="grow"></span>
+      <button id="btn-theme" class="ghost" type="button">theme: system</button>
+      <button id="btn-help" class="ghost" type="button" aria-label="Keyboard shortcuts" aria-keyshortcuts="?">?</button>
+    </header>
+
+    <div class="body">
+      <nav id="sidebar" class="sidebar" aria-label="Jobs and actors">
+        <div id="side-list" class="side-list"></div>
+      </nav>
+      <div id="scrim" class="scrim" hidden></div>
+
+      <main id="main" class="main">
+        <section id="job-empty" class="empty-main">
+          <h1>Substrate</h1>
+          <p>Choose a job on the left. Jobs from every project on this machine appear there.</p>
+        </section>
+
+        <section id="job" class="job" hidden>
+          <header id="job-head" class="job-head"></header>
+          <div id="report-slot" class="report-slot"></div>
+          <nav id="actorbar" class="actorbar" aria-label="Actor">
+            <button id="actor-up" class="ghost small" type="button" aria-label="Parent actor">^ up</button>
+            <button id="actor-prev" class="ghost small" type="button" aria-label="Previous actor">[ prev</button>
+            <span class="actor-id"><span id="actor-title" class="actor-title"></span> <span id="actor-meta" class="actor-meta-text"></span></span>
+            <button id="actor-next" class="ghost small" type="button" aria-label="Next actor">] next</button>
+          </nav>
+          <div class="pane">
+            <div id="pane-scroll" class="pane-scroll" tabindex="0" aria-label="Transcript or log">
+              <button id="pane-more" class="ghost small more" type="button" hidden>Load earlier</button>
+              <div id="pane-top" class="pane-top"></div>
+              <div id="pane-feed" class="feed"></div>
+              <div id="pane-bottom" class="pane-bottom"></div>
+            </div>
+            <button id="jump" class="jump" type="button" hidden>Jump to latest</button>
+            <div id="live" class="live" hidden></div>
           </div>
-        </header>
-        <section>
-          <h2>Tasks</h2>
-          <table class="tasks">
-            <thead><tr><th>Task</th><th>State</th><th>Attempt</th><th>Verify</th><th>Cost</th></tr></thead>
-            <tbody id="task-rows"></tbody>
-          </table>
         </section>
-        <section>
-          <h2>Engine</h2>
-          <ol id="events" class="events"></ol>
-        </section>
-      </article>
-    </main>
+      </main>
+    </div>
+
+    <section id="chat" class="chat" aria-label="Ask the planner">
+      <div id="chat-log" class="chat-log" hidden></div>
+      <div class="chat-box">
+        <label class="sr" for="chat-input">Message to the planner. Enter sends, Shift+Enter starts a new line.</label>
+        <textarea id="chat-input" rows="2" disabled placeholder="Ask the planner, e.g. make the board 12x12. Enter sends."></textarea>
+        <button id="chat-send" class="primary" type="button" disabled>Send</button>
+      </div>
+      <p id="chat-note" class="chat-note">Changes apply to pending tasks only. Running tasks finish unless stopped.</p>
+    </section>
+
+    <footer id="status" class="statusbar" role="status">
+      <span id="status-text"></span>
+    </footer>
   </div>
-  <script type="module" src="assets/app.js"></script>
+
+  <dialog id="help" aria-labelledby="help-title">
+    <h2 id="help-title">Keyboard shortcuts</h2>
+    <table class="keys">
+      <tbody>
+        <tr><th scope="row"><kbd>j</kbd> / <kbd>k</kbd> or <kbd>↑</kbd> <kbd>↓</kbd></th><td>Move through the job list. Enter opens the focused row.</td></tr>
+        <tr><th scope="row"><kbd>g</kbd> then <kbd>e</kbd></th><td>Open the Engine of the selected job.</td></tr>
+        <tr><th scope="row"><kbd>[</kbd> / <kbd>]</kbd></th><td>Previous or next actor (Planner, Engine, tasks, attempts, Integration, Repair).</td></tr>
+        <tr><th scope="row"><kbd>^</kbd></th><td>Up to the parent task of an attempt.</td></tr>
+        <tr><th scope="row"><kbd>/</kbd> or <kbd>c</kbd></th><td>Focus the message box to the planner.</td></tr>
+        <tr><th scope="row"><kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>Enter</kbd></th><td>In the message box: send, or a new line.</td></tr>
+        <tr><th scope="row"><kbd>e</kbd></th><td>Expand every folded block in the pane.</td></tr>
+        <tr><th scope="row"><kbd>s</kbd></th><td>Stop the job. Press again to confirm.</td></tr>
+        <tr><th scope="row"><kbd>r</kbd></th><td>Resume the job, when it is not running.</td></tr>
+        <tr><th scope="row"><kbd>t</kbd></th><td>Cycle the theme: system, light, dark.</td></tr>
+        <tr><th scope="row"><kbd>?</kbd></th><td>This list.</td></tr>
+        <tr><th scope="row"><kbd>Esc</kbd></th><td>Leave a field, close this list, or return to the job list.</td></tr>
+      </tbody>
+    </table>
+    <p><button id="help-close" type="button">Close</button></p>
+  </dialog>
+
+  <script type="module" src="assets/js/app.js"></script>
 </body>
 </html>

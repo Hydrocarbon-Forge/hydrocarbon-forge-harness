@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -160,6 +160,41 @@ describe("E2E web UI server (ui serve)", () => {
     } finally {
       controller.abort();
       await ui.stop();
+    }
+  });
+
+  it("serves every asset the index page references with the content type its kind needs", async () => {
+    const seeded = seed();
+    const ui = await startUi(seeded.env);
+    try {
+      const page = await fetch(`${ui.url}/`);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("content-type")).toContain("text/html");
+      const html = await page.text();
+      const assets = [...html.matchAll(/(?:href|src)="(assets\/[^"]+)"/g)].map((m) => m[1]);
+      expect(assets).toContain("assets/app.css");
+      expect(assets).toContain("assets/js/app.js");
+      for (const asset of assets) {
+        const res = await fetch(`${ui.url}/${asset}`);
+        expect(res.status, asset).toBe(200);
+        const type = res.headers.get("content-type") ?? "";
+        expect(type, asset).toMatch(asset.endsWith(".css") ? /^text\/css/ : /^text\/javascript/);
+      }
+    } finally {
+      await ui.stop();
+    }
+  });
+
+  it("keeps every client module a valid ES module (node --check on a .mjs copy of each file)", () => {
+    const moduleDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "web", "js");
+    const copies = mkdtempSync(join(tmpdir(), "substrate-web-client-"));
+    const files = readdirSync(moduleDir).filter((name) => name.endsWith(".js"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const name of files) {
+      const copy = join(copies, name.replace(/\.js$/, ".mjs"));
+      copyFileSync(join(moduleDir, name), copy);
+      const result = spawnSync(process.execPath, ["--check", copy], { encoding: "utf8" });
+      expect(result.status, `${name}: ${result.stderr}`).toBe(0);
     }
   });
 });
