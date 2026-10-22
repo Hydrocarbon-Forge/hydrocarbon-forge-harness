@@ -3,6 +3,12 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { buildAgyArgv, AgyAdapter } from "../../../src/backends/adapters/agy.js";
 import { log } from "../../../src/util/log.js";
 import type { PricingTable, SpawnRequest } from "../../../src/contracts/index.js";
+import { spawnSupervisedProcess } from "../../../src/backends/process.js";
+
+vi.mock("../../../src/backends/process.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../src/backends/process.js")>()),
+  spawnSupervisedProcess: vi.fn(),
+}));
 
 const samplePricing: PricingTable = {
   asOf: "2026-10-16",
@@ -140,5 +146,66 @@ describe("Agy Argument Builder: buildAgyArgv", () => {
     expect(buildAgyArgv({ ...baseReq, session: { id: "sess-1" } })).not.toContain(
       "--conversation"
     );
+  });
+});
+
+describe("Agy Version Pin: validateEnvironment", () => {
+  afterEach(() => {
+    vi.mocked(spawnSupervisedProcess).mockReset();
+  });
+
+  function mockVersionOutput(version: string): void {
+    vi.mocked(spawnSupervisedProcess).mockReturnValue({
+      wait: () => Promise.resolve({ exitCode: 0, stdoutTail: `${version}\n` }),
+    } as never);
+  }
+
+  it("uses the settings versionPin when the installed binary matches it", async () => {
+    mockVersionOutput("1.4.5");
+    const adapter = new AgyAdapter({
+      bin: process.execPath,
+      pricing: samplePricing,
+      versionPin: "1.4.5",
+    });
+
+    await expect(adapter.validateEnvironment()).resolves.toEqual({
+      ok: true,
+      version: "1.4.5",
+      pin_matches: true,
+      problems: [],
+    });
+  });
+
+  it("reports a mismatch against the settings versionPin", async () => {
+    mockVersionOutput("1.4.2");
+    const adapter = new AgyAdapter({
+      bin: process.execPath,
+      pricing: samplePricing,
+      versionPin: "1.4.5",
+    });
+
+    const report = await adapter.validateEnvironment();
+    expect(report.ok).toBe(true);
+    expect(report.pin_matches).toBe(false);
+    expect(report.problems).toHaveLength(1);
+    expect(report.problems[0]).toContain("expected 1.4.5");
+    expect(report.problems[0]).toContain("found 1.4.2");
+  });
+
+  it("falls back to capabilities.version_pin when no versionPin is set", async () => {
+    const adapter = new AgyAdapter({ bin: process.execPath, pricing: samplePricing });
+
+    mockVersionOutput("1.4.2");
+    await expect(adapter.validateEnvironment()).resolves.toMatchObject({
+      pin_matches: true,
+      problems: [],
+    });
+
+    mockVersionOutput("1.4.5");
+    const report = await adapter.validateEnvironment();
+    expect(report.pin_matches).toBe(false);
+    expect(report.problems[0]).toContain("expected 1.4.2");
+    expect(report.problems[0]).toContain("found 1.4.5");
+    expect(adapter.capabilities.version_pin).toBe("1.4.2");
   });
 });
