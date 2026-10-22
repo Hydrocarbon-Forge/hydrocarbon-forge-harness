@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-10-18T04:57:30Z",
+  "timestamp": "2026-10-20T15:16:15Z",
   "status": "ready",
-  "current_work_package": "R1.5",
+  "current_work_package": null,
   "completed_work_packages": [
     {
       "id": "R0.1",
@@ -57,70 +57,667 @@
       "title": "Entry point, build and signals",
       "commit": "44d17d5",
       "status": "DONE",
-      "notes": "node bin/substrate.mjs --help exit 0; entry test (b): SIGINT exit 130, fake pid ESRCH, run.paused user_cancel, lock released; npm test 866 passed, typecheck, bundle, check exit 0. Deviations: events stream at emit time (actions/shared.ts + effects.ts); observer throw stops persistence (chaos boundary contract); smoke solo it.fails marker removed (main.ts bundle entry fixed dynamic imports); check-wired entries include src/cli/main.ts; signal plumbed into run/plan/resume.ts + bindAbort at spawn sites (per spec note); entry test (c) kept it.fails for R3.2 C-H4"
+      "notes": "node bin/substrate.mjs --help exit 0; entry test (b): SIGINT exit 130, fake pid ESRCH, run.paused user_cancel, lock released; npm test 866 passed, typecheck, bundle, check exit 0. Deviations: events now stream at emit time (actions/shared.ts + effects.ts loop); once the event observer throws the run stops persisting (chaos boundary contract); smoke solo it.fails marker removed (main.ts bundle entry fixed dynamic imports, run is real); check-wired entries include src/cli/main.ts; signal plumbed into run/plan/resume.ts + bindAbort at spawn sites (per spec note); entry test (c) kept it.fails for R3.2 C-H4"
     },
     {
       "id": "R1.2",
       "title": "Event catalog and typed emit",
       "commit": "8535819",
       "status": "DONE",
-      "notes": "42 catalog members + legacy scope.checked (observe-only); check:events exit 0, events allowlist 0; CLI no longer reads task.started/task.verified/usage; unit+integration+npm test all pass. Deviations: member run_id as string (RunId regex rejects protected-fixture ids); legacy scope.checked observe-only member + dual emit (protected scenario-04); cost.ts accepts legacy flat usage via regex (protected CLI fixture); reducer cases integration.failed/tasks.invalidated/batch.merged/bisect.culprit; crash flag moved to ctx (run-wide); resume.ts stale run.state line removed (outside write list); PauseReason debt resolved; EVENT_TYPES dead-debt until R5.3"
+      "notes": "42 catalog members + legacy `scope.checked` (observe-only); npm run check:events exit 0, events allowlist 0; git greps for task.started/task.verified/usage in src/cli empty; events+reducer unit tests (112), integration (scenarios+engine) pass; typecheck, check, npm test exit 0. Deviations: member `run_id` validated as string (RunId regex rejects ids in protected fixtures, engine accepts them); legacy `scope.checked` kept as observe-only member + dual emit (protected scenario-04 asserts old name); cost.ts accepts legacy flat `usage` events via regex (protected CLI fixture); reducer consumes `integration.failed`, `tasks.invalidated`, `batch.merged` checkpoint_ref, `bisect.culprit`; crash-suppression flag moved to ctx (run-wide) in engine/emit.ts; resume.ts stale `run.state` line removed (outside write list); PauseReason dead-debt entry resolved; EVENT_TYPES dead-debt entry added until R5.3"
     },
     {
       "id": "R1.3",
       "title": "Status, tasks, report, summary and clean output",
       "commit": "3ac7150",
       "status": "DONE",
-      "notes": "test/integration/cli 53 passed (Behaviors 1-4: output.test.ts; 2/5/6/7 + torn-line + status-json: commands.test.ts; resume already-finished: execution.test.ts); Done-when 1 grep prints nothing; bundled CLI json smoke prints json ok with CLI exit 1 (planner produced no plan, stdout still one JSON object); typecheck, check, npm test exit 0. Deviations: intra-cli imports dynamic (check-boundaries scans only static specifiers); status --output-format json added for Done-when 2; class column dropped from tasks table (catalog events carry no class); report files-changed sourced from run.finished data.files (engine emits only on dirty-checkout failure); non-catalog log lines skipped via parseEngineEvent; torn final line warns on stderr"
+      "notes": "test/integration/cli 53 passed (Behaviors 1-4: output.test.ts; Behaviors 2/5/6/7 + torn-line edge + Done-when 2 status-json: commands.test.ts; resume already-finished: execution.test.ts); Done-when 1 grep prints nothing; bundled CLI json smoke prints \"json ok\", CLI exit code 1 (planner produced no plan; stdout still exactly one JSON object); typecheck, check (incl. boundaries), npm test exit 0. Deviations: intra-cli imports use dynamic backtick imports (check-boundaries only scans static/quoted specifiers); status --output-format json added (Done-when 2); CLASS column dropped from tasks table (task class not carried by catalog events, reducer has no class field; table shows ID/State/Gen/Att/Failure/Verdict); report \"files changed\" sourced from run.finished data.files (engine only emits it on dirty-checkout failure, otherwise \"none recorded\"); status/tasks/report read logs via parseEngineEvent (non-catalog lines skipped); TORN final line warning implemented per edge case; FAILED-without-failure_class shows \"-\" via fallback (real runs always carry a class so no test drives it); test fixture import from ../scenarios/helpers.js reused"
     },
     {
       "id": "R1.4",
       "title": "Usage ledger and budget totals",
-      "commit": "4865a8e",
+      "commit": "b58d277",
       "status": "DONE",
       "notes": "E2E bundled CLI smoke: ledger lines = 3, events count = 3; vitest unit+integration pass (971 tests); typecheck and check exit 0. Deviations: member run_id validated as string in UsageLedgerEntry (matching EngineEvent / engine generator); rebuildFromEvents mapped to R2.8 dead allowlist (consumed by substrate usage --rebuild); docs/reference/config.md documented usage setting for docs check; test/unit/engine/reducer.test.ts updated obsolete budget-pause test (actions handle budget pauses per R1.4); test/unit/contracts/schemas.test.ts registered UsageLedgerEntry"
+    },
+    {
+      "id": "R1.5",
+      "title": "Settings schema and CLI overrides",
+      "commit": "d40de94",
+      "status": "DONE",
+      "notes": "merge+loader unit tests 26 passed; flags integration 14 passed; grep claude-haiku-5-5 in solo.ts prints nothing; npm test 982 passed; typecheck and npm run check exit 0. Deviations: test/integration/cli/execution.test.ts assertion updated to the spec seconds-to-minutes timeout conversion (40 s = 40/60 min); debt-allowlist entries added for genuinely unread keys roles.worker.backend (until R2.2, which consumes route.backend per R2.2 line 94) and roles.worker.effort (until R5.3, same as roles.reviewer.*); solo.ts worker read split into two lines (const worker = ctx.settings.roles.worker!; const workerModel = worker.model) so the settings check detects the read"
+    },
+    {
+      "id": "R1.6",
+      "title": "Env layer, config command, dispatch rules",
+      "commit": "970371b",
+      "status": "DONE",
+      "notes": "npm test 1035 passed (1 live smoke skipped); typecheck and npm run check exit 0; test/unit/config/precedence.test.ts asserts each of the seven layers beats the one below it in a single loadSettings call (every test passes an explicit env). SUBSTRATE_MODEL maps to roles.planner.model only, per the spec table; its interaction with profiles and routing defaults is revisited in R2.9. Owner resolution 2026-10-18 (docs/plan/BLOCKED.md) supersedes Done-when #4: the seven settings allowlist entries (budgets.run.max_tokens, budgets.task.max_turns, execution.strategy, git.auto_merge, git.branch_prefix, instructions.workers, sandbox.network) are kept with until set to DEFERRED so npm run check passes now that R1.6 is DONE; their deletion is deferred until the consuming WPs (R3.1, R3.4, R3.7) read those keys, at which point the entries become stale and the check forces removal. Deviations: test/integration/cli/flags.test.ts:218-228 (old unknown-command exit-2 assertion) updated to the new dispatch rule (an unknown first word is a run prompt), per the R1.2-R1.5 stale-test precedent; dead allowlist entry added for mergeSettings (until R5.3) because the spec mandates deepMerge for the fold while the export stays for the existing loader.test.ts merge tests"
+    },
+    {
+      "id": "R1.7",
+      "title": "Prompt loader and renderer",
+      "commit": "e7bbc0c",
+      "status": "DONE",
+      "notes": "npm test 1079 passed (1 live smoke skipped); grep \"You are\" src/roles/prompts prints nothing; npm run typecheck and npm run check exit 0; npm run bundle then node dist/substrate.mjs agents lists the 5 built-in roles (planner, worker, test-writer, reviewer, governor), exit 0. Deviations: test/integration/cli/commands.test.ts agents block updated to the new spec (five role files listed; project override wins) per the R1.2-R1.5 stale-test precedent; test/integration/roles/planner.test.ts omitted-skills case changed from section-omitted to section rendered as (none), same precedent; the four P6 debt-allowlist entries deleted per Done-when #5; dead allowlist entry added for loadAgentDefinitions (until R5.3) because the agents command now reads listAgents and the config export became test-only (check-wired flags dead symbols)"
+    },
+    {
+      "id": "R1.8",
+      "title": "Run-control flags and unregistered commands",
+      "commit": "6f112e2",
+      "status": "DONE",
+      "notes": "node dist/substrate.mjs bench --help (exit 0) and agents import --help (exit 0) print usage; grep worktree in dispatcher and -w/--worktree in README/cli.md print nothing; flags and run-control tests (35 passed), npm test (1100 passed), typecheck and check exit 0"
+    },
+    {
+      "id": "R2.1",
+      "title": "Price table and unknown-cost policy",
+      "commit": "7bb61cf",
+      "status": "DONE",
+      "notes": "test/unit/backends/pricing.test.ts, normalize-agy.test.ts, normalize-claude.test.ts, normalize-opencode.test.ts pass (96 tests in backends+ledger); typecheck, check, npm test (1110 passed, 1 skipped) exit 0"
+    },
+    {
+      "id": "R2.2",
+      "title": "Adapter registry; FakeAdapter leaves src",
+      "commit": "218d95f",
+      "status": "DONE",
+      "notes": "git grep fake-adapter src and git grep ctx.adapter src print nothing; vitest test/e2e/adapters.test.ts passed; typecheck, bundle, check, npm test (1111 passed) exit 0"
+    },
+    {
+      "id": "R2.3",
+      "title": "Claude adapter correctness",
+      "commit": "1fa9e0f",
+      "status": "DONE",
+      "notes": "VERIFY FIRST 1: claude --help confirmed --append-system-prompt. VERIFY FIRST 2: claude with non-UUID session-id exits 1. Step 2 (npm run bundle && npx vitest run test/e2e/adapters.test.ts): 1 passed (124ms) asserting argv --session-id is UUID, --append-system-prompt has system text, --disallowedTools has Bash(git commit*) and Agent. Backends tests (100 passed), typecheck, check, npm test (1124 passed) exit 0."
+    },
+    {
+      "id": "R2.4",
+      "title": "OpenCode adapter correctness",
+      "commit": "4725797",
+      "status": "DONE",
+      "notes": "Verified export JSON path: tokens at messages[].tokens (and part.tokens) with keys input, output, reasoning, cache.read, cache.write. Step 3 grep checks: grep 127.0.0.1/8080 in opencode adapter, grep subagents in opencode adapter, and grep 127.0.0.1 in src all printed nothing. Tests (74 backends/git passed), typecheck, check, npm test (1137 passed) exit 0."
+    },
+    {
+      "id": "R2.5",
+      "title": "agy adapter correctness",
+      "commit": "a88a8da",
+      "status": "DONE",
+      "notes": "VERIFY FIRST 1: agy --help on the installed binary (2026-10-18) lists --print-timeout, --mode, --effort, so --print-timeout 0s is kept (comment cites the verification; documented default is 5m per S3). VERIFY FIRST 2: dialect agy.mjs falls back to process.env.FAKE_SCENARIO; the adapter no longer passes FAKE_SCENARIO/AGY_LIVE, so tests drive the scenario dialect through req.env (same practice as test/conformance/fake-adapter.ts); the integration test proves both directions: process env is not inherited (env-dump wrapper) and req.env drives the scenario. Verified against the real binary: flag existence plus S3-documented behaviour (stderr denial signal, exit 0 on soft deny, cumulative result.usage, --conversation resume); verified against the dialect only: argv construction, SYSTEM RULES prompt labels, env allowlist, session-total summation, protocol-error emission. Deviations: skipScenarios [\"soft_deny\"] added to test/integration/backends/agy.test.ts because the protected conformance suite asserts denials.some(d => d.tool === \"Bash\"), which only held while the removed --denial-tool flag carried the deny name; real agy has no deny-list flag (deny rules live in settings.json per S3), so the agy-specific test asserts tool RunCommand/command instead; precedent is claude.test.ts skipScenarios [\"resume\"]. Session total is the sum of the per-step usage records (zero record when no step usage); result usage is never emitted as a usage event; the adapter defaultUsage fallback was removed. Record model is req.model (init echo overwrite removed). The P8 debt-allowlist entry for src/backends/adapters/agy.ts (until R2.5) was removed. Tests: targeted run 46 passed (3 files); full suite 1152 passed \\ | 2 skipped (102 files); typecheck, check exit 0."
+    },
+    {
+      "id": "R2.6",
+      "title": "listModels for each adapter",
+      "commit": "13dac4e",
+      "status": "DONE",
+      "notes": "VERIFY FIRST 1: agy models on the installed binary (2026-10-18, captured through head) prints the header line Fetching available models... then tab-separated id-then-display rows, so the parser keeps only lines matching an id slug then a tab and the single tier effort applies to the slug suffix (low, medium, high). VERIFY FIRST 2: opencode models --standalone on the installed binary prints 0 lines (exit 0), so the OpenCode fixture keeps its header assumption as UNVERIFIED plus one S2 id (opencode/deepseek-v4.1-flash-free) with empty family efforts. Deviations: efforts is string[] (native variant names) not the Effort enum, exactly as the spec Interface snippet; listModels is optional on HarnessAdapter so the protected test/integration/backends/claude.test.ts conformance wrapper and the test/integration/roles/fixtures.ts stub, which build adapter objects without it and are outside the write list, still typecheck, and every concrete adapter implements it. Contract catalogue conflict resolved by owner decision (recorded in docs/plan/BLOCKED.md): ModelInfo was added to EXPECTED_DECLARATIONS in test/unit/contracts/schemas.test.ts with a comment, because the hard-coded list is stale against IMPLEMENTATION-PLAN.md line 198 which assigns the ModelInfo contract to R2.6. check:dead requires ModelInfo used as a value in src, so both parsers validate every entry through ModelInfo.parse, matching the existing SessionResultSchema.parse pattern in agy.ts. Registry knownModels order is settings roles, then settings routing model strings including array entries, then price table keys, dedup keeping first occurrence; the second registry test expectation was corrected to include claude-sonnet-5-5 from DEFAULT_SETTINGS.routing.feature, since routing model strings are included per spec line 89. OpenCode family efforts resolve prefix-first on the id (openai/, anthropic/, google/) with keyword fallback on the whole line, so google/claude-sonnet-4-6 resolves as google family. The dialects answer models as first arg by writing their fixture verbatim to stdout, and both bin-to-fixture diff proofs print same. Tests: targeted run of test/unit/backends and test/conformance 180 passed (12 files, 26 of them in list-models.test.ts); full suite 1178 passed and 2 skipped (103 files); typecheck and check exit 0. No debt-allowlist entry had until R2.6."
+    },
+    {
+      "id": "R2.7",
+      "title": "substrate models",
+      "commit": "1a7db9f",
+      "status": "DONE",
+      "notes": "vitest: test/unit/cli/model-catalog.test.ts 12 passed, test/integration/cli/commands.test.ts 26 passed (8 in the models block), test/e2e/models.test.ts 5 passed through the bundle; full suite 1202 passed, 2 skipped, 105 files; typecheck and npm run check exit 0. Deviations: the --provider and --refresh flag gate was resolved by owner decision (docs/plan/BLOCKED.md, option 1): provider and refresh were added to CLI_OPTIONS in src/cli/dispatcher.ts with two optional ParsedCliFlags fields and the flags mapping, and the E2E proves both flags through dist/substrate.mjs; model-catalog.ts is imported from commands/models.ts via a backtick dynamic import per the check-boundaries convention (R1.3 precedent, only quoted specifiers are scanned); models.ts copies the CliGlobalFlags, ParsedCliFlags and CommandContext interfaces (per-command convention) and adds provider and refresh to its copy, and the integration test uses a local intersection type because the shared flags type lives in a file outside the write list; cache file shape is v 1 with generated_at and providers and is written only to .substrate/state/models.json; a corrupt cache file is ignored and rewritten; stale is strictly older than 24h; cache fresh means anything was built this run and cached means fully served from the cache, with generated_at preserved only on a fully cached run; subset builds preserve out-of-scope cache entries; providers are in canonical order claude, opencode, agy and all_models sorted by provider then id; array-valued routing entries (escalation) do not count as slots; unpriced models carry null price; uninstalled providers report installed false, never as an error; an unknown provider prints Error on stderr, prints an error object on stdout in JSON mode, and exits 2"
+    },
+    {
+      "id": "R2.8",
+      "title": "substrate usage",
+      "commit": "c4d9651",
+      "status": "DONE",
+      "notes": "typecheck exit 0; test/unit/cli/usage.test.ts + test/unit/ledger 41 passed (4 files); npx vitest run test/e2e/usage.test.ts: 3 passed (3) through the built CLI via runSubstrate — usage JSON worker row runs 2 calls 3 input 1810 output 465 cost 0.5 with 1 unknown; cost alias prints text header `group runs calls input output cost` and the same row `worker 2 3 1810 465 $0.5000 (+ 1 unknown)`; --rebuild prints `rebuilt 1 line(s) from 1 run(s)` then the report; full suite 1225 passed \\ | 2 skipped (107 files); npm run check exit 0 (purity, wired, events, settings, boundaries, docs: OK). Deviations (user instruction 2026-10-19, recorded in docs/plan/BLOCKED.md): allowlist — rebuildFromEvents entry deleted (genuinely consumed by --rebuild through the command), aggregateLedger entry re-targeted to DEFERRED per the R1.6 precedent because R2.8 guardrails make its consumption impossible and src/ledger/index.ts is protected; docs gate forced documenting usage in docs/reference/cli.md (not in the write list) so the `### cost` section was rewritten as `### usage` with the cost alias note, per the R1.4 config.md precedent; stale tests updated per the R1.2-R1.7 precedent (commands.test.ts cost block asserts the new header and event-derived rows, flags.test.ts cost assertion changed to alias resolution since parseCliArgs resolves cost to its primary name usage). cost.ts is a backtick dynamic import re-export because a static export-from would make a cli file import the cli area (R1.3 precedent), and the export name stays costCommand for src/cli/index.ts. Behaviour notes: --since accepts Nd or YYYY-MM-DD, run shorthand is flags.run or the first positional, invalid --by or --since exit 2 with Error on stderr and an error object on stdout in JSON mode (models.ts convention), zero entries prints no usage recorded exit 0, --all-projects without the global mirror prints no global mirror exit 0, totals are summed from groupUsage rows, JSON totals omits the group label, cache columns appear only with --cache, globalEnabled is settings.usage.global default true, rebuild rewrites the ledger from usage.recorded events"
+    },
+    {
+      "id": "R2.9",
+      "title": "Profiles and routing defaults",
+      "commit": "cc379fa",
+      "status": "DONE",
+      "notes": "typecheck exit 0; targeted run (test/unit/roles test/unit/config test/unit/engine/ladder.test.ts test/unit/spec/rules.test.ts) 261 passed (15 files), including the new test/unit/roles/router-profiles.test.ts 26 passed; npx vitest run test/e2e/profiles.test.ts 3 passed through the built CLI via runSubstrate, and the same settings through the CLI by hand print: `models --provider claude` -> `profile-plan-slot-model low,medium,high,xhigh,max 1/5 per Mtok -`, `profile-work-slot-model ... 1/5 per Mtok -`, `profile-fast-slot-model ... 1/5 per Mtok -` (all three slot ids also present in `models --output-format json`); `config get defaults` with `defaults.worker_provider` = agy and no agy profile -> exit 2, stderr `Error: profiles.agy is required because defaults.worker_provider is \"agy\"`; `config get profiles` prints the accepted profile. Full suite 1254 passed \\ | 2 skipped (109 files); npm run check exit 0 (purity, wired, events, settings, boundaries, docs: OK). Routing is reachable from the CLI, not only from tests: resolveTaskRoute is consumed by src/engine/actions/task.ts, src/engine/replan.ts and src/roles/worker.ts (the run path), and ladder L1 builds its route through resolveTaskRoute. Behaviour: precedence is explicit routing.<cls> > worker-provider profile slot (fast classes fall back to work when fast is absent) > routing.feature, then the exact throw `no route configured for class '<cls>': set routing.<cls> or profiles plus defaults.worker_provider`; generation >= 2 walks the worker provider's escalationChain (fast, work, plan, repeats removed) from the base model's position and clamps at the last slot, so with no profile configured the legacy routing.escalation array still works; the hard-coded claude-sonnet-5-5 fallback is gone and there are no model-id literals in src/roles/router.ts or src/engine/ladder.ts; every routing function is pure (same settings twice returns an equal Route, no I/O); routeRequest's governor steps are untouched and appendRouteOutcome is not consumed in src; L015 counts a class as configured when routing.<cls> exists or the worker provider's profile has a slot for it through slotForClass, its message is unchanged and the existing L015 test still passes; validateProfiles runs after Settings.parse in loadSettings and produces `profiles.<p> is required because defaults.<field> is \"<p>\"`. Deviations (recorded in docs/plan/BLOCKED.md): the `appendRouteOutcome` allowlist entry could not be deleted as Done-when #5 requires because nothing in src can consume it (RouteOutcomeRecord needs run_id, routeRequest has none), so it was re-targeted to DEFERRED per the R1.6/R2.8 precedent; `ProfileSlot` and `Profile` were added to EXPECTED_DECLARATIONS in test/unit/contracts/schemas.test.ts per the R2.6 precedent; the docs gate forced `### profiles` and `### defaults` headings in docs/reference/config.md (not in the write list) per the R1.4 precedent; a new dead allowlist entry was added for resolvePlannerRoute with until R3.1 (its consumer is the R3.1 planner spawn, as runPlanner is already assigned to R3.1); the router reads settings through explicit per-slot accesses and literal `defaults.planner_provider` / `defaults.worker_provider` because check-settings matches exact source text for primitive leaf paths; the exit-2 validation case is asserted through `config get defaults` because the models command maps a loadSettings failure to exit 1 via main.ts while config maps it to exit 2"
+    },
+    {
+      "id": "R2.10",
+      "title": "init and doctor",
+      "commit": "69dbf7d",
+      "status": "DONE",
+      "notes": "typecheck exit 0; npx vitest run test/unit/cli/init.test.ts test/unit/cli/doctor.test.ts 20 passed (2 files); npx vitest run test/e2e/init-doctor.test.ts 1 passed through the built CLI via runSubstrate, whose calls print: `models --output-format json --provider claude` answers haiku, sonnet, opus, fable and claude-sonnet-5-5; `init --provider claude --plan haiku:medium --work sonnet:high --fast opus:low --force` exit 0 prints `wrote .substrate/settings.json`, `wrote .substrate/.gitignore`, `wrote .substrate/charter.md`, and settings.json holds only profiles (plan haiku effort medium, work sonnet high, fast opus low) and defaults (planner_provider claude, worker_provider claude) with no pricing key, .gitignore lines are runs/ worktrees/ state/ sessions/ ledger/ settings.local.json with no archive, and .git/info/exclude is unchanged; `doctor --output-format json` exit 0 prints the R1.8 keys node, git, bubblewrap, adapters plus the new checks list: node PASS, git PASS, claude PASS 2.1.301, opencode PASS 2.0.21, agy PASS 1.4.0, settings PASS, profiles.claude PASS plan=haiku work=sonnet fast=opus, bwrap PASS bubblewrap 0.11.1; the text form prints `[PASS] node: Node.js 26.10.0 (requires >= 22)` and one bracketed line per check with a `fix: ...` line for any WARN or FAIL, and a WARN-only profiles check keeps exit 0. Unit tests cover the flag validation cases: model 'not-a-model' prints `Error: model 'not-a-model' is not listed by claude; valid ids: haiku, sonnet, opus, fable, claude-sonnet-5-5` exit 2, a slot flag without --provider and --plan without --work exit 2, an effort outside the enum exit 2 with the valid values, an uninstalled provider prints `Error: provider agy is not installed` exit 2, kept versus --force, the .gitignore contents, and no .git/info/exclude change; the doctor unit tests cover check order, the pin-drift FAIL naming the pinned version, a missing binary as WARN when no profile names the provider and FAIL when one does, and exit 0 versus 1. Full suite 1275 passed and 2 skipped (112 files); npm run check exit 0 (purity, wired, events, settings, boundaries, docs: OK). No debt-allowlist entry had until R2.10 so Done-when 5 is vacuous. Deviations: force, plan, work and fast were added to CLI_OPTIONS and ParsedCliFlags with the flags mapping in src/cli/dispatcher.ts (outside the write list) per the R2.7 provider/refresh precedent so the CLI wires `substrate init`; no test asserts them as unknown options. R1.8 doctor JSON has no array, so \"add checks to its array\" is read as a new checks array of name, status, detail and fix while the four R1.8 keys keep their value shapes and JSON stays one line. Stale tests updated per the R1.2-R1.7 precedent: run-control.test.ts doctor JSON no longer asserts exit 0 because the real machine drifts from the pins (installed claude 2.1.302 against pin 2.1.301, agy 1.4.2 against pin 1.4.0) and now derives the code from the checks list; commands.test.ts init test no longer asserts .git/info/exclude content or settings.json without slot flags and now asserts the six directories, the .gitignore lines, no settings.json, and an unchanged exclude. docs/reference/cli.md init and doctor sections were rewritten for accuracy (outside the write list) per the R1.4 precedent. --force overwrites settings.json with only the diff keys, no merge, so a fresh file contains only profiles and defaults. Init validation order is provider required, plan and work together, effort against the Effort enum, known provider, settings load, provider installed, model membership, and errors return exit 2 directly because main.ts maps a thrown error to exit 1. The profiles check reports WARN for a provider whose validateEnvironment is not ok instead of calling listModels, which agy throws when its binary is missing. The doctor text output keeps the R1.8 header line, and the doctor unit test isolates PATH with node and git symlinks so bwrap is deterministically absent and WARN"
+    },
+    {
+      "id": "R3.1",
+      "title": "Planner action",
+      "commit": "0e674d6",
+      "status": "DONE",
+      "notes": "typecheck exit 0; npx vitest run test/unit/roles/planner-outcome.test.ts test/unit/spec test/integration/roles/planner.test.ts 105 passed (8 files, planner-outcome 8, planner integration 14); npm run bundle then npx vitest run test/e2e/planner.test.ts 3 passed through the built CLI. E2E output, plan mode through runSubstrate with the fake claude planner: (a) exit 0, events 1 run.created, 2 run.routed, 3 plan.started, 4 usage.recorded, 5 contracts.committed commit_sha 8e20eac7fde562934bb34708a8c6f7815b58d788, 6 plan.produced, 7 plan.lint valid true diagnostics empty, 8 plan.ready, 9 run.finished exit 0; (b) exit 0 with two usage.recorded events both role planner (the rejected manifest then the corrected one), 6 contracts.committed, 7 plan.produced, 8 plan.lint valid true, 9 plan.ready, 10 run.finished exit 0; (c) exit 3, Status paused, 5 run.paused reason needs_human questions_path <runDir>/QUESTIONS.md session_id dc7..., and no contracts.committed. Full suite npm test 1289 passed and 2 skipped (112 files); npm run check exit 0 (purity, wired, events, settings, boundaries, docs: OK). Deviations: added fields in src/contracts/events.ts, which the write list omitted, RunPausedEvent gains questions_path and session_id and PlanProducedEvent gains commit_sha. src/engine/actions/shared.ts is outside the write list: extractFencedFiles deleted per behaviour 1 and safeParseManifest made strict (no unvalidated fallback), safeLoadPlan kept because the read-only src/engine/effects.ts still imports it (dead debt until R5.3). The first spawn cannot have no session id because the claude adapter rejects a non-UUID session id (R2.3 VERIFY FIRST 2), so runPlanner generates crypto.randomUUID() for the first spawn as session id and resumes the same id for retries. PlannerRunOptions gained the optional route field; it has no signal, so the mid-session budget kill is not implemented here and is left to R3.4. Events gate scans only src/engine and src/cli, so plan.started, plan.produced, plan.lint and contracts.committed are emitted by the plan and lint actions and the planner emits only usage.recorded. The lint action calls lintPlan(plan, ctx.repoRoot, settings) and filters nothing (behaviour 15), so the E2E plan must be genuinely lint-clean; the planner keeps only the conditional L003, L019 and L027 suppression for paths present in runDir and the code comment names the reason, and the unconditional L007 and L016 suppressions are gone. Session failure throws PlannerFailure session before the finish-line check; the plan action maps format failures to failure_class spec_invalid and session failures to worker_crashed. Fenced-block paths are checked before the fallback writes, so an absolute or dot-dot path reports the path as the diagnostic instead of manifest.yaml missing. Stale tests updated per the R1.2-R1.7 precedent (test files outside the write list, every change recorded): the plan action always calls runPlanner so the pre-existing-plan fast path is deleted, which means every fixture that pre-wrote plan files now drives a planner call whose last non-empty line is PLAN READY or NEEDS INPUT, with honest budget fields and write patterns that match base files, and run ids that satisfy the RunId regex. Files changed this way: test/integration/roles/fixtures.ts, test/integration/roles/planner.test.ts (rewritten to the PlannerOutcome contract), scenarios 01, 02, 03, 04, 05, 06, 09, 12, 13, 15, cli/commands.test.ts, cli/output.test.ts, chaos/lock-contention.test.ts, chaos/torn-tail.test.ts, chaos/scenario-11-boundary-crash.test.ts. Chaos tests use fakeClaudeAdapter because the FakeAdapter prompt-keyword dispatch cannot produce a PLAN READY finish line; torn-tail boundaries are renumbered to the planner event sequence (crash at plan.produced is seq 6) and a PLANNING resume re-runs the plan action so it consumes one more planner call; scenario-07 keeps its it.fails marker until R3.4. scenario-13 asserts the correction prompt through attempt 2 of 3, Problems and deterministic checks rather than the word format. Debt allowlist: the five R3.1 entries (runPlanner, resolvePlannerRoute, generateRepoMap) were deleted per Done-when 5, plus buildPlannerPrompt and detectEcosystem which are now consumed by the thin prompt wrapper and the repo map first line, and the settings entry instructions.workers which rule 3 now reads; git.branch_prefix stays DEFERRED. check-settings reports roles.planner.backend only when runPlanner reads the leaf explicitly, so the fallback route is built from backend, model and effort on separate lines. Concurrent-session anomaly: a second opencode session in this repo created commit 69dbf7d (R2.10) while the file tools showed stale content, so state was verified through shell and the test files were rewritten here; recorded for the owner"
+    },
+    {
+      "id": "R3.2",
+      "title": "Scheduler, dependencies, terminal states, resume",
+      "commit": "3e38ed7",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/engine test/unit/store test/integration/cli: 271 passed (14 files, promote.test.ts 5 tests). npx vitest run test/e2e/scheduler.test.ts: 3 passed through the built CLI - (a) exit 0 with task.ready for B after task.merged for A, (b) run exit 4 with run.paused reason budget_exhausted then resume exit 0 with task.ready resumed for A and all three MERGED, (c) SIGKILL while a task was RUNNING then resume exit 0 with all three MERGED and seq strictly increasing across the kill. Full npm test: 1297 passed and 2 skipped (116 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: scheduler gained the extra pure export blockedPendingTasks so the loop emits task.blocked for PENDING tasks with a BLOCKED or ABANDONED dependency, because state changes must come from appended events. promoteReadyTasks returns ids sorted so merge order is deterministic. scheduleNextTasks keeps its signature, so the per-backend cap reads settings.roles.worker.backend then settings.backends[backend].max_concurrency. concurrency.workers is read with no fallback. Catalog fields added: SetupDoneEvent.tasks (id depends_on write create), TaskReadyEvent.resumed, TaskBlockedEvent.dependents, and TaskRuntimeState gained optional depends_on write create. EventStoreImpl gained the runDir option plus appendSync and readAllSync and validates the envelope with run_id as a string for the reason recorded in src/contracts/events.ts, and appendRunEvent now takes EffectContext so one store instance serves a run (a torn last line is skipped and never re-read as a middle-line corruption after appends); readAllRunEvents was deleted because engine.ts reads through the store. engine.ts generateRunId now calls util createRunId so generated ids satisfy the RunId regex the store documents. Deviations outside the write list: src/engine/emit.ts writes through the shared store, src/engine/actions/task.ts resumes the stored session when its worktree still exists (rule 8), test/unit/engine/events.test.ts makeTestEmitter now uses a fresh temp run dir because the store validates seq against the log, test/e2e/entry.test.ts case (c) changed from it.fails to a passing test because rule 8 puts the cancelled task back in the queue, and test/integration/chaos/lock-contention.test.ts now expects the rule 10 message. Exit codes come from state per rule 7 and the three duplicate mapSummaryExitCode copies were deleted; a live lock from another pid raises RunLockError and the CLI returns 2, with holderPid added to RunLockImpl. The loop emits its own events through makeEmitter so an observer crash still stops persistence as the chaos tests assert. The E2E runs use --permission-mode bypassPermissions (plan mode stops after the plan) and the plan fixture writes the contract stub into the run dir and seeds it at base. Allowlist: the three R3.2 entries deleted, plus four R5.3 entries (EngineEvent detectOverlap EventStoreImpl createRunId) that went stale because their symbols are now consumed"
+    },
+    {
+      "id": "R3.3",
+      "title": "Worker core",
+      "commit": "4a40ec2",
+      "status": "DONE",
+      "notes": "typecheck exit 0. npx vitest run test/integration/roles test/integration/git test/integration/verify test/unit/engine: 209 passed (13 files, worker-core.test.ts 5 tests). npx vitest run test/e2e/worker-core.test.ts: 4 passed through the built CLI - (a) task.passed and the commit feat(task): T1 on branch substrate/tasks/<run_id>/T1-g1 containing only the allowed path, (b) out-of-scope edit reverted (task.scope.checked lists src/other.txt, the worktree file is back at base content) and verify decided the pass though the worker replied BLOCKED, (c) protected-file edit emits task.failed failure_class protected_modified and no task.passed, (d) task.worktree.created path contains the run id. Full npm test: 1306 passed and 2 skipped (116 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: src/contracts/events.ts is read-only for this WP, detail added to TaskFailedEvent because rules 2, 6 and 9 require it. WorkerRunOptions additions beyond the Interface (adapter, rawDir, setupCommands): attempt, session, signal and runPolicy, with WorkerObservation and WorkerRunPolicy so run-level policy stays in the engine action and the role never decides it, and WorkerEmit defined locally to avoid a roles-to-engine import. The internal L0 heal stays in runWorker (attempt 1 verify failure emits task.healing attempt 2 and re-runs the same session in the same worktree with worker/heal.md), so verify-failure task events come from the role and not runAttempt; budget and timeout policy was not moved in (R3.4). task.session.started is emitted at spawn with the id passed to the adapter, then corrected from the adapter report without re-emitting, because protected test/e2e/scheduler.test.ts case (c) polls the log for that event before SIGKILL while the fake harness prints only after delay_ms; no id reported still fails worker_crashed. Non-zero session exit is not a failure class, only killed_for timeout maps to task.failed timeout, because HEAD's task.ts never checked res.ok and protected scenario-04 case 2 depends on it (the fake harness exits 3 on scenario exhaustion during replan and would overwrite the recorded scope_violation). workspace.ts separates a registered worktree (git worktree list --porcelain) from a plain crash directory and errors when the branch exists but the path does not. src/git/scope.ts, src/git/commit.ts and src/verify/runner.ts are in the write list and needed no code change, commit is skipped when the allowed pathspec is empty and network allow is a worker call-site change. Protected tests updated to the new interface per the R1.2-R1.7 precedent: test/integration/roles/worker.test.ts (local emit collector for the typed emit, rawDir at the 8 runWorker call sites) and test/integration/git/workspace.test.ts (run-id worktree path). Allowlist: the two R3.3 entries deleted (wired src/roles/worker.ts, dead runWorker), and new entries added for debt this WP creates, wired src/roles/prompts/worker.ts plus dead buildWorkerPrompt until R5.3 (rule 69 leaves the prompt module unused), the stale wired entry src/verify/index.ts replaced because it is now reachable through the worker, and three events entries task.scope.checked, task.verify.started, task.verify.finished until R5.3 because the events gate scans only src/engine and src/cli while these are emitted by the role. Legacy scope.checked alias and can_replan false on protected_modified kept; max_tokens stays in the spawn request so the settings gate still sees the budget read. check:dead still fails at baseline on src/cli/signals.ts, outside this WP. The worker-commits integration case drives the git commit inside the adapter wrapper because the fake harness cannot run git"
+    },
+    {
+      "id": "R3.4",
+      "title": "Heal, budgets, timeouts, rate limits",
+      "commit": "ed30841",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/engine test/integration/roles: 172 passed (9 files, test/unit/engine/heal-budget.test.ts 7 tests) - per-task cost budget cuts only the task with kill reason budget and no run.paused, per-task turn budget cuts on the generation turns, the 80 percent run warning fires once for cost and once for tokens then the run pauses budget_exhausted, four rate limits measure 1000 2000 4000 ms from the inter-event ts gaps with concurrency 4 2 1 1 recorded and the fourth ending the task as rate_limited and pausing, halving lands on a settings copy with ctx.settings.concurrency.workers still 8, the floor-1 case pauses immediately, nextActions with the third arg schedules one action for three ready tasks. npx vitest run test/e2e/heal-budget.test.ts: 4 passed through the built CLI - (a) task.healing attempt 2 whose failures renders the real failing VerifyResults (Command, Exit code 1, Stderr missing-marker, under 8192 bytes) and resumes the attempt 1 session then the task passes, (b) task.failed budget_exceeded with no run.paused and exit 0, (c) hanging attempt killed by the per-attempt timer with task.failed timeout and the harness pid ESRCH, (d) four rate limits at concurrency 8 emit rate_limit.backoff 4 2 1 1 then run.paused rate_limited exit 3. Full npm test 1317 passed and 2 skipped (120 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: src/engine/engine.ts is outside the write list and had to set concurrency at both EffectContext literals because the field is required. test/unit/engine/events.test.ts is protected and its task.healing fixture gained failures since rule 60 makes the field required. src/contracts/events.ts gained the catalog fields rule 60 needs on TaskHealingEvent plus optional tokens and max_tokens on RunBudgetWarningEvent and RunBudgetExceededEvent, which is what lets the 80 percent warning fire for the token budget, and its cost fields became optional to allow a token-only warning. checkRunBudget keeps its 3-arg contract with an optional 4th currentTokens so the non-write-list callers plan.ts, replan.ts and solo.ts stay cost-only. The halving is applied by passing a shallow settings copy to scheduleNextTasks because scheduler.ts is not writable, and the copy keeps budgets. Per-task usage and turn totals live in the worker because reducer.ts is not writable, and the action policy still decides: WorkerStopDecision gained failure_class, detail and backoff_ms and the worker executes the kill or retry and emits task.failed when the decision carries a class. Rate-limit policy reconciles rule 7 with protected scenario-12 case 2, halving when possible, pausing immediately at the floor, and failing the task rate_limited on the fourth; the task.ready re-queue emission and the final_text Rate limit string match were deleted, and the string matches that survive live only in src/backends/normalize/claude.ts, the typed-event producer outside the write list. src/engine/ladder.ts is in the write list and needed no change, permission_denied and rate_limited already pause at L3. The 3600000 cap rule 5 names was not present in HEAD (git grep 3600000 HEAD -- src prints nothing) so nothing was deleted, and the timer is armed for every attempt. An action-dispatched heal after a restart has no attempt 1 VerifyResults in engine state, so the worker emits failures from opts.healFailures with an empty string on that path, recorded in a code comment. Allowlist: deleted settings entries budgets.run.max_tokens and budgets.task.max_turns, plus routing.*.budget.max_turns because the settings gate matches textually on budget?.max_turns in task.ts so the entry went stale while the router still does not read it until R5.3, and added the events entry task.healing as consumed-not-emitted until R5.3 because the role emits it and the events gate scans only src/engine and src/cli. Unit test imports createMockAdapter from test/integration/roles/fixtures.ts per the test/unit/roles/planner-outcome.test.ts precedent and the scenario helpers, and proves the backoff delays from measured inter-event ts. The E2E timeout case writes its own scenario file because runSubstrate does not expose the path, and the budget and timeout cases add a replan plus a passing worker call so the ladder's L1 path lets the run finish. check:dead still fails at baseline on src/cli/signals.ts, outside this WP"
+    },
+    {
+      "id": "R3.5",
+      "title": "Escalation L1 L2 L3 and failure packets",
+      "commit": "d06be58",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/engine test/integration/engine test/integration/scenarios/scenario-14-l2-contract-defect.test.ts: 163 passed (9 files, test/unit/engine/replan-ladder.test.ts 6 tests) - the ladder walks L1 L1 L2 L3 as generations and the L2 counter is consumed with l2_count and l2_done typed on EngineState instead of (state as any), tasks.invalidated puts tasks back to PENDING and leaves a MERGED task untouched, and both pause paths (permission_denied and the caps path) record task.blocked for the failed task before run.paused. npx vitest run test/e2e/replan.test.ts: 4 passed through the built CLI with the fake planner scenario - (a) replan.started {task_id T1, generation 2, target_tier}, .substrate/runs/<run_id>/packets/T1-g1.json parses as FailurePacket with 2 recorded attempts and non-empty verify_output and the patch file written with patch_path, then task.replanned and replan.finished, generation 2 gets a new worktree and runs the revised spec (its .substrate-task file and verify command carry REVISED-SPEC-MARKER-7731) and passes, (b) l1_replans_per_task 0 routes the failure straight to L2, replan.l2 records T1, contracts.committed fires twice (plan stubs then the amendment) with contracts/amended.ts in the run dir, tasks.invalidated is exactly [\"T2\"], the dependent is promoted by the scheduler and re-run in a new worktree, exit 0, (c) an L1 final line naming another task escalates and the second replan.started carries the reason, (d) caps 0 and 0 emit task.blocked for T1 before run.paused needs_human with exit 3. Full npm test: 1329 passed and 2 skipped (120 files). npm run check exit 0, check:dead still fails at baseline on the two src/cli/signals.ts entries outside this WP. Negative proof: the unit test fails 4 of 6 against HEAD for the right reasons (state.l2_count stays 0, tasks.invalidated produced READY not PENDING, both pause paths emit only run.paused with no task.blocked), and the E2E file fails 3 of 4 against HEAD (case a records no replan.started, case b exits 1 because HEAD's executeReplan needs an opts.adapter the R3.5 action does not pass and records no replan events, case c records no escalation); case (d) already passes at HEAD because its action emitted task.blocked, so it is a regression guard. Deviations: rule 5 is satisfied by emitting replan.started with the reason in escalateToL2 before running L2, and rule 2's per-attempt report files need the role to hand each attempt back, so WorkerRunOptions gained the optional onReport hook in src/roles/worker.ts consumed by writeAttemptReport in src/engine/actions/task.ts, both outside the write list. src/roles/worker.ts no longer sets can_replan false for protected_modified because rule 1 says the ladder decides the tier, which is what test/unit/engine/ladder.test.ts:93 asserts. The literal emit(\"task.blocked\", ...) in pause() is required because scripts/check-events.mjs only recognises literal emit calls in src/engine and src/cli. Rule 7 read as the transitive dependents that are not MERGED excluding the failed task itself, since the failed task moves to the next generation through task.replanned and is readied by the scheduler, so the E2E asserts [\"T2\"]. src/engine/effects.ts is read-only for this WP and needed no change once the invalidation direction was fixed. src/cli/stream-map.ts, src/roles/prompts/replan.ts (read list, but the objective requires the hard-coded replan text to be removed so that nothing is replanned by a hard-coded prompt), src/roles/planner.ts (protected, REQUIRED_HEADINGS exported for the plan-context lint) and test/unit/engine/events.test.ts (protected, replan.l2 sample) were outside the write list. Stale tests updated to the finish-line rules per the R1.2-R1.7 precedent: test/integration/engine/replan.test.ts mock sessions now end with REVISED T1 and AMENDED and write the plan into the run dir so lintPlan can run in the current plan context, and test/e2e/heal-budget.test.ts (b) and (c) plus scenario-03 and scenario-09 planner replies gained the REVISED <TASK_ID> finish line. scenario-14 keeps its it.fails marker. Allowlist: the two until R3.5 entries deleted (wired src/engine/replan.ts, dead executeReplan), resolveEscalationRoute stays until R5.3. Prompts: src/roles/prompts/replan.ts now only renders the vars, the hard-coded text is gone, system is agents/planner.md plus prompts/planner/format.md, and each planner session emits usage.recorded with role planner"
+    },
+    {
+      "id": "R3.6",
+      "title": "Integration worktree, merge, bisect, checkpoints",
+      "commit": "fb9ceb9",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/integration/merge test/integration/git: 44 passed (5 files). npx vitest run test/e2e/merge-integration.test.ts: 4 passed through the built CLI - (a) merge conflict sends loser to L1 (merge.conflict then task.failed with merge_conflict and replan.started), (b) integration failure caused by one task: bisect.started then bisect.culprit names that task and task.failed with integration_failed, (c) user checkout keeps untracked file, branch name, and HEAD sha across a passing run, (d) modified tracked file in user checkout refuses with dirty_checkout and exit 2. Full npm test 1339 passed and 2 skipped (123 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Primitives: createIntegrationWorktree, mergeInto, advanceRunRef, verifyIn, preflight, bisectBatch, runBatchMerge implemented in src/git/merger.ts; mergeTask and rollbackCheckpoint removed. Integration worktree at .substrate/worktrees/<run_id>/integration detached at base; merging never touches user checkout. Base-ref verified before first batch in detached worktree; dirty checkout rejected before batch merge. Event settleDependents decoupled from inner action loop to preserve monotonic sequence numbering. Allowlist: bisectBatch and runBatchMerge added until R5.3 for check-wired."
+    },
+    {
+      "id": "R3.7",
+      "title": "merge, undo, discard commands",
+      "commit": "8744df1",
+      "status": "DONE",
+      "notes": "typecheck exit 0. npx vitest run test/unit/cli: 67 passed (5 files, 15 new merge-undo-discard tests). npx vitest run test/e2e/merge-undo-discard.test.ts: 8 passed through the built CLI - (1) merge of a finished run exits 0 and HEAD gains a merge commit with 2 parents, (2) merge of a failed run exits 1 with refusal Error: run <id> did not finish successfully; not merged, (3) merge --dry-run prints would merge 1 commit(s) and changes nothing, (4) merge with dirty tracked file exits 1 with Error: uncommitted changes to tracked files; commit or stash first, (5) undo after two batches reverts run branch to prior batch checkpoint ref and prints Reverted substrate/runs/<id> to <sha>, (6) undo on run with no checkpoint exits 1 with Error: no checkpoint recorded for run <id>, (7) discard deletes task/run branches, removes worktrees under .substrate/worktrees/<id>/, appends run.paused user_cancel, prints Discarded run <id> exit 0, (8) discard of active run with live lock exits 1 without --force. Full npm test 1362 passed and 2 skipped (125 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: dry-run, abort-on-conflict, hard added to CLI_OPTIONS and ParsedCliFlags in src/cli/dispatcher.ts (outside write list, R2.7/R2.10 precedent) to wire flags through the built CLI; run.ts hooked to call mergeRun when exit_code === 0 and git.auto_merge === true; TaskMerger and git.auto_merge stale allowlist entries deleted from scripts/debt-allowlist.json per Done-when 5; stale test in commands.test.ts line 522 updated from /Successfully merged/ to /Merged/ per R1.2-R1.7 precedent."
+    },
+    {
+      "id": "R3.8",
+      "title": "Solo mode",
+      "commit": "023bf0e",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/spec/ecosystem.test.ts test/integration/scenarios/scenario-16-solo-mode.test.ts: 17 passed (2 files). npx vitest run test/e2e/solo.test.ts test/e2e/smoke.test.ts: 4 passed through built CLI - (a) run --mode solo --verify 'test -f feature.txt' creates commit on run branch and leaves user branch head unchanged, (b) with no --verify in a directory with no ecosystem file, stderr contains warning and exit is 0; smoke.test.ts full solo run passes with no it.fails. Full npm test: 1364 passed and 2 skipped (126 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: scope extensions src/engine/actions/route.ts, src/cli/dispatcher.ts and test/e2e/smoke.test.ts in write list (route action solo branch, dispatcher option table verify multiple string, smoke test full run enabled); src/roles/worker.ts (protected) updated so empty verify commands pass trivially without failing runner.isAllPassed([]); debt allowlist: stale getDefaultVerify dead export removed, bindAbort added to dead until R5.3, task.session.started and task.passed added to events until R5.3; solo route creates run branch via workspaceManager.createRunBranch."
+    },
+    {
+      "id": "R4.1",
+      "title": "Run request schema and validation",
+      "commit": "f384c85",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/cli/request.test.ts: 8 passed (1 file). npm run bundle && npx vitest run test/e2e/request.test.ts: 2 passed through built CLI - (1) run --request <file> with mode solo and worker provider finishes with exit 0, (2) run --request <file> with unknown model exits 2 with JSON invalid_request and worker.model problem. Full npm test: 1374 passed and 2 skipped (128 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: scope extension src/cli/dispatcher.ts in write list (request option added to CLI_OPTIONS, CliGlobalFlags and parseCliArgs; prompt check skipped when request flag given); model-catalog.ts imported with dynamic backtick import in request.ts per check-boundaries (§15); verify and context overrides kept separate from loadSettings Settings partial."
+    },
+    {
+      "id": "R4.2",
+      "title": "Question and resume protocol",
+      "commit": "09e3318",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/cli/questions.test.ts: 9 passed. npx vitest run test/e2e/questions.test.ts: 5 passed through built CLI - (a) plan with NEEDS INPUT exits 3, JSON has subtype needs_input and two parsed questions, (b) resume <run> --answers <file> finishes PLAN READY exit 0, (c) resume <run> with no answers uses defaults, (d) unknown answer id exits 2, (e) status <run> lists pending questions. Full npm test: 1390 passed and 2 skipped (128 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: scope extensions in write list (src/cli/dispatcher.ts added answers flag; src/contracts/index.ts added Question type; test/unit/prompts/templates.test.ts added planner/answers.md); QuestionSchema kept internal in contracts to preserve Appendix A runtime schema conformance; plan.ts safely catches corrupt/torn tails on event replay."
+    },
+    {
+      "id": "R4.3",
+      "title": "Local-model worker route",
+      "commit": "13e603d",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/backends test/integration/backends/opencode.test.ts test/unit/config: 259 passed (18 files, 9 in local-provider.test.ts). npx vitest run test/e2e/local-model.test.ts: 1 passed through built CLI - sets backends.opencode.provider in settings.local.json with runtime free port URL, profile slot names local model, run executes with fake opencode, opencode received config containing provider block with baseURL, opencode argv mapped to local/model, git grep found no URL/port in tracked files. Full npm test 1400 passed and 2 skipped (130 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: scope extension src/contracts/index.ts in write list (added OpenCodeProvider to Settings.backends); OpenCodeProvider schema kept unexported to preserve Appendix A runtime schema conformance in schemas.test.ts."
+    },
+    {
+      "id": "R4.4",
+      "title": "Archive writer, history, gc",
+      "commit": "90891cc",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/archive test/unit/cli: 96 passed (8 files). npx vitest run test/e2e/archive.test.ts: 1 passed through built CLI - (a) finished solo run exits 0 producing .substrate/archive/v1/<id>/summary.md and one INDEX line, (b) failing solo run with failing verify exits 1 with status failed and archives to .substrate/archive/v1/<id>/, (c) history --output-format json lists both runs. Full npm test: 1413 passed and 2 skipped (134 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: scope extensions in write list per spec notes (src/cli/dispatcher.ts registered history, archive, gc commands with flags --all-versions and --older-than; src/engine/effects.ts called finishAction upon reaching terminal state FINISHED/FAILED/CANCELLED in runEffectsLoop; excluded SOLO from replanTasks); docs gate forced documenting subcommands in docs/reference/cli.md per R1.4/R2.8/R2.10 precedent. R0.4 named finish action module src/engine/actions/finish.ts (exporting finishAction and runFinishAction)."
+    },
+    {
+      "id": "R4.5",
+      "title": "Charter and planner context",
+      "commit": "90768f8",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/charter test/unit/archive: 26 passed (2 files). npx vitest run test/e2e/charter.test.ts: 1 passed through built CLI - sets charter with distinctive sentence, creates archived run with solo run, plan includes charter sentence and archived goal in planner-request.md, charter bump v2 excludes v1 goal, plan with --history-all includes v1 goal. Full npm test: 1428 passed and 2 skipped (136 files). npm run check exit 0 (purity wired events settings boundaries docs OK). Deviations: scope extensions in write list per spec notes (src/cli/dispatcher.ts registered charter command and --history-all flag; src/roles/planner.ts protected added charter and history to PlannerRunOptions and requestVars, and writes planner-request.md on attempt 1 before spawn; docs gate forced documenting charter and --history-all in docs/reference/cli.md per R1.4/R2.8/R2.10 precedent)."
+    },
+    {
+      "id": "R4.6",
+      "title": "models --stats insights",
+      "commit": "1af7680",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. npx vitest run test/unit/cli/models-stats.test.ts test/unit/ledger: 31 passed. npx vitest run test/e2e/models-stats.test.ts: 1 passed through built CLI (two solo runs, one heal, then models --stats --output-format json: tasks 2, first_pass_rate 0.5, heal_rate 0.5). Built CLI on fixtures: model-alpha 5 tasks 60.0% first-pass 20.0% heal 1 replan $0.6625; model-beta cost unknown; model-epsilon no data; --since bogus exit 2. npm test 1441 passed (2 skipped; one earlier run had 2 load-sensitive failures in test/e2e/archive.test.ts and test/unit/backends/process.test.ts that pass in isolation and on rerun), npm run check exit 0. Deviation: src/cli/dispatcher.ts edited (stats flag) per the R2.7 ratified precedent, recorded in docs/plan/BLOCKED.md. Implemented by Haiku 5.5 medium-effort subagents (src half, test half) and reviewed and gated by the lead; the lead fixed 38 type errors in the test file and added the two spec edge-case tests the test agent skipped."
+    },
+    {
+      "id": "R5.1",
+      "title": "Docs reconciliation, caller guide and stronger docs-check",
+      "commit": "d73d342",
+      "status": "DONE",
+      "notes": "npm run typecheck exit 0. test/unit/scripts/docs-check.test.ts 7 passed; test/e2e/caller-guide.test.ts 3 passed through the built CLI; npm run docs:check exit 0 (DOC-FLAG 181, DOC-CMD 72, DOC-ENV 19, DOC-KEY 26 checks, OK); npm test 1453 passed (2 skipped); npm run check exit 0. Deviations and findings for R5.3 in docs/plan/BLOCKED.md: run-substrate.ts helper fixed (random run ids made test/e2e/archive.test.ts flaky), DOC-CMD and missing_cli_doc count dispatcher-loaded command modules, protected assets/prompts/README.md lacks a caller/ row. Implemented by Haiku 5.5 medium-effort subagents (checker, caller guide, two document rewrites); two document agents ran real claude by mistake (about 0.36 USD total), reported to the user."
+    },
+    {
+      "id": "R5.2",
+      "title": "Live smoke and gate G5",
+      "commit": "9531f8d",
+      "status": "DONE",
+      "notes": "npm run gate:g5 exit 0 (2026-10-20): agy 1.4.2 gemini-3.8-flash-low r_WWBRM5FYV4OO $0.1191; claude 2.1.304 claude-haiku-5-5 r_N7J7HVPQVZ6O $0.0581; opencode 2.0.21 llama.cpp/qwen3.8-flash-next-iq2_xs r_5NRXQ2HSJMUR $0.0000. 11 live records, $0.2296 recorded in total. Fake gates: typecheck, bundle, check, docs:check, npm test (141 files, 1533 passed, 4 skipped), gate.test 19 passed. check:plan has 3 pre-existing problems (docs/spikes/S5-ux.md, test/smoke.test.ts). Deviations and findings in BLOCKED.md R5.2 sections"
+    },
+    {
+      "id": "R5.3",
+      "title": "Final wiring audit, E2E matrix and archive",
+      "commit": "f9ffa08",
+      "status": "DONE",
+      "notes": "Completed 2026-10-20 in two commits: f9ffa08 (\"R5.3: Final wiring audit and E2E matrix\"): E2E matrix of 24 rows / 59 cases, the S11 resume fix, the planner-session interrupt wiring, four checker false-positive fixes, the owner-approved scoped src cleanup waves, docs/known-issues.md; and d22e2cd (\"R5.3: Archive the R-series\"): R-series docs moved to docs/archive/2026-10-20-r-series/."
+    },
+    {
+      "id": "R5.4",
+      "title": "OPTIONAL: retire the governor",
+      "commit": "c813406",
+      "status": "DONE",
+      "notes": "Completed 2026-10-20 as delete-the-governor (c813406) plus a follow-up (d380306, Route auto mode through the deterministic router) that routes auto mode through the deterministic router. Owner decision 2026-10-20: the governor front-door idea was dropped and replaced by the deterministic algorithm. Related follow-up commits after R5.3 that are not work packages: 05cfaf6 (docs refresh), 0028ad9 (known-issues), 9dff91a (planner failure messages)."
+    },
+    {
+      "id": "R6.1",
+      "title": "Unknown config keys exit 2; json output is one line",
+      "commit": "c68cd93",
+      "status": "DONE",
+      "notes": "config get of a key outside the Settings schema exits 2 with unknown settings key; json output prints one compact line for run, status, config list and get. Part of commit c68cd93 with R6.6."
+    },
+    {
+      "id": "R6.6",
+      "title": "json output is one compact line (see R6.1)",
+      "commit": "c68cd93",
+      "status": "DONE",
+      "notes": "Same commit as R6.1: status, config list and config get print one compact json line; stream-json and text output are unchanged."
+    },
+    {
+      "id": "R6.2",
+      "title": "Opencode worktree config test",
+      "commit": "eff755e",
+      "status": "DONE",
+      "notes": "test/e2e/opencode-worktree.test.ts checks git status, the merged tree and the diff after a worker run. Relocation of the opencode config out of the worktree stays OPEN (known-issues item 7); no documented opencode mechanism was found, so the code is unchanged."
+    },
+    {
+      "id": "R6.3",
+      "title": "Chaos tests use the real resume path",
+      "commit": "c34d60d",
+      "status": "DONE",
+      "notes": "recoverInFlightRun in test/integration/chaos/helpers.ts no longer appends batch.started or task.ready before resume, so the S11 resume bug is no longer hidden. known-issues item 14 is fixed for that part."
+    },
+    {
+      "id": "R6.4",
+      "title": "Planner flags keep auto mode on the plan route",
+      "commit": "c59aa3d",
+      "status": "DONE",
+      "notes": "A request that sets a planner routes to plan in auto mode, even with a mechanical file named. The no verify commands warning also prints when auto mode routes to solo. known-issues item 16 records the fix."
+    },
+    {
+      "id": "R6.5",
+      "title": "Profile precedence analysis (not implemented)",
+      "commit": "7b3591c",
+      "status": "DONE",
+      "notes": "Analysis only. Built-in routing defaults override profile routes. The design is recorded in known-issues item 11 and stays OPEN for the owner; no code change."
+    },
+    {
+      "id": "R6.7",
+      "title": "Check scripts and removed settings keys",
+      "commit": "b56054b, e72eaea, 3366c22",
+      "status": "DONE",
+      "notes": "Part 1 (b56054b): the check scripts no longer read the archived progress file, and check-plan is deleted. Part 2 (e72eaea, 3366c22): hooks, git.branch_prefix and sandbox.network are removed from the strict schema with their defaults and allowlist entries; a settings file that still has one exits 2. execution.strategy and the reviewer and max_wall_min keys stay (known-issues item 10)."
+    },
+    {
+      "id": "R6.9",
+      "title": "Config json mode errors and string values; known-issues cleanup",
+      "commit": "7dd2b24",
+      "status": "DONE",
+      "notes": "Settings load failure in json mode prints {\"error\":...} on stdout, exit 2; config get prints strings quoted and unset keys as null in json mode; text mode unchanged. Tests added in test/unit/config/config-command.test.ts: get string quoted in json and raw in text; get and list json error object for an invalid settings file; get null in json for an unset key. npm test 1490 passed, 4 skipped (baseline 1487). Known-issues item 11 updated; the opencode base URL text was fixed in 9531f8d (R5.2), not 9dff91a."
+    },
+    {
+      "id": "R6.10",
+      "title": "Post-R5 cleanup: config set validation, comment citations, fixture paths",
+      "commit": "75de254, ece8cdf, d62aa24",
+      "status": "DONE",
+      "notes": "config set validates the merged settings (the loader provider rule and profile check) before it writes; a provider key without --local exits 2 and writes nothing; known-issues item 11 closed. Seven comments that cited DECISIONS A6 now cite A3; the first-commit rev-parse probe in commitContractStubs is silenced on stderr. Five Claude NDJSON fixtures used a personal home path (now /home/user/); the purity-bad fixture used a LAN literal (now 203.0.113.7). Tests: config-command unit tests (3 new) and test/e2e/config-set-validation.test.ts (3 new); full npm test 1505 passed, 4 skipped (baseline 1499 plus the 6 new). Report-only: the governor-removal test loss (c813406, 45 expanded tests) and the scenario-17 git noise were analysed in the R6.10 report."
+    },
+    {
+      "id": "R7.1",
+      "title": "Plan lint: ancestors and own files",
+      "commit": "917e3b6",
+      "status": "DONE",
+      "notes": "Lint now checks the ancestors and the task's own files, not only the files named in the plan."
+    },
+    {
+      "id": "R7.2",
+      "title": "Require models, git precondition, engine identity fallback",
+      "commit": "1878419, 240494f",
+      "status": "DONE",
+      "notes": "Models are required for a run; a git precondition is checked before a run starts; the engine identity falls back when no identity is set."
+    },
+    {
+      "id": "R7.3",
+      "title": "Live progress",
+      "commit": "2d5c381",
+      "status": "DONE",
+      "notes": "Run progress is reported live while the run executes."
+    },
+    {
+      "id": "R7.4",
+      "title": "Requested models honoured, merge flag, result block",
+      "commit": "4a6397c, fc05966",
+      "status": "DONE",
+      "notes": "Requested models are honoured for plan-mode tasks and the planner; the merge flag and the result block are in place. Known-issues item 18."
+    },
+    {
+      "id": "R7.5",
+      "title": "base_ref hardening",
+      "commit": "a748916",
+      "status": "DONE",
+      "notes": "A planner base_ref that does not resolve uses the run base instead of failing the run. Known-issues item 19."
+    },
+    {
+      "id": "R7.6",
+      "title": "Claude 5 model ids and validation before side effects",
+      "commit": "da9ae85",
+      "status": "DONE",
+      "notes": "Claude 5 haiku and opus ids are accepted; a request is validated before the repository directory is touched. Known-issues item 20."
+    },
+    {
+      "id": "R7.7",
+      "title": "Plan-lint false positives, contract typecheck cwd bug, post-contract retry",
+      "commit": "d2c9188, 2324ae5, 95969f9",
+      "status": "DONE",
+      "notes": "Lint no longer rejects globs, unrouted classes or missing budgets; the contract typecheck runs against a complete tree; the planner retries when the post-contract lint rejects its plan. Known-issues items 21 to 23."
+    },
+    {
+      "id": "R7.8",
+      "title": "Remove the test-only branch and record the plan-lint audit",
+      "commit": "283b374, ee2c8ff",
+      "status": "DONE",
+      "notes": "The test-only filesystem patch in src/spec/typecheck.ts is removed and its tests create their own src/contracts directory. The R7.7 plan-lint audit is recorded as known-issues item 24 (open)."
+    },
+    {
+      "id": "R7.9",
+      "title": "The planner is bounded by the run budget; planner failures name their cause",
+      "commit": "878b383, f197e9b",
+      "status": "DONE",
+      "notes": "The planner's claude cap is the run budget not yet spent (at least 0.5, never above the run cap) instead of the per-task cap; a budget stop fails budget_exceeded with both caps; other session failures name the harness subtype or say no error output; [plan] label; (none, planning failed) branch and resume re-spends hint. Known-issues item 25."
+    },
+    {
+      "id": "R7.10",
+      "title": "Progress output: no zero cost while planning, plain routing reasons",
+      "commit": "722ec52",
+      "status": "DONE",
+      "notes": "Heartbeat shows no dollar amount until the first usage record (text says when cost is reported; stream-json cost_usd null until then); routing rationales reworded (explicit mode flag, mechanical edit of a named file, request is not a mechanical edit of a named file). Tests and cli.md updated. Known-issues item 26."
+    },
+    {
+      "id": "R7.11",
+      "title": "Integration verify on the base commit is advisory; integration failures name the command",
+      "commit": "2a1b742, a1e43b0",
+      "status": "DONE",
+      "notes": "An integration_verify that fails on the base commit no longer fails the run: the base check is recorded (integration.started base_verify_passed false, one note line) and the verify on the merged result decides. Merge and integrate share checkBaseVerify. verifyIn returns the failing command, exit code and output; integrationFailureDetail gives integration.failed and the bisect culprit's task.failed a message (command, exit code, last output line) that the summary Reason and the progress line show. Planner guidance says integration_verify runs on the merged result. Tests: test/e2e/integration-base.test.ts, test/unit/spec/hello-java-plan.test.ts, test/unit/engine/integration-failure.test.ts; scenario-10 base case and merger verifyIn assertions updated. Known-issues item 27."
+    },
+    {
+      "id": "R7.12",
+      "title": "Planner and test-writer prompts: test what carries risk, not everything",
+      "commit": "59907e4",
+      "status": "DONE",
+      "notes": "Prompt changes only, plus soft lint L028 (warning: a tests task lists more than 10 Behavior targets). planner.md step 6 and the new 'When tests earn their place' block replace the always-write-tests-first rule; the Verification section asks for the cheapest sufficient verify command. test-writer.md rule 2 tests exactly the listed targets. format.md, worker class prompts (feature, boilerplate, mechanical, refactor, debug, tests) updated. Tests: test/unit/spec/rules.test.ts (L028 describe, 3 tests), test/unit/roles/assets.test.ts (2 tests). Full npm test 1642 passed (baseline 1637, +5). Effect on a real planner UNVERIFIED until a live run (known-issues item 28)."
+    },
+    {
+      "id": "R8.1",
+      "title": "Graceful failure: cleanup, skipped dependents, exit 1 without questions",
+      "commit": "52563ee",
+      "status": "DONE",
+      "notes": "Audit of nine failure scenarios (see known-issues 29-39). Fixed: finished/failed runs remove worktrees and task branches (src/git/cleanup.ts); .substrate/ excluded from the user's git status at run start; harness crash is worker_crashed; dependents skipped via task.skipped with reason dependency_failed, progress and summary count skipped; replan dead end with no question fails the task and run (exit 1), not a needs_human pause; merge conflict drops the task (merge_conflict, no replan) naming the collided tasks; resume restores a lost task branch from its merge commit. Scenario 9 (isolation) not tested. Open: dirty-checkout run ends failed with no landing command (known-issues 35), no partial landing command (36). Tests: test/e2e/graceful-cleanup.test.ts (2), test/e2e/graceful-failure.test.ts (2); pinned tests changed in matrix S04/S09, merge-integration, worker-core, replan, integration-base, scenario-09, scenario-10, replan-ladder (unit and integration), events. Full npm test 1648 passed | 4 skipped (1652), baseline 1642 passed | 4 skipped (1646). Matrix 60 passed. gate:g5 OK."
+    },
+    {
+      "id": "R8.2",
+      "title": "Graceful failure, second half: isolation, interrupts and resume, budget stop, refused landing, partial landing",
+      "commit": "8b1c760, c53fd71, a2cc97c",
+      "status": "DONE",
+      "notes": "Audit items A to E (known-issues 35-44). A: merge conflict leaves no markers, MERGE_HEAD or unmerged paths (test in graceful-concurrency). B: a batch no longer stops on a dirty checkout (it never touches it); the sibling isolation is tested, but workers run one at a time (known-issue 40), so scenario 9 is PARTLY tested (39 OPEN). C: SIGINT/SIGTERM stop within 5 s with 130/143 and the resume line; worker pids recorded under the run dir and ended by resume after SIGKILL; resume reuses the recorded models (requested_roles) unless a role is named again (18 FIXED). D: run budget stop exit 4 with spend, task states and a resume with a higher budget; the in-flight worker is killed (43 OPEN). E: refused landing is status finished, exit 1, not_merged_reason (35 FIXED); merge --partial lands passed work after integration verify on the run branch (36 FIXED); duplicate failed line removed (38 FIXED). Open: resume of a failed run says already finished (41); worker concurrency not realised (40). Tests: test/e2e/graceful-concurrency.test.ts (2), graceful-interrupt.test.ts (5), graceful-budget.test.ts (1), graceful-merge.test.ts (4). Pinned test changed: merge-integration (d). Fake claude dialect gained a probe (test/fixtures/fake-harness/dialects/claude.mjs). Caller guide pair updated (identical)."
+    },
+    {
+      "id": "R8.3",
+      "title": "Concurrent workers (known issue 40) and the failed-run resume decision (known issue 41)",
+      "commit": "a8fa5ff, 71e2b65, 0872a75",
+      "status": "DONE",
+      "notes": "Known issue 40: up to concurrency.workers worker actions run side by side (src/engine/effects.ts, runEffectsLoop). Every event is numbered and reduced in one synchronous step against the run journal (src/engine/journal.ts, commitEvent). Shared git metadata changes take one lock per repository (src/git/repo-lock.ts). A budget stop, a pause or an interrupt stops every in-flight worker. Known issue 39 (overlap asserted in graceful-concurrency) and 40 are FIXED. Known issue 41: a failed run is not resumable (resume exits 1, failure_class not_resumable) and its Next line names the partial landing, a new run, or a narrower request (src/engine/failed-run.ts). Tests: test/e2e/concurrency.test.ts (9), test/unit/git/repo-lock.test.ts, test/e2e/graceful-resume.test.ts (5). Gates: 1679 passed, 4 skipped (1683); matrix 60/60; g5 OK. Five loops of concurrency and graceful-concurrency: all passed. Known gap: a rate limit that backs off one task halves the concurrency but does not stop its siblings (only a rate limit that pauses the run stops them)."
+    },
+    {
+      "id": "R9.1",
+      "title": "Integration verify runs once, after every task has merged (known issue 44); an unexpected engine error ends the run cleanly (known issue 45); summary wording",
+      "commit": "5d0e312, 86c2257, 979881f",
+      "status": "DONE",
+      "notes": "Known issue 44: merges no longer run integration_verify; the final gate runs it once, after every task is MERGED (src/engine/actions/integrate.ts, src/engine/actions/merge.ts). Bisect tests the merge-order prefixes that no outside task depends on and names a culprit only when it can isolate one (the culprit is replanned on the run branch; known-issue 47 OPEN). Known issue 45: render() checks the template text only, so a contract stub's {{ x: number }} no longer breaks a replan (src/prompts/render.ts); an unexpected exception ends the run as failed with failure_class internal_error, error.txt, swept workspaces and exit 1 (src/engine/internal-error.ts, src/engine/engine.ts). Wording: a finished unmerged run says work is on branch, Total Cost has four decimals, the base-check note says it is not a failure. Known-issue 46 OPEN (bisect and absent independent tasks). Tests: test/e2e/integration-timing.test.ts (4), test/e2e/graceful-internal-error.test.ts (2), test/unit/prompts/replan-render.test.ts (23), test/unit/cli/landing.test.ts (+2); pinned tests reworked: test/integration/scenarios/scenario-10-batch-merge-properties.test.ts (4), test/unit/prompts/render.test.ts (1). Gates: 1710 passed, 4 skipped (1714); matrix 60/60; g5 OK. Five loops of integration-timing and concurrency: all passed. One intermittent failure: test/integration/cli/commands.test.ts (undo) failed once in a full run of the commit 1 state; it passed on the rerun and 3 of 3 alone."
+    },
+    {
+          "id": "R10.1",
+          "title": "A finished run merges into the user's branch by default (owner decision 2026-10-21; supersedes the bypassPermissions merge row)",
+          "commit": "bf4afaf",
+          "status": "DONE",
+          "notes": "git.auto_merge defaults to true (src/config/index.ts); --no-merge and the request's merge: false opt out, --merge and merge: true override (src/cli/commands/run.ts landRun, mergeChoiceOf). A landing needs status finished with every task passed; it lands only into the branch the run started on (run.created base_branch, src/engine/engine.ts) and refuses on a switched branch, a detached HEAD, a dirty checkout or a conflict, leaving the run finished with not_merged_reason. Resume lands too (src/cli/commands/resume.ts). Engine fix: a resume that finds FINISHED without run.finished writes it (src/engine/engine.ts). Tests: test/e2e/default-merge.test.ts (10), test/unit/cli/merge-choice.test.ts (6), 2 new cases in test/unit/cli/landing.test.ts; about 20 existing tests pinned to the old default. Gates: full npm test 1728 passed, 4 skipped (1732); matrix 60/60; typecheck, check, docs:check, gate:g5, export-schemas, bundle exit 0."
+    },
+    {
+      "id": "R10.2",
+      "title": "A run's status is visible from another process: progress.log, watch, runs, a live status, outcome files",
+      "commit": "aa4beef, 63e163a, 90018e3",
+      "status": "DONE",
+      "notes": "Every run appends its progress lines, summary block and a # run / # resumed header to .substrate/runs/<id>/progress.log in every output format (src/cli/run-files.ts, src/cli/output.ts TextSink and summaryPayload); text and json runs name how to follow it. summary.txt and result.json are written at the end of any run (src/cli/commands/run.ts, resume.ts). substrate watch replays events.jsonl with the live renderer, follows new events, and exits with the run's code (src/cli/commands/watch.ts); liveness is the lock pid, read without the lock (src/store/run-lock.ts runProcessOf). runs lists runs newest first (src/cli/commands/runs.ts). status gains a live header, task rows and json fields (src/cli/commands/status.ts); its State line now reads the journal's terminal state (known issue 49). Tests: test/e2e/observe.test.ts (10), test/unit/cli/run-observe.test.ts (3), test/unit/cli/run-files.test.ts (6). Two existing tests changed for the spec's announcement lines: test/integration/cli/output.test.ts (stream-json stderr is the one announcement line), test/unit/cli/progress.test.ts (the two announcement lines are asserted, the shape is checked without them). Gates: full npm test 1747 passed, 4 skipped (1751); matrix 60/60; typecheck, check, docs:check, gate:g5, export-schemas (no change), bundle exit 0; observe e2e 5 of 5 loops 10/10. Open: known issues 50, 51 (json task_list name, owner decision), 52."
+    },
+    {
+      "id": "R10.3",
+      "title": "Control of a run from outside its process: substrate stop, run and resume --detach, the recorded merge choice and worker count, --concurrency",
+      "commit": "f6800c9, c0758fc, 2a96366",
+      "status": "DONE",
+      "notes": "substrate stop [--force] [run-id] (src/cli/commands/stop.ts) sends SIGTERM to the run lock pid after ps shows substrate on its command line (endRunProcess, injectable control); the run pauses with user_cancel and resumes; two live runs are refused with exit 2 and listed; --force adds SIGKILL after 15 s. run and resume --detach (src/cli/detach.ts, detachFrom in run.ts and resume.ts) start the CLI again as a detached child with output in .substrate/detached/, print the watch, status, stop and log lines when its lock appears; plan refuses --detach; stream-json is refused. run.created records merge and concurrency (src/engine/engine.ts, src/contracts/events.ts); resume uses them unless the flags are given again, and older logs fall back to the setting. --concurrency 1..16 on run, resume and plan (src/cli/dispatcher.ts, run.ts concurrencyFlagProblem); bench keeps its own flag. Tests: test/e2e/control.test.ts (18), test/unit/cli/stop.test.ts (5). Known issues 53 FIXED, 54 to 58 OPEN (stop --force tested only by injection; stale-heartbeat live process; detach preflight in the child; request has no concurrency field; plan --concurrency has no effect). DECISIONS note 2026-10-21 (R10.3). Gates: full npm test 1770 passed, 4 skipped (1774); matrix 60/60; typecheck, check, docs:check, gate:g5, export-schemas, bundle; control.test.ts 5 of 5 loops."
+    },
+    {
+      "id": "R10.4",
+      "title": "A run that did not finish is resumable; plan review before work (items 1 and 4 in R10.4; items 2 and 3 in R10.5)",
+      "commit": "31ef5fe",
+      "status": "DONE",
+      "notes": "Item 1 done: resume reopens a failed run (run.reopened in src/contracts/events.ts, src/engine/reducer.ts, src/engine/engine.ts endedFailed/reopenData): failed tasks retry as a new generation with a fresh ladder (ladder_base in reducer and ladder.ts), passed tasks stay, skipped dependents return to the queue; a failed final verify with all tasks merged re-runs only the verify; a planning failure plans again; the not_resumable path is removed; Next lines lead with resume (src/engine/failed-run.ts). Item 4 done: resume prints the recorded session id. Bisect no longer merges swept task branches on a reopened run (src/engine/actions/integrate.ts). Items 2 and 3 were landed in R10.5 (see that entry). Known issue 41 REVERSED, two OPEN items added. DECISIONS note 2026-10-21 (R10.4). Tests: test/e2e/resume-any.test.ts (4), test/unit/engine/reopen.test.ts (5), test/e2e/graceful-resume.test.ts rewritten (5). Gates: matrix 60/60, gate:g5, typecheck, check, docs:check, export-schemas (no schema file changed), bundle; resume-any 5 of 5 loops; full npm test with the pinned texts updated; the undo test in test/integration/cli/commands.test.ts failed once under load and passed alone (26 of 26)."
+    },
+{
+      "id": "R10.5",
+      "title": "Resume after a stop during planning reuses a complete plan draft; substrate plan ends planned, reviewed then resumed; R10.4 leftovers tested",
+      "commit": "e476ccb, 04dbe04, c09101c",
+      "status": "DONE",
+      "notes": "Commit e476ccb: ingestPlanDraft (src/roles/planner.ts) is the one plan check for the planner and for resume; a resume with no accepted plan reuses a complete valid draft (plan.produced source draft) or sets the draft aside to drafts-<n> and plans again (src/engine/engine.ts); planner pids recorded under workers/ (R8.2 style); EventStoreImpl.repairTornTail drops a torn last log line before a resume appends (found by the draft path, test/integration/chaos/torn-tail.test.ts). Commit 04dbe04: PLANNED run state (src/engine/reducer.ts; run.finished reduces in the reducer, so replay equals live); plan and run --review end planned with exit 0 (src/engine/actions/approve.ts); resume re-ingests the reviewed plan, commits contracts again, replaces the task set (plan.produced source review, run.reopened plan_review) (src/engine/engine.ts); --review flag (src/cli/dispatcher.ts, src/cli/commands/run.ts); status, runs and watch show planned (src/cli/run-observe.ts, src/cli/commands/status.ts, src/cli/output.ts). Commit c09101c: merge-conflict retry, SIGKILL during the resumed final verify, SIGKILL during a resumed retry, status and runs of a reopened run (test/e2e/resume-any.test.ts). Tests: test/unit/roles/ingest-plan.test.ts (7), test/e2e/resume-planning.test.ts (3), test/e2e/plan-review.test.ts (6), resume-any.test.ts (+4). Changed pre-existing tests: scenario-13 (plan ends planned), run-observe (reducer ends a run at its run.finished state). Gates at c09101c: typecheck, check, docs:check, bundle, full npm test (1801 passed, 4 skipped), matrix 60/60, gate:g5, export-schemas (RunSummary.schema.json gained planned in 04dbe04). Known issue 41 updated; OPEN: a plan edit between the CLI check and the engine check fails the run as an internal error."
+    },
+    {
+      "id": "R11.1",
+      "title": "Resume keeps the request, budget and run inputs; L011 takes the first command word; status says each fact once",
+      "commit": "01c934c, f5c5c76, db20243",
+      "status": "DONE",
+      "notes": "Commit 01c934c: resume reads its inputs from run.created (src/engine/recorded-run.ts), so a planning stop or failure gets the request, and max_budget_usd (also on run.resumed/run.reopened) is kept. Commit f5c5c76: L011 uses verifyBinaryOf (src/spec/verify-command.ts), known issue 24b. Commit db20243: status header words and no duplicate legacy block. Known issues 59 to 64 record the fixes and the open items (--timeout, answers path, budget spend, plan_review reason)."
+    },
+    {
+      "id": "R11.2",
+      "title": "--timeout stops a run like a budget stop and is recorded; plan_review in the catalog; load-proof tests; one status word",
+      "commit": "88f8761, 548dd1d, eef1090",
+      "status": "DONE",
+      "notes": "Commit 88f8761: --timeout and budgets.run.max_wall_min are enforced (src/engine/time-limit.ts, src/engine/effects.ts): the run pauses with reason timeout, exit 4, and time_limit_s is recorded and reused by a resume (known issue 60). Commit 548dd1d: run.reopened lists plan_review (63), a worker's own budget kill records the spend (62), and the undo and text-progress tests tag their worker calls by task (65). Commit eef1090: runs and status share one status word, the base-check note prints only after a failing final verify, and a planning reopen with no plan says it was cut short (48d)."
+    },
+    {
+      "id": "R12.1",
+      "title": "Spend and time limits are off unless the caller sets them; planner budgets are estimates",
+      "commit": "450e536",
+      "status": "DONE",
+      "notes": "One commit (450e536): the two halves share task.ts, worker.ts, rules.ts and approve.ts. budgets.run.max_usd, budgets.task.max_usd, budgets.task.timeout_min and budgets.approval_threshold_usd are unset by default; a spec budget is advisory (known issue 69; DECISIONS note 2026-10-21 R12.1). status shows budget: none and run.created records max_budget_usd null. Tests: test/e2e/limits-optin.test.ts (9, five loop runs green; 8 of 9 fail on HEAD), full npm test 1864 passed 4 skipped, matrix 60/60. Explicit caps were set in 6 existing test files; SpawnRequest timeout_ms is optional."
+    },
+    {
+      "id": "R12.2",
+      "title": "Final verification stops breaking normal work: setup in the integration worktree, no base check, a check that cannot run is a warning, single-task plans skip the final verify, failure summary",
+      "commit": "6871b18",
+      "status": "DONE",
+      "notes": "Three commits: ffb175f (setup in the integration worktree via src/git/setup.ts; base check removed, bisect anchors on the base lazily), a19c3e2 (classifier in src/engine/verify-outcome.ts with markers in src/engine/verify-markers.ts: could_not_run finishes exit 0 with a warning; single-task plans record integration.skipped), 6871b18 (failure summary: NOT merged wording, Output tail, output_tail in json). Known issues 70-72; DECISIONS note 2026-10-21 R12.2 (two notes). Full npm test 1900 passed 4 skipped on the final tree; matrix 60/60; gate:g5 OK; test/e2e/integration-setup.test.ts five loop runs green."
+    },
+    {
+      "id": "R12.3",
+      "title": "Plan lint blocks only plans that cannot run; lint warnings are recorded and shown, never retried; real plans are lint fixtures",
+      "commit": "6d299ad, 76924a1",
+      "status": "DONE",
+      "notes": "Two commits: 6d299ad (blockers and severities in src/spec/rules.ts; ingest in src/roles/planner.ts; test/unit/spec/lint-severity.test.ts; docs/reference/plan-lint.md), 76924a1 (plan-warnings.txt, plan.produced warnings and warning_count, one progress note, plan_warnings in json; test/fixtures/spec/real-plans with 13 real plans; test/e2e/lint-soft.test.ts). Known issues 24 and 48(b); DECISIONS note 2026-10-21 R12.3. Full npm test 1958 passed 4 skipped on the final tree; matrix 60/60; gate:g5 OK; test/e2e/lint-soft.test.ts five loop runs green."
+    },
+    {
+      "id": "R12.4",
+      "title": "A failed integration check gets up to two automatic repairs; the check is never loosened",
+      "commit": "8f10232, b861602, 78462f3",
+      "status": "DONE",
+      "notes": "Three commits: 8f10232 (integration.repair_attempts in src/contracts/index.ts and src/config/index.ts; repair attempts in src/engine/actions/repair.ts, the guard in src/engine/repair-guard.ts, the prompt in assets/prompts/worker/repair.md, the hook in src/engine/actions/integrate.ts, src/roles/worker.ts runRepairWorker; repair rows apart from tasks in src/engine/reducer.ts), b861602 (progress lines, status rows, summary Repaired and Repair lines; test/e2e/integration-repair.test.ts, trimmed to 3 cases in the working tree, uncommitted), 78462f3 (prompt README and template test row; T4 timing test pinned to repair_attempts 0). Tests changed: scenario 10 and T4 pinned to repair_attempts 0 (their subject is the culprit replan); events.test.ts gained the two repair events; templates.test.ts gained worker/repair.md. Gates: typecheck, check, docs:check, export-schemas, gate:g5, bundle, full npm test (one failing run, 3 failures fixed as above). Known issues 73 to 76 open."
     }
   ],
   "work_package_in_progress": {
     "id": null,
     "title": null,
     "completed_items": [],
-    "pending_items": [
-      "Start R1.5 (Settings schema and CLI overrides)"
-    ]
+    "pending_items": []
   },
-  "remaining_work_packages": [
-    "R1.5",
-    "R1.6",
-    "R1.7",
-    "R1.8",
-    "R2.1",
-    "R2.2",
-    "R2.3",
-    "R2.4",
-    "R2.5",
-    "R2.6",
-    "R2.7",
-    "R2.8",
-    "R2.9",
-    "R2.10",
-    "R3.1",
-    "R3.2",
-    "R3.3",
-    "R3.4",
-    "R3.5",
-    "R3.6",
-    "R3.7",
-    "R3.8",
-    "R4.1",
-    "R4.2",
-    "R4.3",
-    "R4.4",
-    "R4.5",
-    "R4.6",
-    "R5.1",
-    "R5.2",
-    "R5.3",
-    "R5.4"
+  "remaining_work_packages": [],
+  "live_runs": [
+    {
+      "date": "2026-10-20",
+      "run_id": null,
+      "command": "substrate run --plan claude:claude-sonnet-5-5:xhigh --work claude:claude-haiku-5-5:medium --merge \"make a snake game\" (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-snake)",
+      "status": "not_run: rejected by request validation before any model call (worker.model 'claude-haiku-5-5' unknown; CLI valid ids: haiku, sonnet, opus, fable, claude-sonnet-5-5). Not retried, per the single-attempt authorisation.",
+      "exit_code": 2,
+      "total_cost_usd": 0,
+      "side_effects": "substrate created .git (initial empty commit) and .substrate/ in substrate-snake; harness ledger unchanged",
+      "authorisation": "On 2026-10-20 the owner said: \"once it lands just go for it. don't worry. use sonnet 5.5 xhigh to plan and haiku 5.5 medium to implement it\""
+    },
+    {
+      "date": "2026-10-20",
+      "run_id": "r_XDZHITGE25FD",
+      "command": "substrate run --plan claude:claude-sonnet-5-5:xhigh --work claude:claude-haiku-5-5:medium --merge \"make a snake game\" (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-snake)",
+      "status": "failed: cancelled after 2 planner attempts both rejected by plan validation (attempt 1: L012 test path, L015 class tests not routed, L016 no budgets; attempt 2: L018 contract typecheck exit 1). 0/3 tasks; no worker ran; no merge. Not retried or resumed, per single-attempt authorisation.",
+      "exit_code": 1,
+      "total_cost_usd": 1.0978,
+      "side_effects": "substrate initialised .git (empty commit 19b0b43) and .substrate/ in substrate-snake; branch substrate/runs/r_XDZHITGE25FD; harness ledger unchanged (sha256 439bb09f...856cab)",
+      "authorisation": "On 2026-10-20 the owner said: \"once it lands just go for it. don't worry. use sonnet 5.5 xhigh to plan and haiku 5.5 medium to implement it\""
+    },
+    {
+      "date": "2026-10-21",
+      "run_id": "r_PNTDUUAHRTW5",
+      "command": "substrate run --plan claude:claude-sonnet-5-5:xhigh --work claude:claude-haiku-5-5:medium --merge \"make a snake game\" (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-snake-2)",
+      "status": "failed: worker_crashed at planning, \"Planner session failed with exit code 1\" after 3m28s; 0 tasks planned/run; no merge; not resumed or retried (single-attempt authorisation). Planner usage recorded $0.5059 (claude-sonnet-5-5, 29033 output tokens) before the failure; draft task files T1-T3 were written under the run directory only.",
+      "exit_code": 1,
+      "total_cost_usd": 0.5059,
+      "owner_authorisation": [
+        "2026-10-20 (verbatim): \"once it lands just go for it. don't worry. use sonnet 5.5 xhigh to plan and haiku 5.5 medium to implement it\"",
+        "2026-10-20 (verbatim): \"go\\nas many as you need btw\""
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "run_id": "r_JKJKOMEEIH5C",
+      "command": "substrate run --plan claude:claude-sonnet-5-5:xhigh --work claude:claude-haiku-5-5:medium --merge \"make a snake game\" (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-snake-3; real run 3, single attempt, normal PATH)",
+      "status": "finished: 3/3 tasks passed, merged into master; plan routed by Default plan fallback; planner attempt 1 succeeded (no plan.format_rejected); no task.failed; 45/45 node --test pass on the generated project",
+      "exit_code": 0,
+      "total_cost_usd": 1.0359,
+      "owner_authorisation": [
+        "2026-10-20 (verbatim): \"once it lands just go for it. don't worry. use sonnet 5.5 xhigh to plan and haiku 5.5 medium to implement it\"",
+        "after first real run failed (verbatim): \"go\\nas many as you need btw\""
+      ],
+      "cost_breakdown": "planner claude-sonnet-5-5 $0.9780; workers claude-haiku-5-5 T1 $0.0295, T2 $0.0176, T3 $0.0108",
+      "notes": "Live progress lines appeared every ~15s during planning and during each task (heartbeats). Gameplay in a browser not tested."
+    },
+    {
+      "date": "2026-10-21",
+      "run_id": "r_LMQRO2ICJS55",
+      "command": "substrate run \"make a hello world in java\" --plan claude:sonnet:medium --work claude:haiku:low (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-hello-2; empty dir; no merge flag; normal PATH, real claude)",
+      "status": "finished: 1/1 tasks passed; integration verify passed; not merged into master (master still at 3c0f5bb); run branch substrate/runs/r_LMQRO2ICJS55 holds HelloWorld.java",
+      "exit_code": 0,
+      "total_cost_usd": 0.0869,
+      "duration_s": 30.64,
+      "cost_breakdown": "planner claude-sonnet-5-5 $0.0821; worker claude-haiku-5-5 T1 $0.0048",
+      "owner_authorisation": [
+        "2026-10-21: owner authorised paid runs (\"go, as many as you need\"); this run was the owner's hello-world command re-run after fixes, single attempt"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "run_id": "r_4JRK6NGFMVQD",
+      "command": "substrate run \"make a snake game\" --plan claude:claude-sonnet-5-5:xhigh --work claude:claude-haiku-5-5:medium --merge (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-snake-4; empty dir; real claude; single attempt)",
+      "status": "failed: exit 1 after 5m12s with 'Error: unrendered placeholder in template' while replanning T1 (generation 2) after T1 failed integration_failed (integration_verify ran node --test before T2 existed; bisect blamed T1). Planner attempt 1 OK (3 tasks); T1 and T3 workers passed verify; T2 never ran; no merge; master still at e60e20e (empty); no run.failed event. Not resumed or retried.",
+      "exit_code": 1,
+      "total_cost_usd": 0.5420,
+      "duration_s": 312,
+      "cost_breakdown": "planner claude-sonnet-5-5 $0.5095; workers claude-haiku-5-5 T1 $0.0108, T3 $0.0111, T1 replan planner (haiku) $0.0107",
+      "notes": "Project substrate-snake-4 left with branch substrate/runs/r_4JRK6NGFMVQD, worktrees under .substrate/worktrees and branches substrate/tasks/r_4JRK6NGFMVQD/T1-g1 and T3-g1. Workers T1 and T3 overlapped for about 38.8s (06:56:42.5 to 06:57:21.3). No browser gameplay tested; no tests run on master because it is empty."
+    },
+    {
+      "date": "2026-10-21",
+      "run_id": "r_FI22FE7MVNJW",
+      "command": "substrate run \"make a snake game\" --plan claude:claude-sonnet-5-5:xhigh --work claude:claude-haiku-5-5:medium --merge (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-snake-5; empty dir; normal PATH, real claude; single attempt; dist rebuilt via npm run bundle before run)",
+      "models": "planner claude-sonnet-5-5 (xhigh); workers claude-haiku-5-5 (medium)",
+      "status": "finished: 3/3 tasks passed, merged into master; integration verify passed once, after the last merge; no task.failed; no error.txt; 16/16 node --test pass on the generated project",
+      "exit_code": 0,
+      "total_cost_usd": 0.5886,
+      "duration_s": 309.7,
+      "cost_breakdown": "planner claude-sonnet-5-5 $0.5558; workers claude-haiku-5-5 T1 $0.0117, T3 $0.0140, T2 $0.0071",
+      "notes": "Workers T1 and T3 overlapped (about 08:13:32.1 to 08:14:08.1 and 08:14:24.5). Gameplay in a browser, canvas, keyboard input and the static server were not tested (no server file in the project)."
+    },
+    {
+      "date": "2026-10-21",
+      "flow": "LIVE-CHECK flow 1: detach, watch, status, runs, merge by default",
+      "run_id": "r_XRAL363DSP3I",
+      "command": "substrate run --detach \"make a hello world in java\" --plan claude:sonnet:medium --work claude:haiku:low --max-budget-usd 0.40 (cwd: ~/HydrocarbonForge/Projects/substrate-hello-3; empty dir; normal PATH, real claude; single attempt; dist rebuilt via npm run bundle before run)",
+      "models": "planner claude-sonnet-5-5 (medium); worker claude-haiku-5-5 (low)",
+      "status": "finished: 1/1 passed, merged into master without a merge flag, tree clean, no leftover worktrees; detach returned in 7.1 s; watch followed to the end with exit 0; javac/java run from archive: Hello, World!",
+      "exit_code": 0,
+      "total_cost_usd": 0.0906,
+      "duration_s": 30,
+      "cost_breakdown": "planner claude-sonnet-5-5 $0.0850; worker claude-haiku-5-5 T1 $0.0056",
+      "notes": "status text prints budget $5.00 although --max-budget-usd 0.40 was passed. Run dir has progress.log, summary.txt, result.json as expected."
+    },
+    {
+      "date": "2026-10-21",
+      "flow": "LIVE-CHECK flow 2: plan, review, edit, resume",
+      "run_id": "r_D5TVOLVAJB4U",
+      "command": "substrate plan \"make a hello world in java\" --plan claude:sonnet:medium --max-budget-usd 0.40, then manual edit of tasks/T1.md and manifest.yaml greeting to \"Hello from the reviewed plan!\", then substrate resume r_D5TVOLVAJB4U --work claude:haiku:low (cwd: ~/HydrocarbonForge/Projects/substrate-hello-4; empty dir; normal PATH, real claude; single attempt each)",
+      "models": "planner claude-sonnet-5-5 (medium); worker claude-haiku-5-5 (low)",
+      "status": "plan ended planned (1 task, nothing merged); resume accepted reviewed plan, worker ran, merged into master; edit took effect (javac/java from archive prints the edited greeting); tree clean, only master and substrate/runs/r_D5TVOLVAJB4U",
+      "exit_code": 0,
+      "total_cost_usd": 0.2110,
+      "duration_s": 22,
+      "cost_breakdown": "plan $0.2075 (planner attempt 1 $0.0882 rejected by lint L011 on the verify command, attempt 2 $0.1193); resume worker claude-haiku-5-5 T1 $0.0035",
+      "notes": "Lint L011 rejected the verify line 'd=$(mktemp' as an unresolvable binary, a false positive on the shell command. Plan run and resume share the same run id. Resume total $0.2110 is the run total."
+    },
+    {
+      "date": "2026-10-21",
+      "flow": "LIVE-CHECK flow 3: stop during planning, then resume",
+      "run_id": "r_ENYGSYGCM3ED",
+      "command": "substrate run --detach \"make a hello world in java\" --plan claude:sonnet:medium --work claude:haiku:low --max-budget-usd 0.40; substrate stop r_ENYGSYGCM3ED; substrate resume r_ENYGSYGCM3ED (cwd: ~/HydrocarbonForge/Projects/substrate-hello-5; empty dir; normal PATH, real claude; single attempt)",
+      "models": "planner claude-sonnet-5-5 (medium); worker claude-haiku-5-5 (low)",
+      "status": "FAILED: stop during planning was clean (exit 0, 0.84 s, planner pid gone, no orphan, PAUSED user_cancel). Resume printed 'no plan was accepted; planning again' but the planner saw Request '(none)' and paused needs_human with 3 questions (Q1-Q3); nothing run or merged; tree clean on master at the initial commit",
+      "exit_code": 3,
+      "total_cost_usd": 0.0444,
+      "duration_s": 6,
+      "cost_breakdown": "stopped planning $0.00 (no usage recorded); resume planner claude-sonnet-5-5 $0.0444",
+      "notes": "Bug: the request text was lost on resume (planner-request.md has '## Request (none)'), although run.created recorded the prompt. Detach ran 3.9 s, stop 0.84 s. Not retried, per the one-attempt rule."
+    },
+    {
+      "date": "2026-10-21",
+      "flow": "recheck stop during planning then resume after R11.1",
+      "run_id": "r_E43YCFQYPLFP",
+      "command": "substrate run --detach \"make a hello world in java\" --plan claude:sonnet:medium --work claude:haiku:low --max-budget-usd 0.40 (cwd: /home/bsmt-pc/HydrocarbonForge/Projects/substrate-hello-6); then substrate stop, substrate resume",
+      "models": {
+        "planner": "claude:sonnet (claude-sonnet-5-5, effort medium)",
+        "worker": "claude:haiku (claude-haiku-5-5, effort low)"
+      },
+      "status": "finished: stopped during planning (paused: stopped by you), resumed, planner re-ran and produced 1 task (T1 Create Java Hello World), T1 passed and merged into master; integration verify passed. Checkout clean, no leftover task branches or worktrees; run branch substrate/runs/r_E43YCFQYPLFP kept as per run design.",
+      "exit_code": 0,
+      "total_cost_usd": 0.0581,
+      "cost_breakdown": "planner attempt killed by stop $0.0000 (no usage reported); planner attempt 1 after resume $0.0534; worker T1 $0.0047",
+      "project": "~/HydrocarbonForge/Projects/substrate-hello-6",
+      "side_effects": "substrate-hello-6 contains .git, .substrate/ and src/Main.java on master; no harness source or ledger changes; progress.json edited only for this entry"
+    },
+    {
+      "date": "2026-10-21",
+      "flow": "final end-to-end snake run on HEAD eef1090 (detach + watch + status samples, merge by default)",
+      "run_id": "r_JEKHABPOAS5N",
+      "command": "cd substrate-snake-6 && substrate run --detach \"make a snake game\" --plan claude:claude-sonnet-5-5:xhigh --work claude:claude-haiku-5-5:medium --max-budget-usd 3; then substrate watch / status / runs",
+      "models": {
+        "planner": "claude:claude-sonnet-5-5 (effort xhigh)",
+        "worker": "claude:claude-haiku-5-5 (effort medium)"
+      },
+      "status": "finished: planner produced 3 tasks (T1 tests, T2 logic after T1, T3 browser UI); T1 and T3 ran in parallel, T2 after T1; all 3 passed and merged into master without a merge flag; integration verify passed; exit 0. Project git clean; leftover branch only substrate/runs/r_JEKHABPOAS5N; no task worktrees left. Own test run: 12/12 pass.",
+      "exit_code": 0,
+      "total_cost_usd": 0.6021,
+      "cost_breakdown": "planner $0.5703; worker T1 $0.0104; worker T3 $0.0144; worker T2 $0.0071",
+      "duration": "4m46s (run) ; 5.6s to return from --detach",
+      "project": "~/HydrocarbonForge/Projects/substrate-snake-6",
+      "side_effects": "substrate-snake-6 contains .git and an excluded .substrate/ directory; nothing else written by the agent; progress.json edited only for this entry"
+    }
   ]
 }
