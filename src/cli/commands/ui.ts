@@ -11,13 +11,14 @@ import type { RunId } from "../../contracts/index.js";
 // dispatcher (ctx.web), since the CLI may not import src/web.
 
 interface UiHost {
-  serveUi(options: { port?: number }): Promise<{ url: string; port: number; close(): Promise<void> }>;
+  serveUi(options: { port?: number; host?: string }): Promise<{ url: string; host: string; port: number; close(): Promise<void> }>;
 }
 
 interface CommandContext {
   cwd: string;
   flags: {
     port?: number;
+    host?: string;
     outputFormat?: "text" | "json" | "stream-json";
     force?: boolean;
     enable?: boolean;
@@ -100,13 +101,20 @@ async function serve(ctx: CommandContext): Promise<number> {
   const configFile = ui.uiConfigFileOf(env);
   const pidFile = ui.uiPidFileOf(env);
   const flagPort = ctx.flags.port;
+  const flagHost = ctx.flags.host;
   if (flagPort !== undefined && !validPort(flagPort)) {
     ctx.stderr.write("Error: --port must be a whole number from 0 to 65535\n");
     return 2;
   }
+  if (flagHost !== undefined && !ui.validUiHost(flagHost)) {
+    ctx.stderr.write("Error: --host must be an interface name or address, or the all-interfaces wildcard address\n");
+    return 2;
+  }
   let stored: number | undefined;
+  let storedHost: string | undefined;
   try {
     stored = ui.readUiPort(configFile);
+    storedHost = ui.readUiHost(configFile);
   } catch (err) {
     ctx.stderr.write(`Error: ${(err as Error).message}\n`);
     return 2;
@@ -118,9 +126,10 @@ async function serve(ctx: CommandContext): Promise<number> {
   }
 
   const chosen = ui.choosePort(flagPort, stored);
-  let server: { url: string; port: number; close(): Promise<void> };
+  const host = flagHost ?? storedHost ?? "localhost";
+  let server: { url: string; host: string; port: number; close(): Promise<void> };
   try {
-    server = await ctx.web.serveUi({ port: chosen.port });
+    server = await ctx.web.serveUi({ port: chosen.port, host });
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "EADDRINUSE") {
@@ -133,7 +142,7 @@ async function serve(ctx: CommandContext): Promise<number> {
     }
     // The stored port is taken by something else: take a new one from the system and keep it (ui.json).
     try {
-      server = await ctx.web.serveUi({ port: 0 });
+      server = await ctx.web.serveUi({ port: 0, host });
     } catch (again) {
       ctx.stderr.write(`Error: the web UI could not start: ${(again as Error).message}\n`);
       return 1;
@@ -141,16 +150,20 @@ async function serve(ctx: CommandContext): Promise<number> {
     ctx.stderr.write(`port ${chosen.port} is in use; the web UI now uses port ${server.port} (saved in ${configFile})\n`);
   }
 
-  if (flagPort === undefined && server.port !== stored) {
-    try {
-      ui.writeUiPort(configFile, server.port);
-    } catch (err) {
-      ctx.stderr.write(`warning: could not save the port in ${configFile}: ${(err as Error).message}\n`);
-    }
+  // A port or host given on the command line is kept in ui.json, so the service and the next start use it. A port
+  // of 0 means "the system chooses", which is never saved as such.
+  const savePort = flagPort === undefined ? server.port !== stored : flagPort !== 0 && flagPort !== stored;
+  const saveHost = flagHost !== undefined && flagHost !== storedHost;
+  try {
+    if (savePort) ui.writeUiPort(configFile, server.port);
+    if (saveHost) ui.writeUiHost(configFile, flagHost as string);
+  } catch (err) {
+    ctx.stderr.write(`warning: could not save the settings in ${configFile}: ${(err as Error).message}\n`);
   }
   ui.writeUiPidRecord(pidFile, {
     pid: process.pid,
     url: server.url,
+    host: server.host,
     started_at: new Date().toISOString(),
     node: process.execPath,
   });
@@ -166,14 +179,20 @@ async function start(ctx: CommandContext): Promise<number> {
   const env = process.env;
   const json = ctx.flags.outputFormat === "json";
   const pidFile = ui.uiPidFileOf(env);
-  const emit = (url: string, pid: number): void => {
-    ctx.stdout.write(json ? `${JSON.stringify({ url, pid })}\n` : `${url}\n`);
+  // The URL is always printed; a wildcard bind is reached through localhost, so one more line says it listens everywhere.
+  const emit = (url: string, pid: number, host: string): void => {
+    if (json) {
+      ctx.stdout.write(`${JSON.stringify({ url, pid, host })}\n`);
+      return;
+    }
+    ctx.stdout.write(`${url}\n`);
+    if (ui.isWildcardHost(host)) ctx.stdout.write("listening on all interfaces\n");
   };
 
   const state = ui.uiPidStateOf(pidFile);
   if (state.state === "live") {
     if (await ui.probeHealth(state.record.url)) {
-      emit(state.record.url, state.record.pid);
+      emit(state.record.url, state.record.pid, state.record.host);
       return 0;
     }
     ctx.stderr.write(
@@ -184,12 +203,18 @@ async function start(ctx: CommandContext): Promise<number> {
   if (state.state === "stale") ui.removeUiPidRecord(pidFile);
 
   const flagPort = ctx.flags.port;
+  const flagHost = ctx.flags.host;
   if (flagPort !== undefined && !validPort(flagPort)) {
     ctx.stderr.write("Error: --port must be a whole number from 0 to 65535\n");
     return 2;
   }
+  if (flagHost !== undefined && !ui.validUiHost(flagHost)) {
+    ctx.stderr.write("Error: --host must be an interface name or address, or the all-interfaces wildcard address\n");
+    return 2;
+  }
   const args = ["ui", "serve"];
   if (flagPort !== undefined) args.push("--port", String(flagPort));
+  if (flagHost !== undefined) args.push("--host", flagHost);
   const logFile = ui.uiLogFileOf(env);
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   const child = proc.spawnDetached({
@@ -211,7 +236,7 @@ async function start(ctx: CommandContext): Promise<number> {
   while (!exited && Date.now() < deadline) {
     const now = ui.uiPidStateOf(pidFile);
     if (now.state === "live" && now.record.pid === child.pid && (await ui.probeHealth(now.record.url, 1000))) {
-      emit(now.record.url, now.record.pid);
+      emit(now.record.url, now.record.pid, now.record.host);
       return 0;
     }
     await sleep(POLL_MS);
@@ -281,6 +306,7 @@ async function status(ctx: CommandContext): Promise<number> {
     ctx.stdout.write(`${JSON.stringify({
       running: answering,
       url: live?.url ?? null,
+      host: live?.host ?? null,
       pid: live?.pid ?? null,
       started_at: live?.started_at ?? null,
       uptime_seconds: answering ? uptimeSeconds : null,
@@ -294,6 +320,7 @@ async function status(ctx: CommandContext): Promise<number> {
     ctx.stdout.write(
       `Substrate web UI: running\n` +
         `url:      ${live.url}\n` +
+        (ui.isWildcardHost(live.host) ? `listening on all interfaces\n` : "") +
         `pid:      ${live.pid}\n` +
         `uptime:   ${formatUptime(uptimeSeconds ?? 0)}\n`,
     );

@@ -5,8 +5,10 @@ import { join } from "node:path";
 
 import {
   choosePort,
+  readUiHost,
   readUiPort,
   uiPidStateOf,
+  writeUiHost,
   writeUiPidRecord,
   writeUiPort,
 } from "../../../src/store/ui-state.js";
@@ -95,6 +97,16 @@ describe("8.2: the port is the flag, then the stored port, then a new one from t
     writeFileSync(file, "not json");
     expect(() => readUiPort(file)).toThrow(/not valid JSON/);
   });
+
+  it("keeps the host and the port together in ui.json, in either order", () => {
+    const file = join(tempDir(), "ui.json");
+    writeUiHost(file, "localhost");
+    expect(readUiHost(file)).toBe("localhost");
+    expect(readUiPort(file)).toBeUndefined();
+    writeUiPort(file, 4321);
+    expect(readUiHost(file)).toBe("localhost");
+    expect(readUiPort(file)).toBe(4321);
+  });
 });
 
 describe("8.3: the pid file is trusted only while its process is a ui serve", () => {
@@ -103,7 +115,7 @@ describe("8.3: the pid file is trusted only while its process is a ui serve", ()
     const file = join(dir, "ui.pid");
     expect(uiPidStateOf(file).state).toBe("none");
 
-    writeUiPidRecord(file, { pid: 4242, url: "http://localhost:1", started_at: "2026-10-22T00:00:00Z", node: "/usr/bin/node" });
+    writeUiPidRecord(file, { pid: 4242, url: "http://localhost:1", host: "localhost", started_at: "2026-10-22T00:00:00Z", node: "/usr/bin/node" });
     expect(uiPidStateOf(file, () => ({ alive: false, args: "" })).state).toBe("stale");
     // A recycled pid: alive, but its command line does not name a Substrate ui serve. It is never signalled.
     expect(uiPidStateOf(file, () => ({ alive: true, args: "sleep 100" })).state).toBe("stale");

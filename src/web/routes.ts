@@ -35,7 +35,8 @@ export const API_VERSION = "1";
 export interface RouteContext {
   env: NodeJS.ProcessEnv;
   webRoot: string;
-  allowedHosts: ReadonlySet<string>;
+  /** The Host names POST requests may carry; undefined when the server is not bound to localhost (see hostGuardOf). */
+  allowedHosts: ReadonlySet<string> | undefined;
   streams: StreamRegistry;
   startedAt: string;
 }

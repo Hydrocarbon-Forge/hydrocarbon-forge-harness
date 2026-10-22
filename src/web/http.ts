@@ -60,12 +60,23 @@ export function sendError(res: ServerResponse, err: unknown): void {
 }
 
 /**
- * The guards of a state-changing request (5.0): the body is JSON (415 otherwise), the X-Substrate-UI header is 1
- * (403 otherwise), and the Host header names the loopback hostname the server listens on (403 otherwise).
+ * The Host names a server accepts for POST, decided by how it was configured. Bound to localhost, only the loopback
+ * names are accepted (undefined is returned for every other bind, meaning no Host check: LAN clients send the
+ * machine's own name or address). The port is the one the server actually bound.
  */
-export function checkPostGuards(req: IncomingMessage, allowedHosts: ReadonlySet<string>): void {
+export function hostGuardOf(bindHost: string, port: number): ReadonlySet<string> | undefined {
+  if (bindHost !== "localhost") return undefined;
+  return new Set(["localhost", `localhost:${port}`]);
+}
+
+/**
+ * The guards of a state-changing request (5.0): the body is JSON (415 otherwise), the X-Substrate-UI header is 1
+ * (403 otherwise), and, when the server is bound to localhost (allowedHosts is set), the Host header names it (403
+ * otherwise). A server bound to any other interface has no allowedHosts and skips the Host check.
+ */
+export function checkPostGuards(req: IncomingMessage, allowedHosts: ReadonlySet<string> | undefined): void {
   const host = req.headers.host ?? "";
-  if (!allowedHosts.has(host)) {
+  if (allowedHosts !== undefined && !allowedHosts.has(host)) {
     throw new ApiError("guard_failed", "the Host header must name localhost");
   }
   if (req.headers["x-substrate-ui"] !== "1") {

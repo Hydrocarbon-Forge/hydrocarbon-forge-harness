@@ -47,6 +47,8 @@ export interface CliGlobalFlags {
   concurrency?: number;
   /** ui serve: the port to listen on (0 lets the system choose); otherwise ui.json names it (web-ui design, 8.2). */
   port?: number;
+  /** ui serve, ui start: the interface to listen on, a name or an address (the wildcard listens on all); else ui.json names it. */
+  host?: string;
   /** ui chat-turn (hidden): the project directory the run belongs to. */
   project?: string;
   /** ui chat-turn (hidden): the chat message the turn was started for. */
@@ -178,6 +180,7 @@ const CLI_OPTIONS = {
   "older-than": { type: "string" },
   "history-all": { type: "boolean" },
   port: { type: "string" },
+  host: { type: "string" },
   project: { type: "string" },
   message: { type: "string" },
   enable: { type: "boolean" },
@@ -291,6 +294,7 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.port !== undefined) {
     flags.port = Number(parsedValues.port);
   }
+  if (parsedValues.host !== undefined) flags.host = parsedValues.host as string;
   if (parsedValues.enable) flags.enable = true;
   if (parsedValues.project !== undefined) flags.project = parsedValues.project as string;
   if (parsedValues.message !== undefined) flags.message = parsedValues.message as string;

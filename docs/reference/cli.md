@@ -525,8 +525,8 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 ## ui
 
 ```text
-substrate ui serve [--port <n>]
-substrate ui start [--port <n>] [--output-format json]
+substrate ui serve [--port <n>] [--host <name-or-address>]
+substrate ui start [--port <n>] [--host <name-or-address>] [--output-format json]
 substrate ui stop [--force] [--output-format json]
 substrate ui status [--output-format json]
 substrate ui install-service [--enable]
@@ -541,7 +541,7 @@ The browser UI (web-ui design, section 8) shows the jobs of every project regist
   user unit runs. A second `serve` while one runs exits `1`.
 - `start` runs `serve` in the background, logging to `ui.log`, and prints the URL once the UI answers. A UI already
   running is not started again: `start` prints its URL and exits `0`. With `--output-format json` it prints
-  `{"url","pid"}`.
+  `{"url","pid","host"}`. A wildcard host adds the line `listening on all interfaces` after the URL.
 - `stop` ends the background UI with SIGTERM and waits up to 15 s. It refuses a pid whose command line is not a
   Substrate process. Without a running UI it exits `0` and says so. `--force` sends SIGKILL when the UI does not stop.
 - `status` prints `running` or `stopped`, the URL, the pid, the uptime, the number of projects, the number of running
@@ -560,11 +560,14 @@ The browser UI (web-ui design, section 8) shows the jobs of every project regist
   `ui.json`, so the URL stays the same later. A saved port that another program holds is replaced by a new free
   one, saved too, with a one-line notice on stderr. An explicit `--port` that is in use exits `1`. A `ui.json` that
   names no valid port exits `2`.
-- The server listens on the loopback interface only, reached as `localhost`. It never listens on an all-interfaces
-  address.
+- The host is `--host <name-or-address>` (an interface name or address; set it to the all-interfaces wildcard address to
+  listen on every network interface). Without the flag it is the `host` in `ui.json`, else `localhost`. An explicit
+  `--host` is saved in `ui.json`. The default listens on the loopback interface only, reached as `localhost`. `status`
+  prints the host and, for a wildcard, the line `listening on all interfaces`.
 - The API is under `/api` (see the design, section 5). State-changing requests (`stop`, `resume`) need
-  `Content-Type: application/json` and the header `X-Substrate-UI: 1`, and the Host header must name `localhost`. These
-  are availability guards, not authentication.
+  `Content-Type: application/json` and the header `X-Substrate-UI: 1`. When the UI is bound to `localhost`, the Host
+  header must name `localhost` too; when it is bound to another host, the Host header is not checked. These are
+  availability guards, not authentication.
 - `ui` with no subcommand lists the subcommands. An unknown subcommand exits `2`.
 - `ui chat-turn` is hidden from the help. The web server starts it, detached, once for each chat message it accepts:
   `substrate ui chat-turn --project <dir> --run <run id> --message <chat id>`. All three flags are required (exit `2`

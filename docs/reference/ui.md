@@ -4,11 +4,19 @@ Substrate has a browser UI. It shows the jobs of every project registered on thi
 `$XDG_STATE_HOME/substrate/projects.json`), not only the project in the current directory. The UI runs as a background
 service, so it is up even when no `substrate` command is running. The design is in `docs/design/web-ui.md`.
 
-- It listens on the loopback interface only and is reached as `localhost`. It is not reachable from other machines. It
-  has no login: anyone who can open the URL on this machine can see the runs and stop or resume them.
+- By default it listens on the loopback interface only, reached as `localhost`, and it is not reachable from other
+  machines. It has no login: anyone who can open the URL can see the runs and stop or resume them.
+- The host is `localhost` unless you set it. `--host <name-or-address>` (on `ui serve` and `ui start`) names the
+  interface to listen on: an interface name or address. Set it to the all-interfaces wildcard address to listen on every
+  network interface, so other machines on the network can reach the UI. The UI has no authentication then, as it has
+  none on localhost. The URL printed is still `localhost`, and `start` and `status` add the line
+  `listening on all interfaces`.
 - The port is chosen once and kept. It is stored in `ui.json`, in the same directory as `settings.json`
   (`$SUBSTRATE_CONFIG_DIR`, else `~/.config/substrate`). The URL stays the same across restarts and across the
-  service. Nothing in the repository holds a port.
+  service. Nothing in the repository holds a port or a host.
+- `ui.json` also holds the host, under the key `host`. An explicit `--host` (and an explicit `--port`) is saved there,
+  so the service and the next start use it. The systemd unit runs `ui serve` with no options, so it listens on the host
+  and port that `ui.json` names.
 
 ## Start, stop and status
 
@@ -19,13 +27,14 @@ substrate ui stop             stop it (SIGTERM, up to 15 s); --force kills it if
 substrate ui serve            run it in the foreground (what the service runs; stops on Ctrl+C)
 ```
 
-`ui start` and `ui status` take `--output-format json`. `start` then prints `{"url","pid"}`; `status` prints the
-running state, URL, pid, uptime, project and job counts and the service state. Running `ui start` twice is safe: the
-second call prints the same URL.
+`ui start` and `ui status` take `--output-format json`. `start` then prints `{"url","pid","host"}`; `status` prints the
+running state, URL, host, pid, uptime, project and job counts and the service state. Running `ui start` twice is safe:
+the second call prints the same URL.
 
 The background process writes its pid to `ui.pid` and its output to `ui.log`, both under
-`$XDG_STATE_HOME/substrate` (default `~/.local/state/substrate`). A pid file whose process is gone, or is not a
-`ui serve`, is stale and is ignored. Substrate never signals a pid it cannot confirm is its own.
+`$XDG_STATE_HOME/substrate` (default `~/.local/state/substrate`). `ui.pid` records the host the UI listens on. A pid
+file whose process is gone, or is not a `ui serve`, is stale and is ignored. Substrate never signals a pid it cannot
+confirm is its own.
 
 To find the URL later, run `substrate ui status`. A port already in use by something else is replaced: the UI takes a
 new free port, saves it in `ui.json`, and prints a one-line notice.
@@ -91,3 +100,5 @@ printed and never run by Substrate. On macOS and Windows the service commands ex
 - **`substrate ui serve` says the UI is already running.** One UI runs per machine. Use `substrate ui status`, then
   `substrate ui stop` (or `systemctl --user stop substrate-ui.service` when the service runs it).
 - **`ui.json` is corrupt.** Delete it. The next start picks a new port.
+- **Other machines cannot reach the UI.** Check that the UI listens on all interfaces (`substrate ui status` prints
+  `listening on all interfaces`). A host firewall can still block the port; open it for your LAN if you use one.

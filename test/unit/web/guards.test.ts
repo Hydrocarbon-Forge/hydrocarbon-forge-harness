@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { IncomingMessage } from "node:http";
 
-import { ApiError, checkPostGuards, intParam } from "../../../src/web/http.js";
+import { ApiError, checkPostGuards, hostGuardOf, intParam } from "../../../src/web/http.js";
 
 function requestWith(headers: Record<string, string>): IncomingMessage {
   return { headers } as unknown as IncomingMessage;
@@ -30,6 +30,15 @@ describe("web POST guards and query parameters (design section 5.0)", () => {
     expect(codeOf(() => checkPostGuards(requestWith({ ...GOOD, host: "evil.example" }), HOSTS))).toBe("guard_failed");
     expect(codeOf(() => checkPostGuards(requestWith({ ...GOOD, "x-substrate-ui": "0" }), HOSTS))).toBe("guard_failed");
     expect(codeOf(() => checkPostGuards(requestWith({ ...GOOD, "content-type": "text/plain" }), HOSTS))).toBe("unsupported");
+  });
+
+  it("checks the Host only when bound to localhost; another bind skips it, and the UI header is still required", () => {
+    const localOnly = hostGuardOf("localhost", Number(PORT));
+    expect(codeOf(() => checkPostGuards(requestWith({ ...GOOD, host: "lan.example" }), localOnly))).toBe("guard_failed");
+    const lan = hostGuardOf("lan.example", Number(PORT));
+    expect(lan).toBeUndefined();
+    expect(codeOf(() => checkPostGuards(requestWith({ ...GOOD, host: "lan.example" }), lan))).toBeUndefined();
+    expect(codeOf(() => checkPostGuards(requestWith({ ...GOOD, host: "lan.example", "x-substrate-ui": "0" }), lan))).toBe("guard_failed");
   });
 
   it("reads integers within bounds and refuses anything else as bad_request", () => {

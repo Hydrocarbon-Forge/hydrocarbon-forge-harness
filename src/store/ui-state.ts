@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
 import { xdgStateHome } from "../ledger/usage.js";
 import { isSubstrateProcess, processInfoOf } from "../util/process-control.js";
 
-// The files of the always-on browser UI (web-ui design, sections 8.2 and 8.3): the user-level `ui.json` (the port,
-// next to settings.json), and the state files `ui.pid` and `ui.log` under `$XDG_STATE_HOME/substrate`. Neutral: the
+// The files of the always-on browser UI (web-ui design, sections 8.2 and 8.3): the user-level `ui.json` (the port and
+// the host to listen on, next to settings.json), and the state files `ui.pid` and `ui.log` under `$XDG_STATE_HOME/substrate`. Neutral: the
 // CLI (`ui start | stop | status`) and the server (`ui serve`) both use it, and it imports neither.
 
 const UI_CONFIG_NAME = "ui.json";
@@ -32,8 +33,8 @@ export function uiLogFileOf(env: NodeJS.ProcessEnv): string {
   return path.join(xdgStateHome(env), "substrate", UI_LOG_NAME);
 }
 
-/** The port the config file names, or undefined when the file does not exist. A file that names no valid port throws. */
-export function readUiPort(file: string): number | undefined {
+/** The keys of the config file as an object. A missing file reads as undefined; an unreadable or invalid file throws. */
+function readUiConfig(file: string): Record<string, unknown> | undefined {
   let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
@@ -47,20 +48,66 @@ export function readUiPort(file: string): number | undefined {
   } catch {
     throw new Error(`${file} is not valid JSON`);
   }
-  const port = (parsed as { port?: unknown } | null)?.port;
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${file} does not hold a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** The port the config file names, or undefined when the file does not exist or names none. A bad port throws. */
+export function readUiPort(file: string): number | undefined {
+  const port = readUiConfig(file)?.port;
+  if (port === undefined) return undefined;
   if (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error(`${file} does not name a port from 0 to 65535`);
   }
   return port;
 }
 
-/** Stores the port in ui.json (atomically), so the URL stays the same across restarts and the systemd unit. */
-export function writeUiPort(file: string, port: number, now: Date = new Date()): void {
+/** Whether a value can name an interface: a host name or an address (letters, digits, dots, colons, dashes, underscores). */
+export function validUiHost(host: string): boolean {
+  return /^[A-Za-z0-9._:-]+$/.test(host);
+}
+
+/** The host the config file names (an interface name or an address), or undefined when it names none. A bad host throws. */
+export function readUiHost(file: string): string | undefined {
+  const host = readUiConfig(file)?.host;
+  if (host === undefined) return undefined;
+  if (typeof host !== "string" || !validUiHost(host)) {
+    throw new Error(`${file} does not name a host`);
+  }
+  return host;
+}
+
+/** Writes keys into ui.json (atomically), keeping the keys it already holds. An unreadable file is replaced. */
+function updateUiConfig(file: string, fields: Record<string, unknown>): void {
+  let current: Record<string, unknown> = {};
+  try {
+    current = readUiConfig(file) ?? {};
+  } catch {
+    current = {};
+  }
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const data = { version: 1, port, chosen_at: now.toISOString() };
+  const data = { version: 1, ...current, ...fields };
   const tmp = `${file}.tmp-${process.pid}`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
   fs.renameSync(tmp, file);
+}
+
+/** Stores the port in ui.json, so the URL stays the same across restarts and the systemd unit. */
+export function writeUiPort(file: string, port: number, now: Date = new Date()): void {
+  updateUiConfig(file, { port, chosen_at: now.toISOString() });
+}
+
+/** Stores the host to listen on in ui.json. The port already there is kept. */
+export function writeUiHost(file: string, host: string): void {
+  updateUiConfig(file, { host });
+}
+
+/** Whether a host is the all-interfaces wildcard address (every bit zero): it listens on every network interface. */
+export function isWildcardHost(host: string): boolean {
+  if (net.isIP(host) === 0) return false;
+  return host.replace(/[.:]/g, "").split("").every((c) => c === "0");
 }
 
 /**
@@ -80,6 +127,8 @@ export function choosePort(
 export interface UiPidRecord {
   pid: number;
   url: string;
+  /** The host the server listens on, as configured: `localhost`, an interface name or address, or the wildcard. */
+  host: string;
   started_at: string;
   node: string;
 }
@@ -104,6 +153,7 @@ function readUiPidRecord(file: string): UiPidRecord | undefined {
   return {
     pid: parsed.pid,
     url: parsed.url,
+    host: typeof parsed.host === "string" ? parsed.host : "",
     started_at: typeof parsed.started_at === "string" ? parsed.started_at : "",
     node: typeof parsed.node === "string" ? parsed.node : "",
   };
