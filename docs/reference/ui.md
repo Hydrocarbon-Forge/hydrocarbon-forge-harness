@@ -30,6 +30,29 @@ The background process writes its pid to `ui.pid` and its output to `ui.log`, bo
 To find the URL later, run `substrate ui status`. A port already in use by something else is replaced: the UI takes a
 new free port, saves it in `ui.json`, and prints a one-line notice.
 
+## Chat with the planner
+
+The job page has a chat box. A message goes to the job's planner, so you can ask about the plan or ask for a change to
+it. Each message is answered by a planner session of its own, started detached, so the page is never held up by the
+planner.
+
+- A reply comes back as a `planner` line in the job's chat. The planner resumes the job's planning session when one was
+  recorded; otherwise it starts a new `planner_chat` session with the job's charter, request, manifest, task states,
+  recent failures, report and last engine events. Its cost counts in the job's usage and in `substrate usage`.
+- A change is an **amendment**: the planner writes a full plan under `amendments/<chat id>/` in the run directory. The
+  substrate checks it with the plan lint (blockers only). A refused amendment changes nothing, and the chat says why.
+- **Only pending tasks change.** A task that is running, passed, merged or failed is never changed or dropped by chat.
+  Its spec in the amendment is ignored, and the chat says it was kept. A pending task left out of the amendment is
+  dropped, and its dependents are skipped, as after any failed dependency.
+- **A running job** applies the amendment between its actions. The chat says "Amendment queued".
+- **A stopped, paused or failed job** does not apply it until it is resumed. The chat says "Amendment ready: ... Resume
+  the job to apply it." Resume the job from the page or with `substrate resume <id>`.
+- **A finished job** can be asked questions but cannot be amended. The chat says so; start a follow-up job for the change.
+- Messages are answered one at a time, in the order they were sent. A message that cannot be answered (the planner
+  cannot be started, or its session fails) gets a chat note that says what failed and that nothing was changed.
+
+Chat lines are in `runs/<id>/chat.jsonl`, and the engine's inbox is `runs/<id>/inbox/`; see `run-directory.md`.
+
 ## Installing the service (Linux, systemd)
 
 ```text

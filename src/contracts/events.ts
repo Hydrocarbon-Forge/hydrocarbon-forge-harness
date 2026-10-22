@@ -4,7 +4,7 @@ import {
   FailureClass,
   PauseReason,
   UsageRecord,
-  RoleName,
+  UsageRoleName,
 } from "./index.js";
 import type { Question } from "./index.js";
 
@@ -687,7 +687,7 @@ export const UsageRecordedEvent = member(
   z
     .object({
       record: UsageRecord,
-      role: RoleName,
+      role: UsageRoleName,
       task_id: z.string().optional(),
       generation: z.number().optional(),
       attempt: z.number().optional(),

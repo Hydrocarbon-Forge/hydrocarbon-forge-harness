@@ -47,6 +47,10 @@ export interface CliGlobalFlags {
   concurrency?: number;
   /** ui serve: the port to listen on (0 lets the system choose); otherwise ui.json names it (web-ui design, 8.2). */
   port?: number;
+  /** ui chat-turn (hidden): the project directory the run belongs to. */
+  project?: string;
+  /** ui chat-turn (hidden): the chat message the turn was started for. */
+  message?: string;
   /** ui install-service: run systemctl to enable the unit now (web-ui design, 8.4). */
   enable?: boolean;
   /** ui uninstall-service: run systemctl to stop and disable the unit first. */
@@ -174,6 +178,8 @@ const CLI_OPTIONS = {
   "older-than": { type: "string" },
   "history-all": { type: "boolean" },
   port: { type: "string" },
+  project: { type: "string" },
+  message: { type: "string" },
   enable: { type: "boolean" },
   disable: { type: "boolean" },
 } as const;
@@ -286,6 +292,8 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
     flags.port = Number(parsedValues.port);
   }
   if (parsedValues.enable) flags.enable = true;
+  if (parsedValues.project !== undefined) flags.project = parsedValues.project as string;
+  if (parsedValues.message !== undefined) flags.message = parsedValues.message as string;
   if (parsedValues.disable) flags.disable = true;
 
   let commandName: string | undefined;

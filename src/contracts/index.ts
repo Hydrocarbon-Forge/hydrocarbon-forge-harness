@@ -19,6 +19,11 @@ export type Effort = z.infer<typeof Effort>;
 export const RoleName = z.enum(["planner", "worker", "test-writer", "reviewer"]);
 export type RoleName = z.infer<typeof RoleName>;
 
+// The role a usage line is recorded under: a RoleName, or the planner's chat turn (web-ui design, 7.10), which
+// is not a role of its own in settings or agents.
+export const UsageRoleName = z.enum(["planner", "worker", "test-writer", "reviewer", "planner_chat"]);
+export type UsageRoleName = z.infer<typeof UsageRoleName>;
+
 export const TaskClass = z.string();
 export type TaskClass = z.infer<typeof TaskClass>;
 
@@ -148,7 +153,7 @@ export const UsageLedgerEntry = z.object({
   task_id: TaskId.optional(),
   generation: z.number().optional(),
   attempt: z.number().optional(),
-  role: RoleName,
+  role: UsageRoleName,
   class: z.string().optional(),
   backend: BackendName,
   model: z.string(),

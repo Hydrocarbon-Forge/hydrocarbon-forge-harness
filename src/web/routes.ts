@@ -21,12 +21,13 @@ import { taskDetailOf } from "../observe/task-view.js";
 import { transcriptFileOf, transcriptSliceOf } from "../observe/transcripts.js";
 import { usageReportOf } from "../observe/usage.js";
 import { resumeRun, stopRun } from "./control.js";
+import { postChatMessage } from "./chat.js";
 import { ApiError, checkPostGuards, intParam, readJsonBody, sendError, sendJson } from "./http.js";
 import { streamGlobal, streamRun, type StreamRegistry } from "./sse.js";
 import { sendStatic } from "./static.js";
 
 // The HTTP routes of the web server (docs/design/web-ui.md, 5.2). Each route reads the run through the observe layer;
-// the two POST routes pass the guards first. A chat POST is not registered here (a later package adds it).
+// the POST routes (stop, resume and chat) pass the guards first.
 
 /** The API version a client checks; the health answer names it. */
 export const API_VERSION = "1";
@@ -96,6 +97,14 @@ async function postControl(req: IncomingMessage, res: ServerResponse, ctx: Route
   sendJson(res, 202, await resumeRun(run, ref, answers));
 }
 
+async function postChat(req: IncomingMessage, res: ServerResponse, ctx: RouteContext, ref: string): Promise<void> {
+  checkPostGuards(req, ctx.allowedHosts);
+  const body = (await readJsonBody(req)) as { message?: unknown } | null;
+  if (typeof body?.message !== "string") throw new ApiError("bad_request", "message must be a string");
+  const run = requireRun(ctx.env, ref);
+  sendJson(res, 202, { message: postChatMessage(run, body.message) });
+}
+
 function artifactRoute(res: ServerResponse, ctx: RouteContext, ref: string, key: string): void {
   const run = requireRun(ctx.env, ref);
   if (!/^[0-9a-f]{24}$/.test(key)) throw notFound("no such artifact");
@@ -130,6 +139,10 @@ export async function routeRequest(req: IncomingMessage, res: ServerResponse, ct
     }
     if (method === "POST" && parts.length === 3 && parts[0] === "runs" && (parts[2] === "stop" || parts[2] === "resume")) {
       await postControl(req, res, ctx, parts[1], parts[2]);
+      return;
+    }
+    if (method === "POST" && parts.length === 3 && parts[0] === "runs" && parts[2] === "chat") {
+      await postChat(req, res, ctx, parts[1]);
       return;
     }
     throw notFound("no such route");

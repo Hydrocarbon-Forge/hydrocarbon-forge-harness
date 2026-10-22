@@ -55,6 +55,47 @@ export function pendingInbox(runDir: string): InboxEntry[] {
     });
 }
 
+/** The body of a message to the engine: what the caller sends, without the number and the time. */
+export type InboxBody =
+  | { kind: "chat"; chat_id: string; text: string }
+  | { kind: "amendment"; chat_id: string; dir: string };
+
+/** The highest message number in inbox/ or inbox/consumed/, so a consumed number is never reused. */
+function highestInboxNumber(runDir: string): number {
+  let highest = 0;
+  for (const dir of [path.join(runDir, INBOX_DIR), path.join(runDir, INBOX_CONSUMED_DIR)]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      const match = /^(\d+)(?:-\d+)?\.json$/.exec(name);
+      if (match) highest = Math.max(highest, Number(match[1]));
+    }
+  }
+  return highest;
+}
+
+/**
+ * Writes the next message for the engine (docs/design/web-ui.md, 6.2). The whole file is written under a temporary
+ * name and then hard-linked to inbox/<n>.json: the link fails when that name exists, so the number is taken by
+ * one writer only, and the engine never sees a half-written file. Returns the message as written.
+ */
+export function writeInboxMessage(runDir: string, body: InboxBody): InboxMessage {
+  const dir = path.join(runDir, INBOX_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  for (let n = highestInboxNumber(runDir) + 1; ; n++) {
+    const message = InboxMessage.parse({ v: 1, n, ts: new Date().toISOString(), ...body });
+    const tmp = path.join(dir, `.${n}.${process.pid}.tmp`);
+    fs.writeFileSync(tmp, `${JSON.stringify(message)}\n`, "utf8");
+    try {
+      fs.linkSync(tmp, path.join(dir, `${n}.json`));
+      return message;
+    } catch (err: any) {
+      if (err?.code !== "EEXIST") throw err;
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
+  }
+}
+
 /**
  * Moves a processed message into inbox/consumed/. A name already taken there gets a numbered suffix, so an
  * earlier message is never overwritten. Returns the new path.

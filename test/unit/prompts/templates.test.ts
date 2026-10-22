@@ -27,6 +27,10 @@ const TABLE: Record<string, string[]> = {
     "task_id", "failure_class", "escalation_reason", "failure_details",
     "worker_summary", "manifest", "task_states", "contracts", "decisions",
   ],
+  "planner/chat.md": [
+    "charter", "request", "run_state", "amendment_dir", "manifest", "task_states",
+    "failures", "report", "events", "history", "message",
+  ],
   "worker/task.md": ["spec_path"],
   "test-writer/task.md": ["spec_path"],
   "worker/heal.md": ["failures"],

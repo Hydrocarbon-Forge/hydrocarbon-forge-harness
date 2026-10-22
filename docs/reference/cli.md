@@ -566,6 +566,11 @@ The browser UI (web-ui design, section 8) shows the jobs of every project regist
   `Content-Type: application/json` and the header `X-Substrate-UI: 1`, and the Host header must name `localhost`. These
   are availability guards, not authentication.
 - `ui` with no subcommand lists the subcommands. An unknown subcommand exits `2`.
+- `ui chat-turn` is hidden from the help. The web server starts it, detached, once for each chat message it accepts:
+  `substrate ui chat-turn --project <dir> --run <run id> --message <chat id>`. All three flags are required (exit `2`
+  without them, or when the run or the message is unknown). It answers the run's queued chat messages in order and
+  exits `0`; a failure is written to the run's `chat.jsonl`, not to the exit code. Its output goes to the run's
+  `chat-turn.log`. You do not run it yourself: see `docs/reference/ui.md`, "Chat with the planner".
 
 ## Interrupt and resume (R8.2)
 

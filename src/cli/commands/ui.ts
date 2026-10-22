@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import type { RunId } from "../../contracts/index.js";
+
 // `substrate ui`: the browser UI (docs/design/web-ui.md, section 8). `ui serve` runs the server in the foreground until
 // SIGINT or SIGTERM and records its pid in ui.pid. `ui start` runs it detached, `ui stop` ends it, `ui status` reports
 // it, and `ui install-service` writes the systemd user unit that keeps it running. The server itself is passed in by the
@@ -20,6 +22,9 @@ interface CommandContext {
     force?: boolean;
     enable?: boolean;
     disable?: boolean;
+    project?: string;
+    message?: string;
+    run?: string;
   };
   rawArgs: string[];
   stdout: NodeJS.WriteStream;
@@ -41,6 +46,11 @@ const unit = await import(`../../util/systemd-unit.js`);
 const cmds = await import(`../systemctl.js`);
 const { listProjects } = await import(`../../store/projects.js`);
 const { projectRunsOf } = await import(`../../observe/runs-view.js`);
+const { chatHistoryOf } = await import(`../../observe/chat-view.js`);
+const { readJournal, runDirOf, settingsOf } = await import(`../../observe/run-observe.js`);
+const { runChatTurn } = await import(`../../roles/planner-chat.js`);
+const { createAdapters } = await import(`../../backends/registry.js`);
+const { loadSettings } = await import(`../../config/index.js`);
 
 /** How long `ui start` waits for the child to write its pid file and answer its health endpoint. */
 const START_WAIT_MS = 15000;
@@ -372,6 +382,32 @@ async function uninstallService(ctx: CommandContext): Promise<number> {
   return 0;
 }
 
+/**
+ * `ui chat-turn --project <dir> --run <id> --message <chat id>`: answers the run's queued chat messages (src/roles/
+ * planner-chat.ts). The web server starts it detached for each message; it exits 0 whether or not a reply was
+ * possible, since a failure is written to the run's chat.
+ */
+async function chatTurn(ctx: CommandContext): Promise<number> {
+  const { project, run, message } = ctx.flags;
+  if (project === undefined || run === undefined || message === undefined) {
+    ctx.stderr.write("Error: chat-turn needs --project, --run and --message\n");
+    return 2;
+  }
+  const runDir = runDirOf(project, run);
+  if (!fs.existsSync(path.join(runDir, "events.jsonl"))) {
+    ctx.stderr.write(`Error: unknown run ${run}\n`);
+    return 2;
+  }
+  if (!chatHistoryOf(runDir).some((m) => m.id === message)) {
+    ctx.stderr.write(`Error: no chat message ${message} in run ${run}\n`);
+    return 2;
+  }
+  const events = readJournal(runDir, run);
+  const settings = (await settingsOf(project, events)) ?? (await loadSettings({ projectDir: project }));
+  await runChatTurn({ runId: run as RunId, repoRoot: project, runDir, settings, adapters: createAdapters(settings), env: process.env });
+  return 0;
+}
+
 /** The subcommands of `ui`, by name. */
 const SUBCOMMANDS: Record<string, { description: string; run(ctx: CommandContext): Promise<number> }> = {
   serve: {
@@ -405,6 +441,8 @@ export const uiCommand: CliCommand = {
   description: "The browser UI on localhost, and its background service (ui start, status, stop, install-service)",
   async execute(ctx: CommandContext): Promise<number> {
     const sub = ctx.rawArgs[0];
+    // Hidden: the detached process that answers one chat message (web-ui design, 7.1). Not listed in the help.
+    if (sub === "chat-turn") return chatTurn(ctx);
     if (sub === undefined) {
       ctx.stdout.write("Usage: substrate ui <subcommand>\n\nSubcommands:\n");
       for (const [name, entry] of Object.entries(SUBCOMMANDS)) {
