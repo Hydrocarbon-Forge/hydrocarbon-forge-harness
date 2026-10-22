@@ -202,6 +202,25 @@ Remote services.
     }
   });
 
+  it("ignores placeholder-like runs inside inline code spans in Interface", () => {
+    const specWithInlineCode = sampleTaskSpecMarkdown({
+      sections: {
+        Interface: `Construct the client with \`new Client({ ...opts })\` and pass the options through.`,
+      },
+    });
+    const parsed = parseTaskSpec(specWithInlineCode);
+    expect(parsed.frontmatter.id).toBe("T1");
+  });
+
+  it("still throws for a bare TODO marker outside code spans in Interface", () => {
+    const specWithBareTodo = sampleTaskSpecMarkdown({
+      sections: {
+        Interface: "The return type is still open, so TODO decide it before the run.",
+      },
+    });
+    expect(() => parseTaskSpec(specWithBareTodo)).toThrow(/Placeholder token detected/);
+  });
+
   it("allows placeholder tokens when enclosed inside code fences", () => {
     const specWithCodePlaceholder = sampleTaskSpecMarkdown({
       sections: {

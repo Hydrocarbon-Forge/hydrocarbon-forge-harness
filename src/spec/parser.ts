@@ -155,7 +155,9 @@ export function parseTaskSpec(content: string, filePath?: string): ParsedTaskSpe
   for (const secName of ["Interface", "Behavior"]) {
     const text = sections.get(secName);
     if (text) {
-      const stripped = text.replace(/```[\s\S]*?```/g, "");
+      const stripped = text
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/`[^`\n]*`/g, "");
       if (placeholderRegex.test(stripped)) {
         throw new Error(
           `Placeholder token detected in ${secName} section outside code fences in ${filePath ?? "spec"}`
