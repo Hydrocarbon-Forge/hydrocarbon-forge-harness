@@ -148,20 +148,30 @@ export function registerProject(projectRoot: string, env: NodeJS.ProcessEnv = pr
 }
 
 /**
- * The projects that still exist: the registry without the entries whose directory or `.substrate` directory is gone.
- * The file is rewritten only when an entry was dropped.
+ * Removes the entries whose directory is gone from the registry on disk. The file is read again first, so a
+ * registration written since this process read it is not overwritten with a stale copy.
+ */
+function dropGoneProjects(file: string, gone: Set<string>): void {
+  try {
+    const current = readProjects(file);
+    if (current === undefined) return;
+    const kept = current.filter((p) => !gone.has(p.path));
+    if (kept.length !== current.length) writeProjects(file, kept);
+  } catch (err: any) {
+    log.warn(`could not write project registry ${file}: ${err?.message ?? String(err)}`);
+  }
+}
+
+/**
+ * The projects that are listed now: the registry entries whose directory and `.substrate` directory both exist.
+ *
+ * An entry whose directory is gone is removed from the registry for good. An entry whose `.substrate` is missing is
+ * only hidden: a run registers its project before `.substrate/` is created, and a listing that runs in that window
+ * must not lose the project. The entry stays in the registry, so the project is listed once `.substrate` exists.
  */
 export function listProjects(env: NodeJS.ProcessEnv = process.env): ProjectEntry[] {
   const { file, projects } = loadProjects(env);
-  const live = projects.filter(
-    (p) => fs.existsSync(p.path) && fs.existsSync(path.join(p.path, ".substrate")),
-  );
-  if (live.length !== projects.length) {
-    try {
-      writeProjects(file, live);
-    } catch (err: any) {
-      log.warn(`could not write project registry ${file}: ${err?.message ?? String(err)}`);
-    }
-  }
-  return live;
+  const gone = new Set(projects.filter((p) => !fs.existsSync(p.path)).map((p) => p.path));
+  if (gone.size > 0) dropGoneProjects(file, gone);
+  return projects.filter((p) => !gone.has(p.path) && fs.existsSync(path.join(p.path, ".substrate")));
 }

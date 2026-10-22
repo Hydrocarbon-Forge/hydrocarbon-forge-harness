@@ -64,6 +64,18 @@ describe("project registry", () => {
     expect(file.projects.map((p: { path: string }) => p.path)).toEqual([kept]);
   });
 
+  it("keeps a project registered before its .substrate exists, and lists it once .substrate is created", () => {
+    // A run registers its project first, then creates .substrate/. A listing in between must not lose it.
+    const project = realpathSync(mkdtempSync(join(root, "fresh-")));
+    registerProject(project, env);
+
+    expect(listProjects(env)).toEqual([]);
+    expect(JSON.parse(readFileSync(registryFile(), "utf8")).projects.map((p: { path: string }) => p.path)).toEqual([project]);
+
+    mkdirSync(join(project, ".substrate"));
+    expect(listProjects(env).map((p) => p.path)).toEqual([project]);
+  });
+
   it("treats a corrupt registry as empty and rewrites it on the next register", () => {
     mkdirSync(join(stateHome, "substrate"), { recursive: true });
     writeFileSync(registryFile(), "{not json", "utf8");

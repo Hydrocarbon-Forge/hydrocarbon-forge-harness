@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createE2ERepo } from "./helpers/repo.js";
 import { runSubstrate } from "./helpers/run-substrate.js";
+import { contractFiles, manifestFor, planCall, taskSpec } from "./helpers/plan-scenario.js";
 
 // The project registry, end to end (web-ui design, section 6.1): `init` registers a project, and
 // `runs --all-projects` lists the runs of every registered project. Each repo carries one seeded run
@@ -94,6 +95,43 @@ describe("E2E project registry", () => {
     } finally {
       results.forEach((r) => r.cleanup());
       alpha.cleanup();
+      rmSync(env.XDG_STATE_HOME, { recursive: true, force: true });
+      rmSync(env.SUBSTRATE_CONFIG_DIR, { recursive: true, force: true });
+    }
+  });
+
+  it("a run in an empty non-git directory registers the project it initialises, and runs --all-projects lists its run", () => {
+    const env = isolatedEnv();
+    // An empty directory, not a repository: the run initialises it with a base commit.
+    const dir = mkdtempSync(join(tmpdir(), "substrate-projects-empty-"));
+    const repo = { dir, git: () => "", cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+    const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });
+    const results: Array<{ cleanup(): void }> = [];
+    try {
+      const ran = runSubstrate({
+        repo,
+        env,
+        scenario: {
+          calls: [
+            planCall(contractFiles(manifestFor("make a snake game", ["T1"]), { "tasks/T1.md": t1 })),
+            { edits: { "src/a.txt": "t1-done\n" }, reply: "T1 done\nDONE" },
+          ],
+        },
+        args: ["run", "--permission-mode", "bypassPermissions", "make a snake game"],
+      });
+      results.push(ran);
+      expect(ran.exitCode, ran.stdout.slice(-1200)).toBe(0);
+      const runId = ran.runDir?.split("/").at(-1) as string;
+
+      const listed = runSubstrate({ repo, env, args: ["runs", "--all-projects", "--output-format", "json"] });
+      results.push(listed);
+      expect(listed.exitCode).toBe(0);
+      const rows = JSON.parse(listed.stdout) as Array<{ run_id: string; project: string; project_name: string }>;
+      expect(rows.map((r) => r.run_id)).toEqual([runId]);
+      expect(rows[0]).toMatchObject({ project: realpathSync(dir), project_name: basename(dir) });
+    } finally {
+      results.forEach((r) => r.cleanup());
+      repo.cleanup();
       rmSync(env.XDG_STATE_HOME, { recursive: true, force: true });
       rmSync(env.SUBSTRATE_CONFIG_DIR, { recursive: true, force: true });
     }
