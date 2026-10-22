@@ -47,3 +47,33 @@ task did not merge, saved when the run ends, before its worktree is removed) are
 Its transcript is `transcripts/<planner_session_id>.jsonl`. The field is absent when the plan was a draft reused by
 a resume or a plan a person reviewed; `run.paused` (reason `needs_human`) still carries the session id of a planning
 session that asked questions.
+
+## Inbox, chat and amendments
+
+`inbox/<n>.json`: one message for the engine, numbered from 1. A `chat` message records that the person wrote to the planner
+(`{"v":1,"n","ts","kind":"chat","chat_id","text"}`). An `amendment` message says the planner wrote a new plan
+(`{"v":1,"n","ts","kind":"amendment","chat_id","dir":"amendments/<chat_id>"}`). The server writes a file under a temporary
+name and renames it into place, so the engine never reads a half-written message.
+
+- The engine reads the pending messages oldest first. A message it has processed is moved to `inbox/consumed/` (a name already
+  there gets a numbered suffix). Nothing is deleted. A file that does not validate is moved there too and refused in chat.
+- `amendments/<chat_id>/`: a full plan (`manifest.yaml`, `tasks/<ID>.md`, the contract stubs at their repo-relative paths).
+  The engine validates it with the plan lint (blockers only), then diffs it against the run's tasks by id. A task that has
+  started (running, passed, merged, failed) is never changed: it is reported as kept. A pending task may be changed or
+  dropped, and a new task may be added with dependencies on any task. A contract change is typechecked and committed on the
+  run branch, as a replan does.
+- A live run applies an amendment between actions. A stopped, paused or failed run applies it when it is resumed. A finished
+  run does not: its amendment is refused. A refused amendment changes nothing.
+
+`chat.jsonl`: one JSON message per line (`{"id":"c<n>","ts","role","text","status","reply_to","session_id","amendment"}`).
+The last line for an id wins. The planner writes its replies here. The engine writes a system reply for each amendment it
+applied or refused, with `reply_to` set to the amendment's chat id and `amendment` set to what changed (`added`, `changed`,
+`dropped`, `kept_started`, and `reason` when refused).
+
+Two engine events record this (`events.jsonl`):
+
+- `run.message`: an inbox message was accepted. `{message_id, kind, chat_id}`. It changes no task state.
+- `run.amended`: an amendment was applied or refused. `{chat_id, outcome, applied_at, added, changed, dropped, kept_started,
+  warning_count, reason?, tasks?}`. `applied_at` is `live` or `resume`. An applied amendment adds its new tasks as pending,
+  changes its changed tasks back to pending, and abandons its dropped tasks. Their dependents are skipped, as after any failed
+  dependency. A dropped task stays dropped when the run is reopened.

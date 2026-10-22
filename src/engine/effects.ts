@@ -35,6 +35,7 @@ import { getTaskBranch, sweepRunWorkspaces } from "../git/index.js";
 import { withRepoLock } from "../git/repo-lock.js";
 import { applyJournalEvent, usageTokensOf, type RunJournal } from "./journal.js";
 import { timeLimitSecondsOf } from "./time-limit.js";
+import { drainInbox } from "./amendment.js";
 
 export { safeParseManifest, safeLoadPlan } from "./actions/shared.js";
 
@@ -98,7 +99,12 @@ export interface EffectContext {
   store?: EventStoreImpl;
   /** The live journal of the run (R8.3), set by runEffectsLoop. */
   journal?: RunJournal;
+  /** True when this loop runs in a resume: an amendment applied now is recorded as applied on resume (W5a). */
+  resumed?: boolean;
 }
+
+/** How long the loop waits for a worker before it looks at the inbox again (W5a). */
+const INBOX_WAKE_MS = 1000;
 
 function isTerminal(state: EngineState): boolean {
   return (
@@ -525,6 +531,31 @@ export async function runEffectsLoop(
   let halted = false;
   let fatal: { error: unknown } | undefined;
 
+  /**
+   * W5a (docs/design/web-ui.md, 7.6): applies the inbox's amendments between actions. A merge or an exclusive
+   * action in flight holds them back (they move the run branch). When one lands, the tasks it made ready are
+   * released and the dependents of a dropped task are skipped, as they are after any settle.
+   */
+  const drainAmendments = async (): Promise<void> => {
+    if (halted) return;
+    const applied = await drainInbox({
+      runId: ctx.runId,
+      repoRoot: ctx.repoRoot,
+      runDir: ctx.runDir,
+      settings: ctx.settings,
+      appliedAt: ctx.resumed ? "resume" : "live",
+      getState: () => journal.state,
+      mayChange: () => ![...flights.values()].some((f) => f.kind !== "worker"),
+      emit: emitLoopEvent,
+    });
+    if (applied) {
+      for (const taskId of unreleasedRootTasks(journal.state)) {
+        emitLoopEvent("task.ready", { task_id: taskId });
+      }
+      settleDependents();
+    }
+  };
+
   /** Stops every in-flight worker; the loop then waits for them to settle. */
   const stopWorkers = (): void => {
     if (!runStop.signal.aborted) runStop.abort();
@@ -618,9 +649,18 @@ export async function runEffectsLoop(
 
   try {
     for (;;) {
-      if (!halted) plan();
+      if (!halted) {
+        await drainAmendments();
+        plan();
+      }
       if (flights.size === 0) break;
-      await Promise.race([...flights.values()].map((f) => f.promise));
+      // A worker can run for minutes: the loop wakes at least every INBOX_WAKE_MS to look at the inbox.
+      let wake: ReturnType<typeof setTimeout> | undefined;
+      const tick = new Promise<void>((resolve) => {
+        wake = setTimeout(resolve, INBOX_WAKE_MS);
+      });
+      await Promise.race([...[...flights.values()].map((f) => f.promise), tick]);
+      clearTimeout(wake);
       settleDependents();
     }
   } catch (error: unknown) {

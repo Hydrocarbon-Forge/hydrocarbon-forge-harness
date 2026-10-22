@@ -52,6 +52,11 @@ export interface TaskRuntimeState {
    * from there, so a reopened task gets a fresh ladder. Unset means the ladder counts from generation 1.
    */
   ladder_base?: number;
+  /**
+   * W5a: the task an amendment dropped. It is ABANDONED (never runnable, reported as SKIPPED) but a reopen
+   * must not return it to the queue the way a dependency skip is returned.
+   */
+  dropped?: boolean;
   depends_on?: TaskId[];
   write?: string[];
   create?: string[];
@@ -584,6 +589,7 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       const nextTasks = Object.fromEntries(
         Object.entries(state.tasks).map(([id, t]) => {
           if (t.state === "MERGED") return [id, t];
+          if (t.dropped) return [id, t];
           if (failed.has(id)) {
             // A failed task retries as a new generation: its old worktree and branch were swept.
             const generation = (t.generation ?? 1) + 1;
@@ -596,6 +602,54 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         })
       ) as typeof state.tasks;
       return { ...state, ...cleared, state: "EXECUTING", tasks: nextTasks };
+    }
+
+    case "run.message": {
+      // W5a: the record that an inbox message was accepted. It changes no state; the amendment it may
+      // carry is recorded by run.amended.
+      return state;
+    }
+
+    case "run.amended": {
+      // W5a: a refused amendment changes nothing. An applied one changes only pending tasks: added and
+      // changed tasks are PENDING with the dependencies and write sets the amendment gives, dropped tasks
+      // are ABANDONED (never runnable). Tasks the amendment kept (already started) are not touched.
+      if (data.outcome !== "applied") return state;
+      const nextTasks: Record<TaskId, TaskRuntimeState> = { ...state.tasks };
+      const entries = new Map<string, { depends_on: string[]; write: string[]; create: string[] }>(
+        (Array.isArray(data.tasks) ? data.tasks : []).map((t: any) => [t.id, t])
+      );
+      for (const id of Array.isArray(data.added) ? data.added : []) {
+        const entry = entries.get(id);
+        nextTasks[id] = {
+          id,
+          state: "PENDING",
+          generation: 1,
+          attempt: 1,
+          depends_on: entry?.depends_on ?? [],
+          write: entry?.write ?? [],
+          create: entry?.create ?? [],
+        };
+      }
+      for (const id of Array.isArray(data.changed) ? data.changed : []) {
+        const current = nextTasks[id];
+        const entry = entries.get(id);
+        if (!current) continue;
+        nextTasks[id] = {
+          ...current,
+          state: "PENDING",
+          dropped: undefined,
+          depends_on: entry?.depends_on ?? current.depends_on,
+          write: entry?.write ?? current.write,
+          create: entry?.create ?? current.create,
+        };
+      }
+      for (const id of Array.isArray(data.dropped) ? data.dropped : []) {
+        const current = nextTasks[id];
+        if (!current) continue;
+        nextTasks[id] = { ...current, state: "ABANDONED", dropped: true };
+      }
+      return { ...state, tasks: nextTasks };
     }
 
     case "usage.recorded": {

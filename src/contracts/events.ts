@@ -144,6 +144,54 @@ export const RunReopenedEvent = member(
     .strict()
 );
 
+/**
+ * W5a (docs/design/web-ui.md, 6.5): the engine accepted an inbox message (`runs/<id>/inbox/<n>.json`). It changes
+ * no task state; an amendment's effect is in run.amended.
+ */
+export const RunMessageEvent = member(
+  "run.message",
+  z
+    .object({
+      message_id: z.number().int().positive(),
+      kind: z.enum(["chat", "amendment"]),
+      chat_id: z.string(),
+    })
+    .strict()
+);
+
+/** One task of an applied amendment, as the reducer needs it to add or change a pending task. */
+export const AmendedTaskEntry = z
+  .object({
+    id: z.string(),
+    depends_on: z.array(z.string()),
+    write: z.array(z.string()),
+    create: z.array(z.string()),
+  })
+  .strict();
+
+/**
+ * W5a (docs/design/web-ui.md, 6.5 and 7): an amendment the planner wrote was validated and applied, or refused
+ * (`outcome: rejected`, with the blocker lines in `reason`). Only tasks that had not started can be added,
+ * changed or dropped; `kept_started` names the amendment's tasks whose work had started and were not touched.
+ */
+export const RunAmendedEvent = member(
+  "run.amended",
+  z
+    .object({
+      chat_id: z.string(),
+      outcome: z.enum(["applied", "rejected"]),
+      applied_at: z.enum(["live", "resume"]),
+      added: z.array(z.string()),
+      changed: z.array(z.string()),
+      dropped: z.array(z.string()),
+      kept_started: z.array(z.string()),
+      warning_count: z.number().int().nonnegative(),
+      reason: z.string().max(2000).optional(),
+      tasks: z.array(AmendedTaskEntry).optional(),
+    })
+    .strict()
+);
+
 export const RunFinishedEvent = member(
   "run.finished",
   z
@@ -656,6 +704,8 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   RunPausedEvent,
   RunResumedEvent,
   RunReopenedEvent,
+  RunMessageEvent,
+  RunAmendedEvent,
   RunFinishedEvent,
   RunBudgetWarningEvent,
   RunBudgetExceededEvent,
@@ -712,6 +762,8 @@ export const EVENT_TYPES = [
   "run.paused",
   "run.resumed",
   "run.reopened",
+  "run.message",
+  "run.amended",
   "run.finished",
   "run.budget.warning",
   "run.budget.exceeded",

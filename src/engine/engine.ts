@@ -229,7 +229,11 @@ export function reopenData(
   return {
     reason: "tasks",
     failed_tasks: byState("BLOCKED", "FAILED", "REPLANNING", "HEALING", "VERIFYING", "RUNNING", "SCOPE_CHECK"),
-    skipped_tasks: byState("ABANDONED"),
+    // W5a: a task an amendment dropped is not a skipped dependent; a reopen does not bring it back.
+    skipped_tasks: Object.values(state.tasks)
+      .filter((t) => t.state === "ABANDONED" && t.dropped !== true)
+      .map((t) => t.id)
+      .sort((a, b) => a.localeCompare(b)),
     kept_tasks: byState("MERGED"),
   };
 }
@@ -423,6 +427,8 @@ export class EngineImpl implements Engine {
         signal: opts?.signal,
         timeout: timeLimit?.signal,
         onEvent: opts?.onEvent,
+        // W5a: inbox amendments that wait for this resume are applied, and reported as applied on resume.
+        resumed: true,
         prompt: opts?.prompt ?? recorded.prompt,
         mode: (opts?.mode ?? recorded.mode) as RunOptions["mode"],
         permission_mode: (opts?.permission_mode ?? recorded.permission_mode) as RunOptions["permission_mode"],
