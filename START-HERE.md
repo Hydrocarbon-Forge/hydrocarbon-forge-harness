@@ -18,6 +18,7 @@ docs/plan/DECISIONS.md               binding decisions
 docs/plan/reference/                 audit notes (optional)
 docs/design/web-ui.md                browser UI design study and HTTP API contract (R14)
 docs/reference/                      user-facing reference: cli, config, adapters, caller-guide, local-model
+docs/reference/ui.md                 the browser UI and its background service (ui start, status, install-service)
 docs/known-issues.md                 open findings, with the owner decisions they need
 docs/spikes/                         measured facts about the three harnesses
 docs/archive/2026-10-20-r-series/    archived R-series plan (history only)
@@ -30,7 +31,7 @@ build/, docs/archive/                legacy material; ignore
 ```
 
 ## 5. The CLI and how to check it
-The built CLI is `dist/substrate.mjs`. Its commands are `run`, `plan`, `resume`, `status`, `watch`, `runs`, `tasks`, `usage`, `report`, `verify`, `merge`, `undo`, `discard`, `models`, `agents`, `backends`, `sessions`, `config`, `doctor`, `init`, `history`, `archive`, `charter`, `gc` and `bench`. `docs/reference/cli.md` documents each one.
+The built CLI is `dist/substrate.mjs`. Its commands are `run`, `plan`, `resume`, `status`, `watch`, `runs`, `tasks`, `usage`, `report`, `verify`, `merge`, `undo`, `discard`, `models`, `agents`, `backends`, `sessions`, `config`, `doctor`, `init`, `history`, `archive`, `charter`, `gc`, `bench` and `ui`. `docs/reference/cli.md` documents each one.
 
 ```
 npm run typecheck         TypeScript check

@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -57,6 +57,31 @@ function tailOf(file: string): string {
 }
 
 /**
+ * Starts `script` with this Node binary as a detached child: its own session, output appended to `logFile`,
+ * stdin a pipe (when `stdin` is set) or ignored, and unref'd so the caller may exit. The shared spawn for a run
+ * (startDetached) and for the background web UI (`ui start`).
+ */
+export function spawnDetached(opts: {
+  script: string;
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  logFile: string;
+  stdin: boolean;
+}): ChildProcess {
+  const fd = fs.openSync(opts.logFile, "a");
+  const child = spawn(process.execPath, [opts.script, ...opts.args], {
+    cwd: opts.cwd,
+    detached: true,
+    stdio: [opts.stdin ? "pipe" : "ignore", fd, fd],
+    env: opts.env,
+  });
+  fs.closeSync(fd);
+  child.unref();
+  return child;
+}
+
+/**
  * Starts this CLI again as a detached child (own session, stdin ignored or piped, output to
  * `.substrate/detached/<unix-ms>-<pid>.log`, SIGHUP ignored) and waits for its run to hold the lock.
  * Exit 0 with the run's id and commands once the run exists. When the child exits first, its log's
@@ -69,14 +94,14 @@ export async function startDetached(ctx: DetachContext): Promise<number> {
   const logDir = path.join(ctx.cwd, ".substrate", "detached");
   fs.mkdirSync(logDir, { recursive: true });
   const logFile = path.join(logDir, `${Date.now()}-${process.pid}.log`);
-  const fd = fs.openSync(logFile, "a");
-  const child = spawn(process.execPath, [script, ...ctx.args], {
+  const child = spawnDetached({
+    script,
+    args: ctx.args,
     cwd: ctx.cwd,
-    detached: true,
-    stdio: [ctx.stdin !== undefined ? "pipe" : "ignore", fd, fd],
     env: { ...process.env, SUBSTRATE_DETACHED: "1" },
+    logFile,
+    stdin: ctx.stdin !== undefined,
   });
-  fs.closeSync(fd);
   if (ctx.stdin !== undefined) child.stdin?.end(ctx.stdin);
 
   let exited = false;
@@ -89,7 +114,6 @@ export async function startDetached(ctx: DetachContext): Promise<number> {
   child.on("error", (err) => {
     spawnError = err;
   });
-  child.unref();
   const pid = child.pid;
   if (pid === undefined) {
     ctx.stderr.write(`Error: could not start the background run: ${spawnError?.message ?? "no process"}\n`);

@@ -47,6 +47,10 @@ export interface CliGlobalFlags {
   concurrency?: number;
   /** ui serve: the port to listen on (0 lets the system choose); otherwise ui.json names it (web-ui design, 8.2). */
   port?: number;
+  /** ui install-service: run systemctl to enable the unit now (web-ui design, 8.4). */
+  enable?: boolean;
+  /** ui uninstall-service: run systemctl to stop and disable the unit first. */
+  disable?: boolean;
   /** run: plan only and stop for review; the run records --work so a bare resume runs the reviewed plan (R10.5). */
   review?: boolean;
   hard?: boolean;
@@ -170,6 +174,8 @@ const CLI_OPTIONS = {
   "older-than": { type: "string" },
   "history-all": { type: "boolean" },
   port: { type: "string" },
+  enable: { type: "boolean" },
+  disable: { type: "boolean" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -279,6 +285,8 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   if (parsedValues.port !== undefined) {
     flags.port = Number(parsedValues.port);
   }
+  if (parsedValues.enable) flags.enable = true;
+  if (parsedValues.disable) flags.disable = true;
 
   let commandName: string | undefined;
   let positional: string[] = [...rawPositionals];

@@ -526,15 +526,45 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 
 ```text
 substrate ui serve [--port <n>]
+substrate ui start [--port <n>] [--output-format json]
+substrate ui stop [--force] [--output-format json]
+substrate ui status [--output-format json]
+substrate ui install-service [--enable]
+substrate ui uninstall-service [--disable]
 ```
 
-The browser UI (web-ui design, section 8): a local web server that shows the jobs of every project registered on this
-machine. `ui serve` runs it in the foreground: it prints the URL on one line (`http://localhost:<port>`) and runs until
-SIGINT or SIGTERM, then closes its streams and exits `0`. It is what a systemd user unit runs.
+The browser UI (web-ui design, section 8) shows the jobs of every project registered on this machine. The guide is
+`docs/reference/ui.md`: the service, the port, installing it and troubleshooting.
 
-- The server listens on the loopback interface only, reached as `localhost`. It never listens on an all-interfaces address.
-- The port is `--port <n>` (a whole number from 0 to 65535, otherwise exit `2`). Without the flag it is the `port` in the user-level `ui.json`, in the same directory as `settings.json` (`$SUBSTRATE_CONFIG_DIR`, else `~/.config/substrate`). A `ui.json` that names no valid port exits `2`. Without either, the operating system chooses a free port and the URL printed shows it. A port that is in use exits `1` with a message that names it.
-- The API is under `/api` (see the design, section 5). State-changing requests (`stop`, `resume`) need `Content-Type: application/json` and the header `X-Substrate-UI: 1`, and the Host header must name `localhost`. These are availability guards, not authentication.
+- `serve` runs it in the foreground: it prints the URL on one line (`http://localhost:<port>`) and runs until SIGINT or
+  SIGTERM, then closes its streams and exits `0`. It records its pid in `ui.pid` while it runs. It is what the systemd
+  user unit runs. A second `serve` while one runs exits `1`.
+- `start` runs `serve` in the background, logging to `ui.log`, and prints the URL once the UI answers. A UI already
+  running is not started again: `start` prints its URL and exits `0`. With `--output-format json` it prints
+  `{"url","pid"}`.
+- `stop` ends the background UI with SIGTERM and waits up to 15 s. It refuses a pid whose command line is not a
+  Substrate process. Without a running UI it exits `0` and says so. `--force` sends SIGKILL when the UI does not stop.
+- `status` prints `running` or `stopped`, the URL, the pid, the uptime, the number of projects, the number of running
+  jobs and whether the service unit file exists. It exits `0` in both states and never runs systemctl. With
+  `--output-format json` it prints the same fields as one object.
+- `install-service` writes `$XDG_CONFIG_HOME/systemd/user/substrate-ui.service` (default `~/.config/systemd/user`): it
+  runs `ui serve` with the absolute Node binary and the bundled CLI, restarts on failure, and carries the `PATH` of the
+  shell that ran it. It prints the `systemctl --user` and `loginctl enable-linger` commands. `--enable` runs the
+  `systemctl` commands instead of only printing them.
+- `uninstall-service` removes the unit file and prints the commands that stop and disable it. `--disable` runs them
+  first. A missing unit file is not an error.
+- The service commands are Linux only (systemd). On another platform they exit `2`.
+- The port is `--port <n>` (a whole number from 0 to 65535, otherwise exit `2`). Without the flag it is the `port` in
+  the user-level `ui.json`, in the same directory as `settings.json` (`$SUBSTRATE_CONFIG_DIR`, else
+  `~/.config/substrate`). Without either, the operating system chooses a free port and the choice is saved in
+  `ui.json`, so the URL stays the same later. A saved port that another program holds is replaced by a new free
+  one, saved too, with a one-line notice on stderr. An explicit `--port` that is in use exits `1`. A `ui.json` that
+  names no valid port exits `2`.
+- The server listens on the loopback interface only, reached as `localhost`. It never listens on an all-interfaces
+  address.
+- The API is under `/api` (see the design, section 5). State-changing requests (`stop`, `resume`) need
+  `Content-Type: application/json` and the header `X-Substrate-UI: 1`, and the Host header must name `localhost`. These
+  are availability guards, not authentication.
 - `ui` with no subcommand lists the subcommands. An unknown subcommand exits `2`.
 
 ## Interrupt and resume (R8.2)
