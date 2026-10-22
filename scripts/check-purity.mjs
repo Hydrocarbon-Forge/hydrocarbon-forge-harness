@@ -17,6 +17,8 @@ const P2_FORBIDDEN_DIRS = [
   "src/util",
   "src/archive",
   "src/charter",
+  "src/observe",
+  "src/web",
 ];
 
 const IPV4_REGEX = /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b/;

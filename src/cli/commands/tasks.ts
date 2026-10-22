@@ -2,17 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, TaskId } from "../../contracts/index.js";
-import type { EngineState } from "../../engine/reducer.js";
-import type { EngineEventV1 } from "../../contracts/events.js";
 import type { SessionStore } from "../../store/sessions.js";
-
-type ReduceRunEventsFn = (
-  eventsPath: string,
-  stderr: NodeJS.WriteStream
-) => {
-  state: EngineState;
-  events: EngineEventV1[];
-};
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -59,9 +49,7 @@ export interface CliCommand {
 }
 
 const { registry } = await import(`../registry.js`);
-const { reduceRunEvents } = (await import(`./status.js`)) as unknown as {
-  reduceRunEvents: ReduceRunEventsFn;
-};
+const { latestRunIdOf, reduceRunEvents } = await import(`../../observe/run-observe.js`);
 
 export const tasksCommand: CliCommand = {
   name: "tasks",
@@ -75,23 +63,8 @@ export const tasksCommand: CliCommand = {
         ctx.stderr.write("Error: No runs directory found\n");
         return 2;
       }
-      const entries = fs.readdirSync(runsDir, { withFileTypes: true });
-      const candidates: { id: string; mtime: number }[] = [];
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith("r_")) {
-          const full = path.join(runsDir, entry.name);
-          try {
-            const stat = fs.statSync(full);
-            candidates.push({ id: entry.name, mtime: stat.mtimeMs });
-          } catch {
-            // ignore
-          }
-        }
-      }
-      if (candidates.length > 0) {
-        candidates.sort((a, b) => b.mtime - a.mtime);
-        targetRunId = candidates[0].id;
-      }
+      const latest = latestRunIdOf(runsDir);
+      if (latest !== null) targetRunId = latest;
     }
 
     if (!targetRunId) {

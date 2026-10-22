@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EngineEvent } from "../../../src/contracts/index.js";
-import { countsOf, statusOf, taskRowsOf, type RunRecord } from "../../../src/cli/run-observe.js";
+import { countsOf, statusOf, taskRowsOf, type RunRecord } from "../../../src/observe/run-observe.js";
 import { reduce, type EngineState } from "../../../src/engine/reducer.js";
 import { applyJournalEvent } from "../../../src/engine/journal.js";
 

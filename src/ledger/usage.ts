@@ -16,6 +16,13 @@ export interface LedgerPaths {
   global?: string;
 }
 
+/** The user's state directory: `$XDG_STATE_HOME`, else `~/.local/state`. The global usage mirror and the project registry live under `substrate/` in it. */
+export function xdgStateHome(env: NodeJS.ProcessEnv): string {
+  return env.XDG_STATE_HOME && env.XDG_STATE_HOME.length > 0
+    ? env.XDG_STATE_HOME
+    : path.join(os.homedir(), ".local", "state");
+}
+
 export function ledgerPaths(opts: {
   projectRoot: string;
   globalEnabled: boolean;
@@ -25,11 +32,7 @@ export function ledgerPaths(opts: {
     project: path.join(opts.projectRoot, ".substrate", "ledger", "usage.jsonl"),
   };
   if (opts.globalEnabled) {
-    const base =
-      opts.env.XDG_STATE_HOME && opts.env.XDG_STATE_HOME.length > 0
-        ? opts.env.XDG_STATE_HOME
-        : path.join(os.homedir(), ".local", "state");
-    paths.global = path.join(base, "substrate", "usage.jsonl");
+    paths.global = path.join(xdgStateHome(opts.env), "substrate", "usage.jsonl");
   }
   return paths;
 }

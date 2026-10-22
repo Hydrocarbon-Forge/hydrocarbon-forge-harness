@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Writable } from "node:stream";
 
 import { parseEngineEvent } from "../../../src/contracts/events.js";
-import { readCatalogEvents } from "../../../src/cli/commands/status.js";
+import { readCatalogEvents } from "../../../src/observe/run-observe.js";
 
 // Known issue 63 (R11.2): the engine reopens a planned run for review with reason plan_review. The catalog must
 // list it, or the reader the CLI uses (status, watch) drops the event as not a catalog event.

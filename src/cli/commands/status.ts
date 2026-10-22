@@ -1,10 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import type { Effort, Engine, PermissionMode, Question, RunId, Settings } from "../../contracts/index.js";
-import { parseEngineEvent } from "../../contracts/events.js";
-import type { EngineState } from "../../engine/reducer.js";
-import { applyJournalEvent } from "../../engine/journal.js";
+import type { Effort, Engine, PermissionMode, Question, Settings } from "../../contracts/index.js";
 import { recordedRunOptions } from "../../engine/recorded-run.js";
 import { timeLimitSecondsOf } from "../../engine/time-limit.js";
 import type { SessionStore } from "../../store/sessions.js";
@@ -55,7 +52,8 @@ export interface CliCommand {
 
 const { registry } = await import(`../registry.js`);
 const { formatCost, formatElapsed, progressModelsFor } = await import(`../progress.js`);
-const { RunReplay, countsOf, mergedOf, outcomeOf, recordOf, requestOf, runPathOf, settingsOf, statusWordOf, taskRowsOf } = await import(`../run-observe.js`);
+const { countsOf, latestRunIdOf, outcomeOf, recordOf, reduceRunEvents, requestOf, runPathOf, settingsOf, statusWordOf, taskRowsOf } = await import(`../../observe/run-observe.js`);
+const { RunReplay, mergedOf } = await import(`../run-view.js`);
 
 // The view types of run-observe.ts, named from the values above (cli modules are not imported by type).
 type RunRecord = ReturnType<typeof recordOf>;
@@ -64,80 +62,6 @@ type RunProgress = NonNullable<InstanceType<typeof RunReplay>["progress"]>;
 
 export function isPassedState(state: string): boolean {
   return state === "PASSED" || state === "MERGED";
-}
-
-// Reads a run's events.jsonl through the catalog types only. Complete lines
-// that are not catalog events are skipped; a torn final line (partial write)
-// is ignored with a warning on stderr.
-export function readCatalogEvents(
-  eventsPath: string,
-  stderr: NodeJS.WriteStream
-): ReturnType<typeof parseEngineEvent>[] {
-  if (!fs.existsSync(eventsPath)) return [];
-  const content = fs.readFileSync(eventsPath, "utf8");
-  const lines = content.split("\n").filter((l) => l.trim().length > 0);
-  const events: ReturnType<typeof parseEngineEvent>[] = [];
-  let warned = false;
-  for (const line of lines) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      warned = true;
-      continue;
-    }
-    try {
-      events.push(parseEngineEvent(parsed));
-    } catch {
-      // Not a catalog event: the CLI never reads it.
-      continue;
-    }
-  }
-  if (warned) {
-    stderr.write(
-      `warning: ${eventsPath} contains torn or unparsable lines; complete lines were used\n`
-    );
-  }
-  return events;
-}
-
-// The journal's reduction (journal.ts), so a run that finished or failed names that state (R10.2).
-export function reduceRunEvents(eventsPath: string, stderr: NodeJS.WriteStream): {
-  state: EngineState;
-  events: ReturnType<typeof parseEngineEvent>[];
-} {
-  const events = readCatalogEvents(eventsPath, stderr);
-  let state: EngineState = {
-    run_id: "" as RunId,
-    state: "CREATED",
-    tasks: {},
-    usage: { total_usd: 0, by_role: {} },
-    checkpoints: [],
-  };
-  for (const ev of events) {
-    state = applyJournalEvent(state, ev);
-  }
-  return { state, events };
-}
-
-function findLatestRunId(runsDir: string): string | null {
-  if (!fs.existsSync(runsDir)) return null;
-  const entries = fs.readdirSync(runsDir, { withFileTypes: true });
-  const candidates: { id: string; mtime: number }[] = [];
-  for (const entry of entries) {
-    if (entry.isDirectory() && entry.name.startsWith("r_")) {
-      const full = path.join(runsDir, entry.name);
-      try {
-        const stat = fs.statSync(full);
-        candidates.push({ id: entry.name, mtime: stat.mtimeMs });
-      } catch {
-        // ignore
-      }
-    }
-  }
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => b.mtime - a.mtime);
-  return candidates[0].id;
 }
 
 /** The request's first 200 characters, as `status` shows it (R10.2). */
@@ -261,7 +185,7 @@ export const statusCommand: CliCommand = {
   description: "Display status and telemetry of current or specified run",
   async execute(ctx: CommandContext): Promise<number> {
     const runsDir = path.join(ctx.cwd, ".substrate", "runs");
-    const targetRunId = ctx.rawArgs[0] || findLatestRunId(runsDir);
+    const targetRunId = ctx.rawArgs[0] || latestRunIdOf(runsDir);
 
     if (!targetRunId) {
       ctx.stderr.write("Error: No run found to display status\n");

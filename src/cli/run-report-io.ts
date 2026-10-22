@@ -6,7 +6,8 @@ import type { EngineEvent, RunId, RunSummary } from "../contracts/index.js";
 import { buildRunReport, renderReportMarkdown, type AttemptFacts, type ReportFacts, type RunReport } from "../engine/run-report.js";
 import { getRunBranch, runBranchExists } from "../git/workspace.js";
 import { EventStoreImpl } from "../store/event-store.js";
-const { runDirOf, writeReportMarkdown } = await import(`./run-files.js`);
+const { writeReportMarkdown } = await import(`./run-files.js`);
+const { runDirOf } = await import(`../observe/run-observe.js`);
 
 // The disk side of the run report (P2.2): reads what a run left in its directory and its repository, and hands
 // it to the pure builder in src/engine/run-report.ts. Nothing here takes the run lock or changes a run.

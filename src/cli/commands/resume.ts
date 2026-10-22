@@ -7,6 +7,7 @@ import { loadSettings, sandboxProblem } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
 import { deepMerge } from "../../util/merge.js";
 import { recordedRunOptions, recordedSettingsOverrides } from "../../engine/recorded-run.js";
+import { registerProject } from "../../store/projects.js";
 import {
   createSessionStore,
   type SessionRecord,
@@ -133,6 +134,7 @@ export const resumeCommand: CliCommand = {
   name: "resume",
   description: "Resume a run that did not finish (paused, interrupted, stopped or failed)",
   async execute(ctx: CommandContext): Promise<number> {
+    registerProject(ctx.cwd);
     const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
     if (concurrencyProblem !== undefined) {
       ctx.stderr.write(concurrencyProblem);
@@ -373,7 +375,7 @@ export const resumeCommand: CliCommand = {
     // R10.5: a planned run is reviewed before it runs. It needs a worker (named now, or recorded by
     // `run --review`), and its manifest and specs, as the person left them, must pass the ingest checks.
     // Nothing is spent here: a refused plan exits 2 and the run stays planned.
-    const { reduceEvents } = await import(`../run-observe.js`);
+    const { reduceEvents } = await import(`../../observe/run-observe.js`);
     const plannedRun = reduceEvents(resolved.runId, runEvents as EngineEvent[]).state === "PLANNED";
     if (plannedRun) {
       if (ctx.flags.work === undefined && ctx.flags.workerModel === undefined && recorded.worker === undefined) {

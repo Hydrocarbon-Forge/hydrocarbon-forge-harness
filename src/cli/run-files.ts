@@ -1,11 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 
-/** The run directory under a project: `.substrate/runs/<id>`. */
-export function runDirOf(projectDir: string, runId: string): string {
-  return path.join(projectDir, ".substrate", "runs", runId);
-}
-
 /**
  * The progress log of one run (R10.2): every progress line the text renderer prints, appended
  * line by line to `progress.log` in the run directory, in every output format. It is a side

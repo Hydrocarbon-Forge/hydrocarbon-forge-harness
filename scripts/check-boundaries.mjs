@@ -3,8 +3,10 @@
 //
 // - `contracts` and `util` import nothing internal except each other.
 // - `backends` imports only `contracts`, `util`.
+// - `observe` (the neutral read model of runs) imports only `contracts`, `engine`, `store`, `config`, `util`.
+// - `web` (the browser UI server, web-ui design section 9) imports what `observe` imports, plus `observe`.
 // - `engine` may import everything except `cli|hooks`.
-// - Nothing imports `cli`.
+// - Nothing imports `cli`. Only `src/cli/dispatcher.ts` imports `web`.
 //
 // Scans `src/**/*.ts`, resolves relative imports to the top-level area
 // (first path segment under `src/`), and reports violations.
@@ -45,8 +47,12 @@ function areaOfFile(absPath) {
   return first;
 }
 
-/** Extract raw module specifiers from static/dynamic imports and re-exports. */
-function extractSpecifiers(source) {
+/**
+ * Extract raw module specifiers from static/dynamic imports and re-exports. A dynamic import written with a
+ * template literal (no interpolation) is read only when `withTemplates` is set: the CLI command files use that form
+ * for every import, so the check of those areas is opt-in per area (see STRICT_AREAS).
+ */
+function extractSpecifiers(source, withTemplates) {
   const specs = [];
   const patterns = [
     // import ... from "spec" | import "spec"
@@ -56,6 +62,10 @@ function extractSpecifiers(source) {
     // import("spec")
     /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
   ];
+  if (withTemplates) {
+    // import(`spec`) with no interpolation
+    patterns.push(/import\s*\(\s*`([^`$]+)`\s*\)/g);
+  }
   for (const re of patterns) {
     let m;
     while ((m = re.exec(source)) !== null) {
@@ -96,14 +106,20 @@ function specifierToArea(spec, importerAbs) {
   return targetArea;
 }
 
+// Areas whose imports are read in every form, template-literal dynamic imports included.
+const STRICT_AREAS = new Set(["contracts", "util", "backends", "observe", "web"]);
+
+const ALLOWED_TARGETS = {
+  contracts: ["contracts", "util"],
+  util: ["contracts", "util"],
+  backends: ["contracts", "util"],
+  observe: ["contracts", "engine", "store", "config", "util"],
+  web: ["contracts", "engine", "store", "config", "util", "observe"],
+};
+
 function allowedTargets(importerArea) {
-  if (importerArea === "contracts" || importerArea === "util") {
-    return new Set(["contracts", "util"]);
-  }
-  if (importerArea === "backends") {
-    return new Set(["contracts", "util"]);
-  }
-  return null; // no allowlist (only the global cli ban + engine ban apply)
+  const allowed = ALLOWED_TARGETS[importerArea];
+  return allowed === undefined ? null : new Set(allowed); // no allowlist (only the global cli ban + engine ban apply)
 }
 
 function main() {
@@ -116,13 +132,18 @@ function main() {
     const rel = file.slice(root.length + 1).split(sep).join("/");
     const allowlist = importerArea === null ? null : allowedTargets(importerArea);
 
-    for (const spec of extractSpecifiers(source)) {
+    for (const spec of extractSpecifiers(source, STRICT_AREAS.has(importerArea))) {
       const target = specifierToArea(spec, file);
       if (target === null) continue; // external or src-root target — no boundary applies
 
-      // Global rule: nothing imports cli.
-      if (SURFACE_FORBIDDEN.has(target)) {
+      // Global rule: nothing outside cli imports cli (cli modules import each other freely).
+      if (SURFACE_FORBIDDEN.has(target) && importerArea !== target) {
         violations.push(`${rel} imports internal area "${target}" (nothing may import cli)`);
+        continue;
+      }
+      // Web rule: only the CLI dispatcher mounts the browser server.
+      if (target === "web" && importerArea !== "web" && rel !== "src/cli/dispatcher.ts") {
+        violations.push(`${rel} imports internal area "web" (only src/cli/dispatcher.ts may import web)`);
         continue;
       }
       // Engine rule: engine may import everything except cli|hooks.
@@ -130,12 +151,9 @@ function main() {
         violations.push(`${rel} imports internal area "${target}" (engine may not import cli|hooks)`);
         continue;
       }
-      // Allowlist rules for contracts/util/backends.
+      // Allowlist rules for contracts/util/backends/observe/web.
       if (allowlist !== null && !allowlist.has(target) && target !== importerArea) {
-        const who =
-          importerArea === "backends"
-            ? "backends may import only contracts, util"
-            : `${importerArea} may import nothing internal except contracts, util`;
+        const who = `${importerArea} may import only ${ALLOWED_TARGETS[importerArea].join(", ")}`;
         violations.push(`${rel} imports internal area "${target}" (${who})`);
       }
     }

@@ -44,6 +44,13 @@ describe("check-purity script", () => {
     expect(res.stdout).toMatch(/^FAIL:\s+\d+\s+violation\(s\)$/m);
   });
 
+  it("P2 covers the neutral read model (src/observe): a console write there is a violation", () => {
+    const root = path.resolve("test/fixtures/check/purity-observe");
+    const res = run(["--root", root]);
+    expect(res.status).toBe(1);
+    expect(res.stdout).toMatch(/^P2\s+src\/observe\/read\.ts:3\b/m);
+  });
+
   it("fails with stale allowlist entry message", () => {
     const root = path.resolve("test/fixtures/check/stale-allowlist");
     const res = run(["--root", root]);

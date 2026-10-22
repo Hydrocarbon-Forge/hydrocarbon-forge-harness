@@ -1,7 +1,6 @@
 import fs from "node:fs";
 
-import type { EngineEvent, RunId } from "../../contracts/index.js";
-import { EventStoreImpl } from "../../store/event-store.js";
+import type { EngineEvent } from "../../contracts/index.js";
 import { runProcessOf } from "../../store/run-lock.js";
 
 
@@ -22,9 +21,10 @@ interface CliCommand {
 
 const { registry } = await import(`../registry.js`);
 const { heartbeatMsFromEnv, progressLine } = await import(`../progress.js`);
-const { exitCodeOf, isTerminalState, listRuns, logMarksOf, modelsOf, recordOf, RunReplay, summaryTextOf } =
-  await import(`../run-observe.js`);
-const { runDirOf } = await import(`../run-files.js`);
+const { exitCodeOf, isTerminalState, listRuns, logMarksOf, readJournal, recordOf, runDirOf } = await import(
+  `../../observe/run-observe.js`
+);
+const { modelsOf, RunReplay, summaryTextOf } = await import(`../run-view.js`);
 
 /** How often a following watch reads the journal again. */
 const POLL_MS = 500;
@@ -34,10 +34,6 @@ const POLL_MS = 500;
  * outcome. This is how long a watch waits for that outcome after the process has gone (R10.2).
  */
 const OUTCOME_GRACE_MS = 3000;
-
-function readEvents(runDir: string, runId: string): EngineEvent[] {
-  return new EventStoreImpl(runId as RunId, { runDir }).readAllSync();
-}
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -78,7 +74,7 @@ export const watchCommand: CliCommand = {
     const out = ctx.stdout;
     let events: EngineEvent[];
     try {
-      events = readEvents(runDir, runId);
+      events = readJournal(runDir, runId);
     } catch (err: any) {
       ctx.stderr.write(`Error: ${err?.message ?? err}\n`);
       return 2;
@@ -147,7 +143,7 @@ export const watchCommand: CliCommand = {
 
       await sleep(POLL_MS);
       try {
-        events = readEvents(runDir, runId);
+        events = readJournal(runDir, runId);
       } catch (err: any) {
         ctx.stderr.write(`Error: ${err?.message ?? err}\n`);
         return 2;

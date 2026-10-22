@@ -18,7 +18,7 @@ interface CliCommand {
 }
 
 const { registry } = await import(`../registry.js`);
-const { readRun, listRuns } = await import(`../run-observe.js`);
+const { readRun, listRuns } = await import(`../../observe/run-observe.js`);
 
 /** The run record fields stop reads (run-observe.ts RunRecord). */
 interface RunRecord {

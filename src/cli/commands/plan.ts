@@ -6,6 +6,7 @@ import { createEngine } from "../../engine/engine.js";
 import { loadSettings, sandboxProblem, withRequestedRoles } from "../../config/index.js";
 import { RunLockError } from "../../store/run-lock.js";
 import { createSessionStore, type SessionStore } from "../../store/sessions.js";
+import { registerProject } from "../../store/projects.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -68,6 +69,7 @@ export const planCommand: CliCommand = {
   name: "plan",
   description: "Plan changes for a goal without executing modifications",
   async execute(ctx: CommandContext): Promise<number> {
+    registerProject(ctx.cwd);
     const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
     if (concurrencyProblem !== undefined) {
       ctx.stderr.write(concurrencyProblem);

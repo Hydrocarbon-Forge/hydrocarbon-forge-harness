@@ -23,6 +23,8 @@ import {
 } from "../../engine/landing.js";
 import { planHasIntegrationVerify } from "../../engine/failed-run.js";
 import { recordedRunOptions } from "../../engine/recorded-run.js";
+import { registerProject } from "../../store/projects.js";
+import { runDirOf } from "../../observe/run-observe.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -86,7 +88,7 @@ export interface CliCommand {
 }
 
 const { createFormatter, summaryPayload } = await import(`../output.js`);
-const { ProgressLog, runDirOf, writeOutcome } = await import(`../run-files.js`);
+const { ProgressLog, writeOutcome } = await import(`../run-files.js`);
 const { reportOfRun, writeRunReportFile } = await import(`../run-report-io.js`);
 const { renderReportMarkdown, renderReportText } = await import(`../../engine/run-report.js`);
 const { modelPreflight, repoPreflight, reportPreflightError, writeNotice } = await import(`../preflight.js`);
@@ -355,6 +357,7 @@ export const runCommand: CliCommand = {
   name: "run",
   description: "Execute Substrate run with specified prompt",
   async execute(ctx: CommandContext): Promise<number> {
+    registerProject(ctx.cwd);
     const concurrencyProblem = concurrencyFlagProblem(ctx.flags);
     if (concurrencyProblem !== undefined) {
       ctx.stderr.write(concurrencyProblem);

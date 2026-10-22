@@ -2,23 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { EngineEvent, RunId, Settings, TaskId } from "../contracts/index.js";
-import { buildSummary, exitCodeForState } from "../engine/engine.js";
+import { parseEngineEvent } from "../contracts/events.js";
+import { exitCodeForState } from "../engine/engine.js";
 import { type EngineState } from "../engine/reducer.js";
 import { applyJournalEvent } from "../engine/journal.js";
 import { loadSettings, withRequestedRoles } from "../config/index.js";
-import { runLandedInHead } from "../git/landing.js";
-import { getRunBranch } from "../git/workspace.js";
 import { EventStoreImpl } from "../store/event-store.js";
+import { listProjects } from "../store/projects.js";
 import { runProcessOf } from "../store/run-lock.js";
-const { runDirOf } = await import(`./run-files.js`);
-const { RunProgress, followLines, progressLine, progressModelsFor } = await import(`./progress.js`);
 
-/** The models a run names on its start line: the planner and worker `harness:model` (see progress.ts). */
-type ProgressModels = { planner?: string; worker?: string };
-type RunProgressState = InstanceType<typeof RunProgress>;
-
-// Read-only views of a run for `status`, `watch` and `runs` (R10.2). Nothing here takes the run
-// lock or writes: a run's state is the reduced journal, and its liveness is the lock's pid.
+// The neutral read model of a run (R10.2, web-ui design section 9 W1). `status`, `watch`, `runs`, `tasks`, `stop`,
+// `resume` and the web server read runs through this module. Nothing here takes the run lock or writes: a run's
+// state is the reduced journal, and its liveness is the lock's pid. Rendering (progress lines, summaries) and git
+// lookups belong to the callers, not here.
 
 /** The states a run cannot leave by itself: its process has ended with one of these (R10.2). */
 const TERMINAL_STATES: ReadonlySet<string> = new Set(["FINISHED", "PLANNED", "FAILED", "PAUSED", "CANCELLED"]);
@@ -40,13 +36,26 @@ export interface RunRecord {
   status: RunStatus;
 }
 
-const INITIAL_STATE = (runId: string): EngineState => ({
+/** A run of some project on this machine, with the project it belongs to (from the project registry). */
+export interface ProjectRunRecord {
+  project: string;
+  projectName: string;
+  record: RunRecord;
+}
+
+/** The state of a run before its first event. */
+export const INITIAL_STATE = (runId: string): EngineState => ({
   run_id: runId as RunId,
   state: "CREATED",
   tasks: {},
   usage: { total_usd: 0, by_role: {} },
   checkpoints: [],
 });
+
+/** The run directory under a project: `.substrate/runs/<id>`. */
+export function runDirOf(projectDir: string, runId: string): string {
+  return path.join(projectDir, ".substrate", "runs", runId);
+}
 
 /** The reduced state of a list of events (the same reduction resume and status use). */
 // The journal's reduction: a run.finished sets the terminal state its exit code names, which the
@@ -101,6 +110,11 @@ export function statusWordOf(record: RunRecord): string {
   }
 }
 
+/** The journal of a run directory, read whole. A corrupt journal throws, as the engine's own reader does. */
+export function readJournal(runDir: string, runId: string): EngineEvent[] {
+  return new EventStoreImpl(runId as RunId, { runDir }).readAllSync();
+}
+
 /**
  * Reads one run's journal and liveness. Undefined when the run has no events.jsonl. A corrupt
  * journal throws, as the engine's own reader does.
@@ -108,7 +122,7 @@ export function statusWordOf(record: RunRecord): string {
 export function readRun(cwd: string, runId: string): RunRecord | undefined {
   const runDir = runDirOf(cwd, runId);
   if (!fs.existsSync(path.join(runDir, "events.jsonl"))) return undefined;
-  return recordOf(cwd, runId, new EventStoreImpl(runId as RunId, { runDir }).readAllSync());
+  return recordOf(cwd, runId, readJournal(runDir, runId));
 }
 
 /** The view of a run from its events: state, timing, and the liveness of its lock. */
@@ -139,7 +153,99 @@ export function listRuns(cwd: string): RunRecord[] {
     const record = readRun(cwd, entry.name);
     if (record !== undefined) records.push(record);
   }
+  return sortNewestFirst(records);
+}
+
+function sortNewestFirst(records: RunRecord[]): RunRecord[] {
   return records.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0) || b.runId.localeCompare(a.runId));
+}
+
+/**
+ * Every run of every project in the registry, newest first. A project whose journal cannot be read is left out of
+ * the listing; the other projects still show.
+ */
+export function listAllRuns(env: NodeJS.ProcessEnv = process.env): ProjectRunRecord[] {
+  const rows: ProjectRunRecord[] = [];
+  for (const project of listProjects(env)) {
+    let records: RunRecord[];
+    try {
+      records = listRuns(project.path);
+    } catch {
+      continue;
+    }
+    for (const record of records) rows.push({ project: project.path, projectName: project.name, record });
+  }
+  return rows.sort((a, b) => (b.record.createdAt ?? 0) - (a.record.createdAt ?? 0) || b.record.runId.localeCompare(a.record.runId));
+}
+
+/** The newest run directory under a runs directory (by its modification time), or null when there is none. */
+export function latestRunIdOf(runsDir: string): string | null {
+  if (!fs.existsSync(runsDir)) return null;
+  const candidates: { id: string; mtime: number }[] = [];
+  for (const entry of fs.readdirSync(runsDir, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name.startsWith("r_")) {
+      try {
+        candidates.push({ id: entry.name, mtime: fs.statSync(path.join(runsDir, entry.name)).mtimeMs });
+      } catch {
+        // ignore
+      }
+    }
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.mtime - a.mtime);
+  return candidates[0].id;
+}
+
+/**
+ * Reads a run's events.jsonl through the catalog types only. Complete lines that are not catalog events are skipped;
+ * a torn line (a partial write) is ignored, with one warning written to `stderr`.
+ */
+export function readCatalogEvents(
+  eventsPath: string,
+  stderr: Pick<NodeJS.WriteStream, "write">,
+): ReturnType<typeof parseEngineEvent>[] {
+  if (!fs.existsSync(eventsPath)) return [];
+  const content = fs.readFileSync(eventsPath, "utf8");
+  const lines = content.split("\n").filter((l) => l.trim().length > 0);
+  const events: ReturnType<typeof parseEngineEvent>[] = [];
+  let warned = false;
+  for (const line of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      warned = true;
+      continue;
+    }
+    try {
+      events.push(parseEngineEvent(parsed));
+    } catch {
+      // Not a catalog event: the CLI never reads it.
+      continue;
+    }
+  }
+  if (warned) {
+    stderr.write(
+      `warning: ${eventsPath} contains torn or unparsable lines; complete lines were used\n`
+    );
+  }
+  return events;
+}
+
+/** The journal's reduction of the catalog events in a file (see readCatalogEvents), so a run names its terminal state. */
+export function reduceRunEvents(
+  eventsPath: string,
+  stderr: Pick<NodeJS.WriteStream, "write">,
+): {
+  state: EngineState;
+  events: ReturnType<typeof parseEngineEvent>[];
+} {
+  const events = readCatalogEvents(eventsPath, stderr);
+  let state: EngineState = INITIAL_STATE("");
+  for (const ev of events) {
+    state = applyJournalEvent(state, ev);
+  }
+  return { state, events };
 }
 
 /** The request a run was started with (the run.created prompt). */
@@ -147,40 +253,6 @@ export function requestOf(events: EngineEvent[]): string {
   const created = events.find((e) => e.type === "run.created");
   const prompt = (created?.data as { prompt?: unknown } | undefined)?.prompt;
   return typeof prompt === "string" ? prompt : "";
-}
-
-/**
- * The progress lines a journal produces, with the same renderer a live run uses (R10.2). A replay
- * starts the clock at the run's first event, so each line carries the `[mm:ss]` the run printed.
- */
-export class RunReplay {
-  private renderer: RunProgressState | undefined;
-  state: EngineState;
-
-  constructor(
-    private readonly models: ProgressModels,
-    runId: string,
-  ) {
-    this.state = INITIAL_STATE(runId);
-  }
-
-  /** The renderer's view of the run so far: phase, running tasks, merged count. Undefined before the first event. */
-  get progress(): RunProgressState | undefined {
-    return this.renderer;
-  }
-
-  /** Feeds one event; returns the lines it prints, each with its prefix and newline. */
-  feed(event: EngineEvent): string[] {
-    const at = Date.parse(event.ts);
-    if (this.renderer === undefined) this.renderer = new RunProgress(this.models, at);
-    const startedAt = this.renderer.startedAt;
-    const bodies = this.renderer.observe(event, at);
-    if (event.type === "run.created" || event.type === "run.resumed") {
-      bodies.push(...followLines(String(event.run_id)));
-    }
-    this.state = applyJournalEvent(this.state, event);
-    return bodies.map((body) => progressLine(body, at, startedAt));
-  }
 }
 
 /** The settings a run was started with, recovered from the roles its run.created recorded. */
@@ -195,12 +267,6 @@ export async function settingsOf(cwd: string, events: EngineEvent[]): Promise<Se
   } catch {
     return undefined;
   }
-}
-
-/** The models a run names on its start line. */
-export async function modelsOf(cwd: string, events: EngineEvent[]): Promise<ProgressModels> {
-  const settings = await settingsOf(cwd, events);
-  return settings !== undefined ? progressModelsFor(settings) : {};
 }
 
 /** One task of a run as a caller reads it (R10.2). */
@@ -325,39 +391,11 @@ export function outcomeOf(runDir: string, since?: number): Outcome {
   };
 }
 
-/**
- * Whether a run's work is on the checked-out branch: the result.json landing when there is one,
- * else the run branch's ancestry (read only).
- */
-export function mergedOf(cwd: string, record: RunRecord): boolean {
-  const outcome = outcomeOf(record.runDir, record.lastEventAt);
-  if (typeof outcome.result?.merged === "boolean") return outcome.result.merged;
-  try {
-    return runLandedInHead(cwd, getRunBranch(record.runId as RunId));
-  } catch {
-    return false;
-  }
-}
-
 /** The exit code a terminal run ends with: the one its result.json records, else the state's (R10.2). */
 export function exitCodeOf(record: RunRecord): number {
   const recorded = record.terminal ? outcomeOf(record.runDir, record.lastEventAt).result?.exit_code : undefined;
   if (typeof recorded === "number") return recorded;
   return exitCodeForState(record.state.state as Parameters<typeof exitCodeForState>[0], record.state.pause_reason);
-}
-
-/** The summary block of a terminal run: the summary.txt the run wrote, else the renderer's view of its state. */
-export async function summaryTextOf(cwd: string, record: RunRecord): Promise<string> {
-  const outcome = outcomeOf(record.runDir, record.lastEventAt);
-  if (outcome.summary_path !== undefined) return fs.readFileSync(outcome.summary_path, "utf8");
-  const { renderSummaryText } = await import(`./output.js`);
-  const first = record.events[0]?.ts;
-  const last = record.events[record.events.length - 1]?.ts;
-  const summary = buildSummary(record.runId as RunId, record.state, cwd);
-  return renderSummaryText(summary, "", {
-    startAt: first !== undefined ? Date.parse(first) : Date.now(),
-    endAt: last !== undefined ? Date.parse(last) : Date.now(),
-  });
 }
 
 /** The lines of a progress log that open or resume it (`# ...`), with the time each names. */

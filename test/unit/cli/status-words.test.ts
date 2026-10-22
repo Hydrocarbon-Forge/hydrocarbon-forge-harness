@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { statusWordOf } from "../../../src/cli/run-observe.js";
+import { statusWordOf } from "../../../src/observe/run-observe.js";
 
 // R11.1: the text header names one status word with its reason. The JSON `status` field keeps its own values.
 function recordWith(status: string, pause_reason?: string): Parameters<typeof statusWordOf>[0] {

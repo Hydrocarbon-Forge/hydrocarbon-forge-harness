@@ -6,6 +6,7 @@ import type { Engine, PermissionMode, Settings } from "../../contracts/index.js"
 import { loadSettings } from "../../config/index.js";
 import { createAdapters } from "../../backends/registry.js";
 import type { SessionStore } from "../../store/sessions.js";
+import { registerProject } from "../../store/projects.js";
 
 export interface CliGlobalFlags {
   print?: boolean;
@@ -128,6 +129,7 @@ export const initCommand: CliCommand = {
   description:
     "Initialize the Substrate workspace: directories, .gitignore, charter, and the settings that differ from defaults",
   async execute(ctx: CommandContext): Promise<number> {
+    registerProject(ctx.cwd);
     const flags = ctx.flags;
 
     const slots: SlotValue[] = [];
