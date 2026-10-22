@@ -16,6 +16,7 @@ The R-series work packages are complete. Their specs, the progress checklist, th
 START-HERE.md                        this page
 docs/plan/DECISIONS.md               binding decisions
 docs/plan/reference/                 audit notes (optional)
+docs/design/web-ui.md                browser UI design study and HTTP API contract (R14)
 docs/reference/                      user-facing reference: cli, config, adapters, caller-guide, local-model
 docs/known-issues.md                 open findings, with the owner decisions they need
 docs/spikes/                         measured facts about the three harnesses

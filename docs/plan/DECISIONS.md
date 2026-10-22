@@ -146,3 +146,15 @@ The owner's policy (2026-10-21): Substrate's own checks must not stop good work,
 - Exhausted repairs fail the run as a failed check did before, with the repair outcomes listed. The culprit search runs only then.
 
 Code and tests: `src/engine/actions/repair.ts`, `src/engine/repair-guard.ts`, `assets/prompts/worker/repair.md`, `src/engine/actions/integrate.ts`, `test/e2e/integration-repair.test.ts`, `test/unit/engine/repair-guard.test.ts`; known issues 73 to 76.
+
+## Note 2026-10-22 (R14): a web UI served by an always-on local service
+
+The owner asked on 2026-10-22 for a browser UI for Substrate. This note supersedes the "Out of scope: A TUI" line for one thing only: a browser UI served by `substrate ui`. There is still no terminal UI, and bare `substrate` still prints help.
+
+The rule now:
+- The UI is a user-level daemon, run by `substrate ui serve` (foreground, for systemd) or `ui start`. It shows the jobs of every project registered on the machine (`$XDG_STATE_HOME/substrate/projects.json`), not only the current directory.
+- It binds to the loopback interface only, reached as `localhost`. The port is chosen on the first start and stored in the user-level config file `ui.json` next to `settings.json`. A port, an IP address or a LAN address is never written into a committed file, a spec or a prompt (rule 8).
+- Chat with the planner, and the amendments it may write, follow the semantics in `docs/design/web-ui.md` section 7. Tasks already running or passed are never changed by chat. A live run applies an amendment through the engine inbox; a stopped run applies it on resume through the normal plan re-ingest path. The engine validates an amendment with plan lint, blockers only.
+- Security stays out of scope (A6). The UI adds no authentication, TLS or remote access. The contract in `docs/design/web-ui.md` section 5 is binding for the server and client work packages.
+
+Design and API contract: `docs/design/web-ui.md`.
