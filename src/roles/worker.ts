@@ -30,6 +30,7 @@ import {
   runSetupCommands,
 } from "../git/index.js";
 import { VerifyRunner } from "../verify/index.js";
+import { verifyNotRunReason } from "../engine/verify-outcome.js";
 import { resolveTaskRoute } from "./router.js";
 import { bindAbort, HarnessSpawnError } from "../backends/process.js";
 import { startHarnessSession } from "../backends/spawn.js";
@@ -421,7 +422,7 @@ async function runAttempt(
       backend: route.backend,
       model: route.model,
     };
-    for await (const event of teeTranscript(handle.events, opts.rawDir, transcriptMeta)) {
+    for await (const event of teeTranscript(handle.events, opts.rawDir, transcriptMeta, sessionId)) {
       if (event.type === "error" && event.kind === "crash") {
         crashDetail = event.message;
       }
@@ -555,8 +556,12 @@ async function runAttempt(
       saveFullOutput: (index, output) =>
         saveVerifyOutput(opts.rawDir, opts.taskId, opts.generation, attempt, index, output),
     });
-    const passed =
+    // A check that could not run (a missing tool, a setup that failed, a timeout) is no verdict: the task passes
+    // with a warning and consumes no heal or replan (R13.1, the same classification as the final check).
+    const verdictPassed =
       (opts.spec.verify?.length ?? 0) === 0 ? true : runner.isAllPassed(verifyResults);
+    const notRunReason = verdictPassed ? undefined : verifyNotRunReason(verifyResults);
+    const passed = verdictPassed || notRunReason !== undefined;
 
     const failing = passed ? undefined : verifyResults.find((r) => r.timed_out || r.exit_code !== 0);
     const failingOutput = failing
@@ -568,6 +573,7 @@ async function runAttempt(
       attempt,
       passed,
       failure_class: passed ? undefined : "verify_failed",
+      ...(notRunReason !== undefined ? { verification_not_run: notRunReason.slice(0, 300) } : {}),
       ...(failing
         ? {
             failed_command: failing.cmd,

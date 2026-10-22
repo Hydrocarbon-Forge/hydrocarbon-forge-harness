@@ -122,10 +122,12 @@ function insideDir(dir: string, rel: string): boolean {
 }
 
 /**
- * Validates and applies one amendment. Nothing is written when the amendment is refused, so a refusal leaves the run
- * as it was. An applied amendment writes its contract stubs (through the L2 route: typecheck, then commit on the run
- * branch), its spec files for the tasks it adds or changes, and the run's manifest last. Errors while writing are
- * reported as a refusal; the caller records it.
+ * Validates and applies one amendment. Every refusal found by validation happens before any write, so the run is
+ * left as it was. An applied amendment writes its contract stubs (through the L2 route: typecheck, then commit on
+ * the run branch), its spec files for the tasks it adds or changes, and the run's manifest last, written to a temp
+ * file and renamed into place. A write that fails midway is reported as a refusal that lists the files already
+ * changed (the contract commit, if one was made, and the specs copied before the failure); the manifest is then
+ * the old one, so the run still reads its previous plan.
  */
 export async function applyAmendment(req: AmendmentRequest): Promise<AmendmentOutcome> {
   const { runDir, amendDir } = req;
@@ -178,6 +180,8 @@ export async function applyAmendment(req: AmendmentRequest): Promise<AmendmentOu
   }
 
   let commitSha: string | undefined;
+  // The files this call has changed so far, reported if a later write fails.
+  const changed: string[] = [];
   try {
     if (contractsChanged) {
       for (const file of contracts.files) {
@@ -185,7 +189,9 @@ export async function applyAmendment(req: AmendmentRequest): Promise<AmendmentOu
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.copyFileSync(path.resolve(amendDir, file), target);
       }
+      changed.push(...contracts.files);
       commitSha = await commitContractStubs(req.repoRoot, req.runId, getRunBranch(req.runId), contracts, runDir);
+      changed.push("the contract commit");
     }
 
     // Specs of the tasks the amendment adds or changes; a started task's spec is never written.
@@ -195,6 +201,7 @@ export async function applyAmendment(req: AmendmentRequest): Promise<AmendmentOu
       const target = path.resolve(runDir, task.spec);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.copyFileSync(path.resolve(amendDir, task.spec), target);
+      changed.push(task.spec);
     }
 
     // The manifest: the amendment's tasks, with a kept task's entry as the run has it, plus the run's tasks the
@@ -209,9 +216,23 @@ export async function applyAmendment(req: AmendmentRequest): Promise<AmendmentOu
     for (const entry of currentEntries) {
       if (!named.has(entry.id) && !dropped.has(entry.id)) tasks.push(entry);
     }
-    fs.writeFileSync(path.join(runDir, MANIFEST), YAML.stringify({ ...amendRaw, tasks }), "utf8");
+    // Written to a temp file in the same directory, then renamed over the manifest, so a crash never leaves a
+    // half-written manifest behind.
+    const manifestPath = path.join(runDir, MANIFEST);
+    const tmpPath = `${manifestPath}.${process.pid}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, YAML.stringify({ ...amendRaw, tasks }), "utf8");
+      fs.renameSync(tmpPath, manifestPath);
+    } catch (err) {
+      fs.rmSync(tmpPath, { force: true });
+      throw err;
+    }
   } catch (err: any) {
-    return { outcome: "rejected", reason: truncate(`the amendment could not be written: ${err?.message ?? String(err)}`) };
+    const done = changed.length > 0 ? changed.join(", ") : "nothing";
+    return {
+      outcome: "rejected",
+      reason: truncate(`the amendment could not be written: ${err?.message ?? String(err)}; files already changed: ${done}`),
+    };
   }
 
   const tasks: AmendedTask[] = [...diff.added, ...diff.changed].map((id) => {

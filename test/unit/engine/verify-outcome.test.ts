@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifySetupFailure, classifyVerifyFailure } from "../../../src/engine/verify-outcome.js";
+import { classifySetupFailure, classifyVerifyFailure, verifyNotRunReason } from "../../../src/engine/verify-outcome.js";
 import { NOT_INSTALLED_MARKERS } from "../../../src/engine/verify-markers.js";
 import type { VerifyFailure } from "../../../src/git/merger.js";
 
@@ -74,5 +74,27 @@ describe("NOT_INSTALLED_MARKERS: the documented list", () => {
 
   it("gives every marker a reason", () => {
     for (const m of NOT_INSTALLED_MARKERS) expect(m.reason.length).toBeGreaterThan(0);
+  });
+
+  // R13.1: a task's own verify gets the same classification. A missing tool passes the task with a reason; a real
+  // failure with ordinary output is still a failure, even beside a command that could not run.
+  const result = (cmd: string, exit_code: number | null, stderr_tail = "", stdout_tail = "", timed_out = false) => ({
+    cmd,
+    exit_code,
+    timed_out,
+    duration_ms: 1,
+    stdout_tail,
+    stderr_tail,
+    truncated: false,
+  });
+
+  it("a verify whose tool is missing could not run, a real non-zero exit is no reason to pass", () => {
+    expect(verifyNotRunReason([result("tsc --noEmit", 127)])).toBe("the command was not found (exit 127)");
+    expect(verifyNotRunReason([result("npx tsc", 1, "", "Cannot find module 'typescript'")])).toBe(
+      NOT_INSTALLED_MARKERS.find((m) => "Cannot find module 'typescript'".includes(m.marker))?.reason,
+    );
+    expect(verifyNotRunReason([result("npm test", 1, "", "expected true, got false")])).toBeUndefined();
+    expect(verifyNotRunReason([result("npm test", 127), result("npm run lint", 2, "", "lint error")])).toBeUndefined();
+    expect(verifyNotRunReason([result("npm test", 0)])).toBeUndefined();
   });
 });

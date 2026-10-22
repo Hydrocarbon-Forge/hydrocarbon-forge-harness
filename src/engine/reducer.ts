@@ -57,6 +57,13 @@ export interface TaskRuntimeState {
    * must not return it to the queue the way a dependency skip is returned.
    */
   dropped?: boolean;
+  /**
+   * R13.1: the plan's setup that failed in this task's worktree (task.setup.failed). A warning: the task's state
+   * does not change. Kept so the run report names it. Unset when the setup passed or the log predates it.
+   */
+  setup_failed?: { command: string; reason: string };
+  /** R13.1: why the task's verify could not run; the task passed without it (task.verify.finished). */
+  verification_not_run?: string;
   depends_on?: TaskId[];
   write?: string[];
   create?: string[];
@@ -347,7 +354,11 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       const current = state.tasks[taskId] ?? { id: taskId, generation: 1, attempt: 1 };
       let updated: TaskRuntimeState;
       if (data.passed) {
-        updated = { ...current, state: "PASSED" };
+        updated = {
+          ...current,
+          state: "PASSED",
+          ...(typeof data.verification_not_run === "string" ? { verification_not_run: data.verification_not_run } : {}),
+        };
       } else {
         if ((current.attempt ?? 1) === 1) {
           updated = {
@@ -421,9 +432,20 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       };
     }
 
-    case "task.setup.failed":
-      // R13.1: a warning. The worker still runs in the same worktree, so the task's state does not change.
-      return state;
+    case "task.setup.failed": {
+      // R13.1: a warning. The worker still runs in the same worktree, so the task's state does not change; the
+      // failure is kept on the task so the run report can name it.
+      const taskId = data.task_id;
+      const current = taskId ? state.tasks[taskId] : undefined;
+      if (!taskId || !current) return state;
+      return {
+        ...state,
+        tasks: {
+          ...state.tasks,
+          [taskId]: { ...current, setup_failed: { command: String(data.command ?? ""), reason: String(data.reason ?? "") } },
+        },
+      };
+    }
     case "task.failed": {
       const taskId = data.task_id;
       if (!taskId) return state;

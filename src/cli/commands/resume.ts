@@ -490,15 +490,15 @@ export const resumeCommand: CliCommand = {
       // P2.2: an exception that ends the resume still writes the run's REPORT.md, from what is on disk.
       const unfinished = writeRunReportFile(ctx.cwd, resolved.runId);
       if (err.name === "AbortError" || err.message?.includes("SIGINT")) {
-        if ((ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
+        if (unfinished !== undefined && (ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
         return 130;
       }
       if (err.message?.includes("SIGTERM")) {
-        if ((ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
+        if (unfinished !== undefined && (ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
         return 143;
       }
       formatter.onError(err);
-      if ((ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
+      if (unfinished !== undefined && (ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
       await formatter.flush();
       return 1;
     }

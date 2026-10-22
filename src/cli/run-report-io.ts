@@ -85,9 +85,16 @@ export function reportOfRun(cwd: string, runId: string, summary?: RunSummary): R
   });
 }
 
-/** Writes REPORT.md for a run from what is on disk (best effort). Used when a run ends without a summary. */
-export function writeRunReportFile(cwd: string, runId: string, summary?: RunSummary): RunReport {
-  const report = reportOfRun(cwd, runId, summary);
-  writeReportMarkdown(runDirOf(cwd, runId), renderReportMarkdown(report));
-  return report;
+/**
+ * Writes REPORT.md for a run from what is on disk (best effort). Used when a run ends without a summary. It never
+ * throws: a report that cannot be built or written must not lose the run's exit code. Undefined when it failed.
+ */
+export function writeRunReportFile(cwd: string, runId: string, summary?: RunSummary): RunReport | undefined {
+  try {
+    const report = reportOfRun(cwd, runId, summary);
+    writeReportMarkdown(runDirOf(cwd, runId), renderReportMarkdown(report));
+    return report;
+  } catch {
+    return undefined;
+  }
 }

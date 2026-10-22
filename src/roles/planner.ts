@@ -732,7 +732,7 @@ export async function runPlanner(
     let res: Awaited<ReturnType<typeof handle.result>>;
     try {
       const transcriptMeta = { role: "planner" as const, task_id: null, generation: null, attempt, backend: route.backend, model: route.model };
-      for await (const evt of teeTranscript(handle.events, opts.runDir, transcriptMeta)) {
+      for await (const evt of teeTranscript(handle.events, opts.runDir, transcriptMeta, attemptSessionId)) {
         if (evt.type === "session.started") sessionId = evt.session_id;
         // The adapter's own explanation of a failure (for example a missing
         // base URL) is kept for the failure message; the last one wins.

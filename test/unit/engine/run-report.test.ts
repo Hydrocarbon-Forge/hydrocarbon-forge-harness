@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { EngineEvent } from "../../../src/contracts/index.js";
-import { buildRunReport, plainReasonOf, renderReportText, type AttemptFacts } from "../../../src/engine/run-report.js";
+import { buildRunReport, plainReasonOf, renderReportMarkdown, renderReportText, type AttemptFacts } from "../../../src/engine/run-report.js";
 
 // P2.2: the run report is built from a run's event log and the file facts the caller reads. These fixtures are
 // small event logs under test/fixtures/runs; each test pins one way a run can end.
@@ -59,7 +59,7 @@ describe("P2.2 run report", () => {
     expect(text).not.toContain("NOT merged");
   });
 
-  it("a failed final check after every task passed: the verdict says the check failed, the output tail is kept, and a partial landing is offered", () => {
+  it("a failed final check after every task passed: the verdict says the check failed, the output tail is kept, and no partial landing is offered", () => {
     const report = buildRunReport({
       runId: RUN,
       events: eventsOf("integration-failed"),
@@ -72,7 +72,9 @@ describe("P2.2 run report", () => {
     expect(report.integration).toMatchObject({ result: "failed", command: "npm test" });
     expect(report.integration.output_tail.at(-1)).toBe("FAIL src/score.test.ts");
     expect(report.recovery.repair).toEqual({ attempts: 1, passed: false, reason: "the check still fails", outcomes: ["attempt 1: rejected: the check still fails"] });
-    expect(report.next).toContain(`substrate merge ${RUN} --partial  (lands the passed tasks after integration verify passes)`);
+    // Every task merged and the check failed: `merge --partial` would rerun the same check, so it is not offered.
+    expect(report.next.some((line) => line.includes("--partial"))).toBe(false);
+    expect(report.next[0]).toBe(`substrate resume ${RUN}  (runs integration verify again; fix the run branch first, then resume: git switch substrate/runs/${RUN}, commit, resume)`);
     expect(renderReportText(report)).toContain("Output:\n  line 1\n  line 2\n  FAIL src/score.test.ts\n");
   });
 
@@ -87,6 +89,28 @@ describe("P2.2 run report", () => {
     expect(report.tasks.find((t) => t.id === "T2")?.state).toBe("interrupted");
     expect(report.next[0]).toBe(`substrate resume ${RUN}`);
     expect(renderReportText(report)).toContain(`Next:       substrate resume ${RUN}\n`);
+  });
+
+  it("a failed run names a failed setup and a passed task whose check could not run, in text and markdown (R13.1)", () => {
+    const base = { v: 1, run_id: RUN, ts: "2026-10-22T10:00:00.000Z" };
+    const events = [
+      { ...base, seq: 1, type: "run.created", data: { run_id: RUN, base_branch: "main", merge: true } },
+      { ...base, seq: 2, type: "plan.produced", data: { tasks: [{ id: "T1", title: "add the score", class: "feature", depends_on: [] }], manifest: {} } },
+      { ...base, seq: 3, type: "task.setup.failed", data: { task_id: "T1", generation: 1, attempt: 1, command: "npm ci", reason: "exit 1" } },
+      { ...base, seq: 4, type: "task.verify.finished", data: { task_id: "T1", generation: 1, attempt: 1, passed: true, verification_not_run: "the command was not found (exit 127)" } },
+      { ...base, seq: 5, type: "task.passed", data: { task_id: "T1", generation: 1, attempt: 1 } },
+      { ...base, seq: 6, type: "task.merged", data: { task_id: "T1" } },
+      { ...base, seq: 7, type: "run.finished", data: { exit_code: 1, status: "failed" } },
+    ] as unknown as EngineEvent[];
+    const report = buildRunReport({ runId: RUN, events, facts: { branch: BRANCH, base_branch: "main" } });
+    const text = renderReportText(report);
+    expect(text).toContain("environment setup failed in T1: npm ci (the worker ran anyway)\n");
+    expect(text).toContain("T1 passed but its check could not run: the command was not found (exit 127)\n");
+    expect(report.tasks.find((t) => t.id === "T1")?.state).toBe("passed");
+    expect(report.tasks.find((t) => t.id === "T1")?.verification_not_run).toBe("the command was not found (exit 127)");
+    const markdown = renderReportMarkdown(report);
+    expect(markdown).toContain("- environment setup failed in T1: npm ci (the worker ran anyway)");
+    expect(markdown).toContain("- T1 passed but its check could not run: the command was not found (exit 127)");
   });
 
   it("a failure class the table does not name keeps its raw class and message", () => {

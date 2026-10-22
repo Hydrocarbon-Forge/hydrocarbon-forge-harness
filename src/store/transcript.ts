@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type { BackendEvent } from "../contracts/index.js";
 
@@ -104,20 +105,24 @@ export function openTranscript(runDir: string, header: TranscriptHeader): Transc
 }
 
 /**
- * Passes a session's events through unchanged and writes them to its transcript. The transcript opens when
- * the harness reports its session id (session.started), so the header carries the real id. Every event loop
- * that consumes a harness session wraps its `handle.events` with this, so the three adapters are recorded alike.
+ * Passes a session's events through unchanged and writes them to its transcript. The transcript opens at the
+ * first event of any kind, so a session that dies before the harness reports its id (an early error) is still
+ * recorded. The header carries the harness's id when the first event is session.started with one, else the
+ * engine's `fallbackSession` (the id the spawn was given). Every event loop that consumes a harness session
+ * wraps its `handle.events` with this, so the three adapters are recorded alike.
  */
 export async function* teeTranscript(
   events: AsyncIterable<BackendEvent>,
   runDir: string,
   meta: TranscriptMeta,
+  fallbackSession?: string,
 ): AsyncGenerator<BackendEvent> {
   let writer: TranscriptWriter | undefined;
   try {
     for await (const event of events) {
-      if (writer === undefined && event.type === "session.started" && event.session_id) {
-        writer = openTranscript(runDir, { ...meta, session: event.session_id });
+      if (writer === undefined) {
+        const reported = event.type === "session.started" && event.session_id ? event.session_id : undefined;
+        writer = openTranscript(runDir, { ...meta, session: reported ?? fallbackSession ?? randomUUID() });
       }
       writer?.write(event);
       yield event;

@@ -595,6 +595,8 @@ async function runPlannerSession(
     return { result: emptyResult(), stopped: false, unavailable: true, cancelled: false };
   }
 
+  // The engine's own id for this session: the transcript is named by it until the harness reports its id.
+  const replanSessionId = crypto.randomUUID();
   const request: SpawnRequest = {
     role: "planner",
     cwd: opts.runDir,
@@ -616,7 +618,7 @@ async function runPlannerSession(
         : {}),
     },
     raw_dir: opts.runDir,
-    session: { id: crypto.randomUUID() },
+    session: { id: replanSessionId },
   };
 
   // A planner that cannot start gives up this one task (R13.1); it does not throw out of the engine.
@@ -648,7 +650,7 @@ async function runPlannerSession(
       backend: route.backend,
       model: route.model,
     };
-    for await (const evt of teeTranscript(handle.events, opts.runDir, transcriptMeta)) {
+    for await (const evt of teeTranscript(handle.events, opts.runDir, transcriptMeta, replanSessionId)) {
       if (evt.type !== "usage") continue;
       sawUsage = true;
       const { delta, next } = toDelta(totals, evt.record, evt.cumulative);

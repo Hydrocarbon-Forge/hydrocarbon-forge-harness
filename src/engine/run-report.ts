@@ -76,6 +76,10 @@ export interface TaskReport {
   output_tail?: string[];
   /** The saved patch of the task's latest failed generation, under the project. */
   patch_path?: string;
+  /** The plan's setup that failed in the task's worktree (R13.1). The worker ran anyway. */
+  setup_failed?: { command: string; reason: string };
+  /** R13.1: why the task's verify could not run; the task passed without it. */
+  verification_not_run?: string;
 }
 
 export interface RunReport {
@@ -349,6 +353,8 @@ export function buildRunReport(input: ReportInput): RunReport {
         ? { output_tail: tailLines([failingEntry.v.stdout_tail, failingEntry.v.stderr_tail].filter((x) => x !== undefined).join("\n")) }
         : {}),
       ...(patchName !== undefined && (st === "failed" || st === "interrupted") ? { patch_path: `${runDir}/packets/${patchName}` } : {}),
+      ...(state.tasks[id]?.setup_failed !== undefined ? { setup_failed: state.tasks[id].setup_failed } : {}),
+      ...(state.tasks[id]?.verification_not_run !== undefined ? { verification_not_run: state.tasks[id].verification_not_run } : {}),
     };
   });
 
@@ -486,12 +492,15 @@ export function buildRunReport(input: ReportInput): RunReport {
   const next: string[] = [];
   const patchPaths = tasks.map((t) => t.patch_path).filter((p): p is string => p !== undefined);
   const hasPartialLanding = events.some((e) => e.type === "task.merged") && plan.integrationVerify > 0 && branch !== undefined;
+  // Every task merged and the final check failed: `merge --partial` would rerun the same failing check, so it is
+  // not offered (the resume and the inspect lines are).
+  const verifyOnly = integrationResult === "failed" && total > 0 && passed === total;
   if (outcome === "failed" || outcome === "internal_error") {
     next.push(
       ...failedRunResume(runId, {
-        partialLandable: hasPartialLanding,
+        partialLandable: hasPartialLanding && !verifyOnly,
         planningFailed: total === 0,
-        verifyOnly: integrationResult === "failed" && total > 0 && passed === total,
+        verifyOnly,
         internalError: outcome === "internal_error",
       }),
     );
@@ -539,6 +548,16 @@ export function buildRunReport(input: ReportInput): RunReport {
 
 // ----- renderers -----
 
+/** R13.1: the one line that names a task whose plan setup failed (the worker ran anyway). */
+function setupLine(t: TaskReport): string {
+  return `environment setup failed in ${t.id}: ${clip(t.setup_failed?.command ?? "", 100)} (the worker ran anyway)`;
+}
+
+/** R13.1: the one line that says a passed task's own check could not run, and why. */
+function verificationNotRunLine(t: TaskReport): string {
+  return `${t.id} passed but its check could not run: ${clip(t.verification_not_run ?? "", 160)}`;
+}
+
 function taskBlock(t: TaskReport): string[] {
   const title = t.title !== undefined ? clip(t.title, 40) : "";
   const lines = [`  ${t.id.padEnd(5)}${t.state.padEnd(13)}${title}`.replace(/\s+$/, "")];
@@ -566,6 +585,10 @@ export function renderReportText(report: RunReport): string {
   if (report.tasks.length > 0 && report.outcome !== "planned") {
     lines.push("Per task:");
     for (const t of report.tasks) lines.push(...taskBlock(t));
+  }
+  for (const t of report.tasks) {
+    if (t.setup_failed !== undefined) lines.push(setupLine(t));
+    if (t.verification_not_run !== undefined) lines.push(verificationNotRunLine(t));
   }
   if (report.integration.result === "failed" || report.integration.result === "passed") {
     if (report.integration.result === "failed") {
@@ -630,6 +653,8 @@ export function renderReportMarkdown(report: RunReport): string {
       if (t.plain_reason !== undefined) out.push(`  - why: ${t.plain_reason}${t.message !== undefined && t.message !== t.plain_reason ? ` (${t.message})` : ""}`);
       if (t.failing_command !== undefined) out.push(`  - command: \`${t.failing_command}\``);
       if (t.patch_path !== undefined) out.push(`  - patch: \`${t.patch_path}\``);
+      if (t.setup_failed !== undefined) out.push(`  - ${setupLine(t)}`);
+      if (t.verification_not_run !== undefined) out.push(`  - ${verificationNotRunLine(t)}`);
       if (t.output_tail !== undefined && t.output_tail.length > 0) {
         out.push("  - output:", "", "    ```", ...t.output_tail.map((l) => `    ${l}`), "    ```");
       }

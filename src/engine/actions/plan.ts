@@ -36,6 +36,7 @@ import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
 import { bindAbort } from "../../backends/process.js";
 import { startHarnessSession } from "../../backends/spawn.js";
+import { HarnessSpawnError } from "../../backends/process.js";
 import { teeTranscript } from "../../store/transcript.js";
 import { runLintAction } from "./approve.js";
 import { log } from "../../util/log.js";
@@ -186,7 +187,16 @@ export async function runPlanAction(
         session: { resume: currentSessionId },
       };
 
-      const handle = await startHarnessSession(adapter, spawnReq);
+      let handle;
+      try {
+        handle = await startHarnessSession(adapter, spawnReq);
+      } catch (err) {
+        // The planner never started (R13.1): the run fails as a planning failure that names the binary.
+        if (!(err instanceof HarnessSpawnError)) throw err;
+        emit("task.failed", { failure_class: "worker_crashed", message: boundedMessage(`the planner could not start: ${err.message}`) });
+        emit("run.finished", { exit_code: 1, status: "failed" });
+        return;
+      }
       // R10.5: recorded like a worker's pid until the session ends (see endStaleWorkers).
       const pidRecord = { task_id: PLANNER_PID_TASK, generation: 0, attempt, pid: handle.pid, backend: route.backend };
       recordWorkerPid(ctx.runDir, pidRecord);
@@ -197,7 +207,7 @@ export async function runPlanAction(
       const res = await (async () => {
         try {
           const transcriptMeta = { role: "planner" as const, task_id: null, generation: null, attempt, backend: route.backend, model: route.model };
-          for await (const evt of teeTranscript(handle.events, ctx.runDir, transcriptMeta)) {
+          for await (const evt of teeTranscript(handle.events, ctx.runDir, transcriptMeta, currentSessionId)) {
             if (evt.type === "session.started" && evt.session_id) {
               currentSessionId = evt.session_id;
             }
@@ -384,6 +394,12 @@ export async function runPlanAction(
       const failureClass =
         err.reason === "budget" ? "budget_exceeded" : err.reason === "session" ? "worker_crashed" : "spec_invalid";
       emit("task.failed", { failure_class: failureClass, message: plannerFailureMessage(err) });
+      emit("run.finished", { exit_code: 1, status: "failed" });
+      return;
+    }
+    // The first planner never started (R13.1): a planning failure that names the binary, not an internal error.
+    if (err instanceof HarnessSpawnError) {
+      emit("task.failed", { failure_class: "worker_crashed", message: boundedMessage(`the planner could not start: ${err.message}`) });
       emit("run.finished", { exit_code: 1, status: "failed" });
       return;
     }

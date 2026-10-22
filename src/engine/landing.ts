@@ -224,11 +224,13 @@ export function withLanding(summary: RunSummary, facts: LandingFacts): RunSummar
   if (facts.runFailed && !facts.needsInput) {
     // R10.4: a failed run is resumed; its next commands are the resume, the partial landing and a new request.
     if (summary.status === "failed") {
+      // Every task merged and the final check failed: `merge --partial` would rerun that check, so it is not offered.
+      const verifyOnly = summary.failure_class === "integration_failed" && Object.values(summary.tasks ?? {}).every((t) => t.state === "PASSED");
       next.push(
         ...failedRunNext(runId, {
-          partialLandable: facts.partialLandable === true,
+          partialLandable: facts.partialLandable === true && !verifyOnly,
           planningFailed: Object.keys(summary.tasks ?? {}).length === 0,
-          verifyOnly: summary.failure_class === "integration_failed" && Object.values(summary.tasks ?? {}).every((t) => t.state === "PASSED"),
+          verifyOnly,
           internalError: summary.failure_class === "internal_error",
         }),
       );

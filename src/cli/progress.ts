@@ -284,6 +284,9 @@ export class RunProgress {
         return [];
       case "task.verify.finished": {
         this.verifyingTasks.delete(tid);
+        if (data.passed && typeof data.verification_not_run === "string") {
+          return [`${taskLabel} passed but its check could not run: ${oneLine(data.verification_not_run, 300)}`];
+        }
         if (data.passed) return [`${taskLabel} verify passed`];
         const cmd = typeof data.failed_command === "string" && data.failed_command !== ""
           ? `: ${oneLine(data.failed_command, 200)}`

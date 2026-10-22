@@ -88,4 +88,20 @@ describe("transcript writer (web UI section 6.3)", () => {
     expect(lines[1].event).toEqual({ type: "session.started", session_id: "sess-tee" });
     expect(lines[2].event).toEqual({ type: "assistant.text", text: "hello" });
   });
+
+  it("records a session that dies before its init: the first event opens the file under the engine's session id", async () => {
+    const runDir = mkdtempSync(join(tmpdir(), "substrate-transcript-early-"));
+    const early = { type: "error", kind: "crash", message: "could not start claude" } as BackendEvent;
+    async function* source(): AsyncGenerator<BackendEvent> {
+      yield early;
+    }
+    const seen: BackendEvent[] = [];
+    for await (const event of teeTranscript(source(), runDir, HEADER, "engine-sess-9")) {
+      seen.push(event);
+    }
+    expect(seen).toEqual([early]);
+    const lines = linesOf(join(runDir, "transcripts", "engine-sess-9.jsonl"));
+    expect(lines[0]).toMatchObject({ type: "header", session: "engine-sess-9", role: "worker" });
+    expect(lines[1].event).toEqual(early);
+  });
 });

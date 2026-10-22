@@ -328,7 +328,8 @@ class TextFormatter implements OutputFormatter {
       this.out.write(`Merged into ${base} (working tree updated)\n`);
     } else if (summary.not_merged_reason !== undefined && !turnedOff) {
       this.out.write(`${summary.not_merged_reason}\n`);
-    } else if (!turnedOff) {
+    } else if (!turnedOff && summary.status === "finished") {
+      // A failed or partial run never says this: `substrate merge` refuses it (its report says what to run).
       this.out.write(`NOT merged into ${base} yet — run: substrate merge ${summary.run_id}\n`);
     }
     const files = summary.files_changed ?? [];

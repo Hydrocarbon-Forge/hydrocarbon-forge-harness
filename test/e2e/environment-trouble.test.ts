@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -152,6 +152,29 @@ describe("R13.1: environment trouble is a warning or a retry, never a failed run
       expect(JSON.parse(readFileSync(join(s.project, ".substrate", "runs", runId, "result.json"), "utf8"))).toMatchObject({
         exit_code: 0,
       });
+    } finally {
+      rmSync(s.root, { recursive: true, force: true });
+    }
+  });
+
+  it("(2) a planner binary that is not on PATH fails the run in plain words, at once, and is not a Substrate bug", () => {
+    const s = scratch();
+    try {
+      prepare(s);
+      // Only node and git are on PATH: the planner's `claude` is not found, so its spawn cannot start.
+      const gitDir = dirname(execFileSync("which", ["git"], { encoding: "utf8" }).trim());
+      s.env.PATH = [dirname(process.execPath), gitDir].join(":");
+      const res = cli(s, [
+        "run",
+        "--plan", "claude:claude-sonnet-5-5",
+        "--work", "claude:haiku",
+        "--permission-mode", "bypassPermissions",
+        "One file with no claude binary",
+      ]);
+      const out = `${res.stdout}${res.stderr}`;
+      expect(res.status, diag(res)).toBe(1);
+      expect(out, diag(res)).toContain("claude was not found on PATH");
+      expect(out, diag(res)).not.toContain("Substrate bug");
     } finally {
       rmSync(s.root, { recursive: true, force: true });
     }

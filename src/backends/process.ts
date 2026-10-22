@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { accessSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { PassThrough, type Readable } from "node:stream";
 import type { SessionHandle } from "../contracts/index.js";
@@ -219,6 +220,28 @@ function createStreamBridge(
   return pt;
 }
 
+/** True when `command` names an executable file: a path that exists, or a name found in a PATH directory. */
+function isExecutableOnPath(command: string, pathValue: string | undefined): boolean {
+  if (command.includes(path.sep)) {
+    try {
+      accessSync(command, fsConstants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  for (const dir of (pathValue ?? "").split(path.delimiter)) {
+    if (dir === "") continue;
+    try {
+      accessSync(path.join(dir, command), fsConstants.X_OK);
+      return true;
+    } catch {
+      // Not in this directory; keep looking.
+    }
+  }
+  return false;
+}
+
 export function spawnSupervisedProcess(
   options: SupervisedProcessOptions
 ): SupervisedProcess {
@@ -247,6 +270,10 @@ export function spawnSupervisedProcess(
   if (!pid || pid <= 0) {
     // Node reports a missing binary asynchronously. The listener keeps that event from crashing the process.
     child.on("error", () => {});
+    // A binary that is not on PATH is named as such, with its code, so the spawn is not retried (R13.1).
+    if (!isExecutableOnPath(options.command, env.PATH)) {
+      throw new HarnessSpawnError(`${options.command} was not found on PATH`, "ENOENT");
+    }
     throw new HarnessSpawnError(`could not start ${options.command}: the system did not start the process`);
   }
   if (options.input !== undefined && child.stdin) {

@@ -452,6 +452,9 @@ export const TaskVerifyFinishedEvent = member(
       // (at most 300 characters).
       failed_command: z.string().optional(),
       failed_output: z.string().max(300).optional(),
+      // R13.1: the verify could not run (a tool was missing, a command could not start or timed out). The task
+      // passed with this warning; it is no verdict and costs no heal or replan.
+      verification_not_run: z.string().max(300).optional(),
     })
     .strict()
 );
