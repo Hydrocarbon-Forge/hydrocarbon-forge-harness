@@ -1,7 +1,8 @@
 # The browser UI and its service
 
 Substrate has a browser UI. It shows the jobs of every project registered on this machine (the runs in
-`$XDG_STATE_HOME/substrate/projects.json`), not only the project in the current directory. The UI runs as a background
+`$XDG_STATE_HOME/substrate/projects.json`), not only the project in the current directory. Projects are registered whenever
+any command runs inside a project that has a `.substrate/` directory. The UI runs as a background
 service, so it is up even when no `substrate` command is running. The design is in `docs/design/web-ui.md`.
 
 - By default it listens on the loopback interface, reached as `localhost`, so it is not reachable from other machines.

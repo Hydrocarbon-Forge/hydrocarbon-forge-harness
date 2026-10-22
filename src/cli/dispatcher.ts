@@ -1,8 +1,11 @@
+import fs from "node:fs";
+import path from "node:path";
 import { parseArgs } from "node:util";
 
 import type { Effort, Engine, PermissionMode } from "../contracts/index.js";
 import type { SessionStore } from "../store/sessions.js";
 import { readEnvLayer } from "../config/index.js";
+import { registerProject } from "../store/projects.js";
 import { serveUi } from "../web/server.js";
 
 export interface CliGlobalFlags {
@@ -536,6 +539,13 @@ export async function runCli(
     argv,
     web: { serveUi },
   };
+
+  // Self-healing registry (web-ui design, section 6.1): a command run inside a project (a directory with a
+  // `.substrate` directory) keeps that project registered, so the UI lists it. Best-effort and quiet: a directory
+  // without `.substrate` is never registered, so `--help`, `config` or `doctor` elsewhere add nothing.
+  if (fs.existsSync(path.join(ctx.cwd, ".substrate"))) {
+    registerProject(ctx.cwd);
+  }
 
   return cmd.execute(ctx);
 }

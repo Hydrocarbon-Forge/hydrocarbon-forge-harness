@@ -100,6 +100,38 @@ describe("E2E project registry", () => {
     }
   });
 
+  it("a project with a pre-existing .substrate that is not registered is listed after any command runs in it", () => {
+    const env = isolatedEnv();
+    // A project that already has its .substrate directory (a run seeded before registration existed), with no registry entry.
+    const alpha = createE2ERepo(seededRun(ALPHA_RUN, "alpha work"));
+    // A directory with no .substrate: the listing runs from here, and nothing registers it.
+    const elsewhere = createE2ERepo();
+    const results: Array<{ cleanup(): void }> = [];
+    try {
+      const before = runSubstrate({ repo: elsewhere, args: ["runs", "--all-projects", "--output-format", "json"], env });
+      results.push(before);
+      expect(before.exitCode).toBe(0);
+      expect(JSON.parse(before.stdout)).toEqual([]);
+
+      const status = runSubstrate({ repo: alpha, args: ["status"], env });
+      results.push(status);
+      expect(status.exitCode).toBe(0);
+
+      const listed = runSubstrate({ repo: elsewhere, args: ["runs", "--all-projects", "--output-format", "json"], env });
+      results.push(listed);
+      expect(listed.exitCode).toBe(0);
+      const rows = JSON.parse(listed.stdout) as Array<{ run_id: string; project: string }>;
+      expect(rows.map((r) => r.run_id)).toEqual([ALPHA_RUN]);
+      expect(rows[0]?.project).toBe(realpathSync(alpha.dir));
+    } finally {
+      results.forEach((r) => r.cleanup());
+      alpha.cleanup();
+      elsewhere.cleanup();
+      rmSync(env.XDG_STATE_HOME, { recursive: true, force: true });
+      rmSync(env.SUBSTRATE_CONFIG_DIR, { recursive: true, force: true });
+    }
+  });
+
   it("a run in an empty non-git directory registers the project it initialises, and runs --all-projects lists its run", () => {
     const env = isolatedEnv();
     // An empty directory, not a repository: the run initialises it with a base commit.
