@@ -612,9 +612,9 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     expect(diag?.severity).toBe("gate");
   });
 
-  it("L023: emits a warning, in every mode, when verify passes at base ref (red-check)", async () => {
+  it("L023: emits a warning when lint.red_check is on and verify passes at base ref; silent by default", async () => {
     const repo = createTempRepo();
-    const settings = sampleSettings();
+    const settings = sampleSettings({ lint: { red_check: true } });
 
     const spec = sampleParsedTaskSpec({
       frontmatter: sampleTaskSpecFrontmatter({
@@ -632,6 +632,10 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     const warnDiag = warnResult.diagnostics.find((d) => d.code === "L023");
     expect(warnDiag).toBeDefined();
     expect(warnDiag?.severity).toBe("warn");
+
+    // Off by default: the same plan with the setting unset runs no base-ref check.
+    const offResult = await lintPlan(plan, repo, sampleSettings());
+    expect(offResult.diagnostics.find((d) => d.code === "L023")).toBeUndefined();
   });
 
   it("L024: emits warning when class tests writes non-test or non-tests writes tests", async () => {

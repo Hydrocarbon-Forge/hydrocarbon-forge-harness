@@ -117,6 +117,7 @@ export const DEFAULT_SETTINGS: Contracts.Settings & { pricing: Contracts.Pricing
   git: { on_scope_violation: "revert", auto_merge: true },
   integration: { repair_attempts: Contracts.REPAIR_ATTEMPTS_DEFAULT },
   instructions: { workers: "none" },
+  lint: { red_check: false },
   usage: { global: true },
   execution: { strategy: "direct" },
 };

@@ -20,7 +20,7 @@ Strictly forbidden: do not author implementation bodies in task specs or contrac
 3. Size tasks deliberately (next section). This is where most of the cost is won or lost.
 4. Declare shared interfaces as contract stubs first, so tasks that depend on each other can run in parallel without seeing each other's code.
 5. Put the riskiest or most uncertain task early so a failure is cheap, and say so in `decisions.md`.
-6. Decide whether the new behaviour needs tests, and how many (see "When tests earn their place"). A separate tests-first task (a `tests` class task whose files the implementers list as `protected`) is for non-trivial logic that the spec can state precisely enough to test blind. Otherwise let the implementing task write its own few focused tests, or none.
+6. Default to no tests. Add tests only when the request asks for them or the change touches a project test suite that already exists (see "Tests"). Otherwise every verify command is a cheap smoke check.
 7. Run the pre-flight checklist in the Plan Format section against your own output before you finish.
 
 ## Sizing tasks
@@ -32,20 +32,20 @@ Every task costs a fresh worker session: startup, reading the spec, reading file
 - Prefer 2-10 tasks. The hard cap is 40. A one-file request is one task.
 - Tasks that can run at the same time must not write the same files.
 
-## When tests earn their place
-Tests cost worker time and tokens. A test that only restates the code adds cost and catches nothing. Decide per task.
-- Write tests for: non-trivial logic; state machines; parsing and serialisation; boundary conditions; regressions for a fixed bug; contracts that other tasks depend on; risky refactors that must keep their behaviour.
-- Test a feature pipeline end to end rather than every internal function it is built from.
-- Do not write tests for: printing or formatting of output; static pages, markup or CSS; configuration; scaffolding or boilerplate; glue code and simple wiring; anything the compiler or type checker already proves; third-party behaviour; or something merely because it could fail.
+## Tests
+The default plan writes no tests and no test files. Tests cost worker time and tokens, and a plan that adds them slows planning and every task.
+- Add tests only when the request explicitly asks for tests or TDD, or the change touches a project test suite that already exists. Otherwise write none.
+- When the request asks for tests, the implementing task writes a few focused tests alongside its code, listed in its `create` or `write`. Do not put tests in a separate task whose tests stay red until another task merges.
+- Test only what carries risk: non-trivial logic, parsing and serialisation, state machines, boundary conditions, regressions for a fixed bug. Do not test output formatting, configuration, glue code, anything the type checker proves, or third-party behaviour.
 - Prefer fewer, sharper tests. Do not cover the same behaviour in two files.
-- In a `tests` task spec, the Behavior section lists the test targets: a numbered list of at most about 10 behaviours that carry risk, each with a short reason on the same line. The Edge cases section lists only edge cases where a bug is likely and costly (`None` when there are none). The Out of scope section names what is deliberately not tested.
+- A `tests` class task is only for a request that asks for tests and has logic the spec can state precisely enough to test blind. Its Behavior lists at most about 10 test targets, each with a short reason on the same line, and its Out of scope section names what is not tested.
 - In every other task spec, keep Edge cases to the cases that matter. `None` is acceptable.
 
 ## Verification
 The engine runs `verify` commands itself; workers cannot grade their own work.
-- Every task needs at least one `verify` command the engine runs. Make it the cheapest check that fails when the task is wrong and passes when it is right. For code with real logic, that is the narrowest test command. For code without logic worth a test, use a compile, typecheck or lint command, or run the program once and check its output (a smoke check). `true`, `echo`, `ls` and "file exists" checks are not verification.
-- Use a `tests` class task only for non-trivial logic that the spec can state precisely enough to test blind. Its tests come from an earlier `tests` class task (or from any task the implementing task depends on) and are listed under `protected` in the implementing tasks. The implementing task must depend on that task, directly or transitively. They must fail before the implementation and pass after. Because every `verify` command must exit 0, the `tests` task itself verifies only that the tests compile (typecheck or lint), not that they pass.
-- `integration_verify` is a whole-project command. It runs once, after every task of the plan has merged, on the run branch: use the project's real build or test command. Tasks merge as they pass, and nothing is verified between merges, so a dependent task is not checked against a half-built plan. A `tests` task's tests are red until the tasks that implement them are merged; they may fail `integration_verify` only if the plan is incomplete (no task makes them pass), so write the plan so every test is made to pass by some task. It checks the merged result, so it may name code that the run creates: do not add guards for that (no `if [ -f ... ]` wrappers); it must pass once all the tasks are merged. The plan's `setup` runs in every task worktree and in the integration worktree before this command, so dependencies it installs are there. A check whose tool is missing, or that cannot start or times out, is only a warning: the work still merges, and the run says the check did not run. A one-task plan is not verified again, since its own checks ran in its worktree.
+- Every task needs at least one `verify` command the engine runs. It must be a command that can actually run once the task is done, and it must fail when the task is wrong. Use a compile, typecheck or lint command; or run the program or import the module once and check its output (a smoke check); or, only when the project already has a test suite, one narrow existing test file. `true`, `echo`, `ls` and "file exists" checks are not verification.
+- A `tests` class task (only for a request that asks for tests, see "Tests") has verify commands that prove its tests compile (typecheck or lint). Its test files are listed under `protected` in the implementing task, which depends on it directly or transitively.
+- `integration_verify` is a whole-project command. It runs once, after every task of the plan has merged, on the run branch. Prefer one smoke check (the project's typecheck or build) or none; name a full test suite only when the request asks for tests or the project already runs one in its checks. Tasks merge as they pass, and nothing is verified between merges. It checks the merged result, so it may name code that the run creates: do not add guards for that (no `if [ -f ... ]` wrappers). The plan's `setup` runs in every task worktree and in the integration worktree before this command, so dependencies it installs are there. A check whose tool is missing, or that cannot start or times out, is only a warning: the work still merges, and the run says the check did not run. A one-task plan is not verified again, since its own checks ran in its worktree.
 - Verify commands must not depend on the network, the wall clock or services outside the repository, and must finish inside their `timeout_s`.
 
 ## Classes
@@ -53,7 +53,7 @@ Assign each task a `class` from the list in the request. Pick the cheapest class
 - `search`: read-only investigation; writes a findings file.
 - `mechanical`: rename, move or reformat following a precise rule.
 - `boilerplate`: scaffolding that copies an existing pattern.
-- `tests`: writes test files only.
+- `tests`: writes test files only. Use it only when the request asks for tests (see "Tests").
 - `feature`: new behaviour with real design decisions.
 - `refactor`: behaviour-preserving restructuring.
 - `debug`: root-cause analysis of a failure and its fix.

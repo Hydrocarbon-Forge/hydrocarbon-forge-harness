@@ -59,7 +59,7 @@ Severity is what the rule reports. "Retry" is whether a finding of that severity
 | L020 | A code fence that holds implementation bodies | warn | warn | no | no |
 | L021 | `integration_verify` is empty | warn | warn | no | no |
 | L022 | The estimated cost is above the approval threshold | gate | gate | no | no |
-| L023 | A verify that passes at the base ref (red-check) | warn (error with the red-check option) | warn | no | no |
+| L023 | A verify that passes at the base ref (red-check), only when `lint.red_check` is `true` (default `false`: not run) | warn | warn | no | no |
 | L024 | Class `tests` writes a non-test path, or another class writes a test path | warn | warn | no | no |
 | L025 | Manifest budget above the run cap | warn | warn | no | no |
 | L026 | More tasks than the maximum | warn | warn | no | no |
@@ -68,7 +68,7 @@ Severity is what the rule reports. "Retry" is whether a finding of that severity
 
 L015 is retired (R7.7): a class with no routing entry routes through the fallback. L022 stays a `gate`: it is not an error, so it never blocks or retries. The approval pause is decided by the run's estimate, not by this severity.
 
-The red-check option of L023 is gone. Its error severity had no caller outside the tests.
+L023 runs every verify command at the base ref, so it is off by default. Set `lint.red_check` to `true` in settings to turn it on; it is always a warning and never blocks a plan.
 
 ## Checks outside the rule table
 

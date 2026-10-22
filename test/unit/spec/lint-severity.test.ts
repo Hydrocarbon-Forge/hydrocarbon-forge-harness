@@ -295,7 +295,7 @@ const WARNINGS: Row[] = [
     code: "L023",
     severity: "warn",
     defect: "a verify that passes at base",
-    build: (repo) => ({ plan: oneTask(repo) }),
+    build: (repo) => ({ plan: oneTask(repo), settings: sampleSettings({ lint: { red_check: true } }) }),
   },
   {
     code: "L024",

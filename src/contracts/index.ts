@@ -474,6 +474,10 @@ export const Settings = z.object({
   instructions: z.object({
     workers: z.enum(["none", "project"]),
   }).strict(),
+  // Off by default: plan lint runs no verify command at the base ref unless this is true (rule L023).
+  lint: z.object({
+    red_check: z.boolean(),
+  }).strict().optional(),
   usage: z.object({
     global: z.boolean(),
   }).strict().optional(),

@@ -928,10 +928,12 @@ export const ruleL022: LintRule = (ctx) => {
 };
 
 // L023: Verify passes at base ref (red-check)
-// L023 is always a warning: a verify that passes before the change is a guess about the base, and the
+// L023 is off unless `lint.red_check` is true (it runs every verify command at the base ref, which costs time).
+// When on, it is always a warning: a verify that passes before the change is a guess about the base, and the
 // engine's own verify decides each task.
 export const ruleL023: LintRule = async (ctx) => {
   const diags: Diagnostic[] = [];
+  if (!ctx.settings.lint?.red_check) return diags;
 
   for (const [id, spec] of ctx.plan.specs) {
     for (const cmd of spec.frontmatter?.verify ?? []) {

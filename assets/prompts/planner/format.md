@@ -27,8 +27,8 @@ contracts:
     - run: npx tsc --noEmit
       timeout_s: 120
 integration_verify:           # run once, after every task has merged (not between merges), in the integration worktree after setup; a plan with one task is not verified again, and a check whose tool is missing is a warning, not a failed run
-  - run: npm test
-    timeout_s: 600
+  - run: npx tsc --noEmit
+    timeout_s: 300
 tasks:
   - id: T1
     spec: tasks/T1.md
@@ -50,10 +50,8 @@ depends_on: [T1]
 read: [src/util/strings.ts]            # context the worker should read (keep small)
 write: []                              # existing files it may modify
 create: [src/util/slugify.ts]          # new files it may create
-protected: [test/unit/slugify.test.ts] # must be byte-identical afterwards
+protected: []                          # files that must be byte-identical afterwards (test files from a tests task)
 verify:
-  - run: npx vitest run test/unit/slugify.test.ts
-    timeout_s: 120
   - run: npx tsc --noEmit
     timeout_s: 120
 effort: medium                         # optional: low | medium | high | xhigh | max
@@ -90,22 +88,45 @@ Rules for these files:
 Type declarations (`interface`, `type`, `declare function`, abstract signatures, schemas). If the language forces a body, use the minimum that typechecks. They live at the same relative path the final file will have, are committed before any worker starts, and are replaced by the implementing task.
 
 ### Worked example
-Request: "add a slugify helper with tests". Two tasks: T1 (class `tests`) writes `test/unit/slugify.test.ts` against the stub `src/util/slugify.ts`; T2 (class `feature`, `depends_on: [T1]`) creates the implementation and lists the test file under `protected`. T1 has `create: [test/unit/slugify.test.ts]`, `verify` that the test file at least parses (for example `npx tsc --noEmit`), and no `protected`. The manifest and T2 shown above are the real shape of this plan.
+Request: "add a slugify helper". One task, no tests (the request does not ask for them). The manifest is the one shown above with `tasks: [{ id: T1, spec: tasks/T1.md }]` and `contracts.files: [src/util/slugify.ts]`. T1 is class `feature` and creates the implementation:
+```markdown
+---
+id: T1
+title: Implement slugify
+class: feature
+depends_on: []
+read: [src/util/strings.ts]
+write: []
+create: [src/util/slugify.ts]
+protected: []
+verify:
+  - run: npx tsc --noEmit
+    timeout_s: 120
+---
+## Objective
+A `slugify` helper that turns free text into a URL slug, used by the blog routes.
 
-T1 tests the targets that carry risk, not every input. Its Behavior and Out of scope sections read like this:
-```
+## Interface
+`export function slugify(text: string): string` in `src/util/slugify.ts` (contract stub already present).
+
 ## Behavior
-1. Lowercases the text and joins its words with single hyphens: `Hello,  World!` gives `hello-world` (a bug here breaks every generated URL).
-2. Strips leading and trailing hyphens: `  !Hi!  ` gives `hi` (punctuation at the edges is the likely failure).
-3. Returns an empty string when the input has no letters or digits (boundary condition).
+1. Lowercases the text and joins its words with single hyphens: `Hello,  World!` gives `hello-world`.
+2. Strips leading and trailing hyphens: `  !Hi!  ` gives `hi`.
+3. Returns an empty string when the input has no letters or digits.
+
+## Invariants
+Existing exports of `src/util/strings.ts` are unchanged.
 
 ## Edge cases
-None beyond the targets above.
+None beyond the behaviour above.
+
+## Guardrails
+Do not change other helpers in `src/util/`.
 
 ## Out of scope
-Non-ASCII transliteration (for example `é` to `e`), locale rules and length limits are not tested in this task.
+Non-ASCII transliteration (for example `é` to `e`) and length limits.
 ```
-Three targets are enough for this helper. A longer list is a sign that the spec tests internals; keep to about 3-5 targets for a small helper and never more than about 10.
+Its verify is a typecheck, which runs in the worktree once the task is done. Keep Behavior to the statements that matter, usually 3 to 5 for a small helper, never more than about 10.
 
 ### Pre-flight checklist (the linter reports these)
 Lint refuses a plan only when it cannot run, such as a missing task spec, a duplicate task id, an unknown dependency or a dependency cycle. Every other item below is a warning: the reviewer sees it, and the plan still runs.
@@ -114,7 +135,7 @@ Lint refuses a plan only when it cannot run, such as a missing task spec, a dupl
 3. Every `write` path exists in the repository; new files use `create`. No path escapes the repository.
 4. No two tasks that can run at the same time write or create the same file.
 5. A file that a task lists under `protected` may be created or written only by the `tests` task that owns it, or by a task the protecting task depends on (directly or transitively) and so runs before it. Any other task that writes or creates it, and the protecting task or its descendants, is a warning. The fix is to add `depends_on` to the protecting task or remove the path from its `protected` list.
-6. Every task has at least one `verify` command whose binary exists and whose test paths exist at base or are created by the same task (in its `create` or `write`) or by a task it depends on, directly or transitively. A test path that nothing provides is a warning: create it in this task or a dependency, or fix the path.
+6. Every task has at least one `verify` command that can actually run when the task is done: its binary exists, and any test file it names exists at base or is created by the task or a dependency. A verify that cannot run is a warning: replace it with a command that can (a compile, typecheck, lint or smoke run).
 7. All seven sections are present and non-empty; no placeholder text in Interface or Behavior.
 8. Every `class` is one of the classes listed in the request.
 9. `read` stays small (a handful of files); if it does not, the task is too large.

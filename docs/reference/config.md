@@ -96,6 +96,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `git.on_scope_violation` | `revert` or `fail` | What happens when a worker changes files outside its allowed paths. Default `revert`. |
 | `git.auto_merge` | boolean | When `true` (default), a run that finishes with every task passed and integration verify passed is merged into the branch it started on, if that branch is still checked out. When `false`, a finished run stays on its run branch for `substrate merge`. The `--merge` and `--no-merge` flags and the request's `merge` field override it for one run (see cli.md). |
 | `integration.repair_attempts` | integer | How many automatic code repairs a failed final integration check gets, from 0 to 5. Default 2. `0` turns repair off, and the run fails on the first failed check as it did before R12.4. See "Automatic repair of a failed integration check" in cli.md. |
+| `lint.red_check` | boolean | When `true`, plan lint runs every task verify command at the base ref and warns (rule L023) about any that already passes. Default `false`: plan lint runs no verify command. Always a warning; it never refuses a plan. |
 | `instructions.workers` | `none` or `project` | When `project`, the planner request lists the project instruction files that exist (`CLAUDE.md`, `AGENTS.md`, `SUBSTRATE.md`). Default `none`. |
 | `pricing.asOf` | string | Date the price table was last refreshed. |
 | `pricing.sources` | array of strings | URLs that document the rates. |
@@ -272,6 +273,10 @@ Default: `repair_attempts` `2`.
 ### `instructions`
 
 - `workers`: `none` (default) or `project`. The key is named for workers, but the code reads it in the planner: when it is `project`, the planner request lists the project instruction files that exist (`CLAUDE.md`, `AGENTS.md`, `SUBSTRATE.md`).
+
+### `lint`
+
+- `red_check`: `false` (default) or `true`. Plan lint runs no verify command. With `true`, rule L023 runs every task verify command at the base ref and warns about any that already passes (see plan-lint.md). It is off by default because it runs commands while the plan is being checked.
 
 ### `usage`
 

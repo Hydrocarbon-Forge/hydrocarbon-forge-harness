@@ -119,11 +119,12 @@ describe("Role Assets (assets/agents/*.md)", () => {
       expect(body).toMatch(/forbid(den)?.*implementation/i);
     });
 
-    it("states when tests earn their place, with the tests-class target convention", () => {
+    it("defaults to no tests, with the tests-class target convention", () => {
       const filePath = resolve(ASSETS_DIR, "planner.md");
       const { body } = parseAgentMarkdown(filePath);
 
-      expect(body).toContain("## When tests earn their place");
+      expect(body).toContain("## Tests");
+      expect(body).toContain("The default plan writes no tests");
       expect(body).toContain("test targets");
     });
   });
