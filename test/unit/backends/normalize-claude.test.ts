@@ -254,6 +254,22 @@ describe("Claude Normalizer: Edge Cases and Stream Robustness", () => {
     expect(emitted).toEqual([]);
   });
 
+  it("ignores rate_limit_event with status 'allowed_warning' without emitting error", () => {
+    const warningEvent = {
+      type: "rate_limit_event",
+      rate_limit_info: {
+        status: "allowed_warning",
+        resetsAt: 1792184400,
+        rateLimitType: "seven_day",
+        utilization: 0.86,
+        surpassedThreshold: 0.75,
+      },
+    };
+
+    const emitted = normalizeClaudeEvent(warningEvent);
+    expect(emitted).toEqual([]);
+  });
+
   it("emits error event of kind rate_limit when rate_limit_event status is rejected", () => {
     const rejectedEvent = {
       type: "rate_limit_event",

@@ -300,7 +300,9 @@ export function normalizeClaudeEvent(
 
   if (type === "rate_limit_event") {
     const info = eventObj.rate_limit_info;
-    if (info?.status === "allowed") {
+    // "allowed" and "allowed_warning" both let the request through; the warning only
+    // reports how close the window is (utilization). Only a blocking status is an error.
+    if (info?.status === "allowed" || info?.status === "allowed_warning") {
       return [];
     }
     const message =
