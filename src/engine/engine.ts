@@ -35,7 +35,7 @@ import { RunLockImpl, RunLockError } from "../store/run-lock.js";
 import { ensureGitExclude, getRunBranch, restoreTaskBranch } from "../git/index.js";
 import { runBranchExists } from "../git/workspace.js";
 import { deepMerge } from "../util/merge.js";
-import { type RecordedRun, budgetRecord, recordedRunOptions, recordedSettingsOverrides, runInputsRecord } from "./recorded-run.js";
+import { type RecordedRun, budgetRecord, recordedRunLists, recordedRunOptions, recordedSettingsOverrides, runInputsRecord } from "./recorded-run.js";
 import { type TimeLimit, startTimeLimit, timeLimitSecondsOf } from "./time-limit.js";
 import { currentBranchName } from "../git/landing.js";
 import { createRunId } from "../util/index.js";
@@ -397,8 +397,12 @@ export class EngineImpl implements Engine {
       } catch {
         recorded = {};
       }
+      // The recorded lists and history flag are not Settings keys, so they join the in-memory settings only.
       const settings: Settings = deepMerge(
-        deepMerge(deepMerge(DEFAULT_SETTINGS, this.options.settings ?? {}), recordedSettingsOverrides(recorded)),
+        deepMerge(
+          deepMerge(deepMerge(DEFAULT_SETTINGS, this.options.settings ?? {}), recordedSettingsOverrides(recorded)),
+          recordedRunLists(recorded),
+        ),
         opts?.overrides ?? {},
       );
 
