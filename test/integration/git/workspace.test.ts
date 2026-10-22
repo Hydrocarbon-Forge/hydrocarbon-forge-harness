@@ -278,7 +278,7 @@ describe("git: runSetupCommands", () => {
     ];
 
     const outcome = await runSetupCommands(info.worktreePath, commands);
-    expect(outcome).toEqual({ passed: false, ran: 1, failure: { command: "exit 42", exit_code: 42, timed_out: false } });
+    expect(outcome).toEqual({ passed: false, ran: 1, failure: { command: "exit 42", exit_code: 42, timed_out: false, output_tail: "" } });
     expect(existsSync(join(info.worktreePath, "should_not_run.txt"))).toBe(false);
   });
 });

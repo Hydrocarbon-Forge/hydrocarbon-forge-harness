@@ -33,7 +33,7 @@ let resumeId;
 let disallowedTools = "";
 
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "-p" && i + 1 < args.length) {
+  if (args[i] === "-p" && i + 1 < args.length && !args[i + 1].startsWith("-")) {
     prompt = args[++i];
   } else if (args[i] === "--session-id" && i + 1 < args.length) {
     sessionId = args[++i];
@@ -42,6 +42,12 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === "--disallowedTools" && i + 1 < args.length) {
     disallowedTools = args[++i];
   }
+}
+// The adapter sends the prompt on stdin when -p has no prompt argument (R13.1), as the real CLI reads it.
+if (prompt === "" && !args.includes("--version") && !process.stdin.isTTY) {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  prompt = Buffer.concat(chunks).toString("utf8");
 }
 
 let scenario = "success";

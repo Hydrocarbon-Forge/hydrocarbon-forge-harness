@@ -491,3 +491,17 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 ## 76. OPEN (R12.4): the culprit search ignores repair commits
 
 - The bisect (R9.1) tests the merged task branches in merge order, on the base. A repair commit that the run branch holds (a merged repair that the re-run rejected, or the commits of an earlier round) is not in those prefixes. A culprit named after exhausted repairs may therefore be a task whose prefix only fails because the repair is missing. The bisect runs only when the repairs are exhausted, so this is at the end of a failed run; the failed run's output still shows the last check's output.
+
+## Open items after R13/R14 (2026-10-22)
+
+- 77. OPEN: the claude adapter now sends prompts on stdin (R13.1). It is confirmed only against the fake harness; it needs one live smoke run before it is trusted.
+- 78. OPEN: the opencode and agy adapters still pass the prompt as an argument, so a very long prompt can hit E2BIG. Their CLIs are not yet checked for stdin support.
+- 79. OPEN: `scripts/check-boundaries.mjs` does not check template-literal imports outside the strict areas. This hides `src/engine/actions/plan.ts` importing `cli/questions.js` and `src/index.ts` importing the dispatcher.
+- 80. OPEN: an amendment the engine applies can leave the manifest and the event state inconsistent if the process crashes between the manifest write and `run.amended`.
+- 81. OPEN: the web UI holds two SSE connections per page, so more than about three open tabs can stall under HTTP/1.1.
+- 82. OPEN: the service stream recomputes every run once a second, so its cost grows with many large runs.
+- 83. OPEN: integration verify output is not read by the API.
+- 84. OPEN: a live task that failed counts as kept for amendments.
+- 85. OPEN: service install is not supported on Windows or macOS.
+- 86. OPEN: starting a job from the browser is not built (design doc phase 2).
+- 87. OPEN: the Ctrl+K palette and the Ctrl+O toggle are not built.

@@ -160,4 +160,25 @@ describe("W5a: the inbox drain records, refuses and waits", () => {
     expect(events).toEqual([]);
     expect(fs.existsSync(path.join(runDir, "inbox", "1.json"))).toBe(true);
   });
+
+  it("tells the chat, in plain words, that a failed run ended before an unapplied amendment could be applied", async () => {
+    const runDir = runDirWith(amendmentMessage);
+    await drainInbox({
+      runId: RUN as any,
+      repoRoot: runDir,
+      runDir,
+      settings: {} as Settings,
+      appliedAt: "live",
+      getState: () => stateWith("FAILED"),
+      mayChange: () => true,
+      emit: (() => undefined) as any,
+    });
+    const chat = fs.readFileSync(path.join(runDir, "chat.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    expect(chat).toHaveLength(1);
+    expect(chat[0]).toMatchObject({ role: "system", status: "refused", reply_to: "c1" });
+    expect(chat[0].text).toContain("The run ended (failed) before this change could be applied, so it was not applied.");
+    expect(chat[0].text).toContain("resume this job");
+    expect(chat[0].text).toContain("follow-up job");
+    expect(fs.existsSync(path.join(runDir, "inbox", "consumed", "1.json"))).toBe(true);
+  });
 });

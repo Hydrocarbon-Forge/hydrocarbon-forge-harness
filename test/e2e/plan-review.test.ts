@@ -139,7 +139,10 @@ describe("R10.5: plan ends planned, for review", () => {
     const accepted = events.filter((e) => e.type === "plan.produced").at(-1);
     expect(accepted?.data.source).toBe("review");
     expect(accepted?.data.tasks[0].title).toBe("Reviewed title for T1");
-    expect(JSON.stringify(events)).toContain("reviewed-verify-ran");
+    // A passing verify is not in the event log; its full output is saved under packets/verify/ in the run directory.
+    const verifyDir = join(r.dir, ".substrate", "runs", id, "packets", "verify");
+    const verifyOutputs = existsSync(verifyDir) ? readdirSync(verifyDir).map((f) => readFileSync(join(verifyDir, f), "utf8")) : [];
+    expect(verifyOutputs.some((text) => text.includes("reviewed-verify-ran"))).toBe(true);
     expect(out.stdout).toContain("resuming planned run");
     expect(readFileSync(join(r.dir, "src/a.txt"), "utf8")).toContain("t1-done");
   });

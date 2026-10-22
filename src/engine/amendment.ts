@@ -74,6 +74,9 @@ export function diffAmendment(current: AmendmentTaskText[], amended: { id: strin
   };
 }
 
+/** Run states that end a run: an amendment still in the inbox then is refused in chat, never silently dropped. */
+export const ENDED_STATES: ReadonlySet<string> = new Set(["FINISHED", "FAILED", "CANCELLED"]);
+
 /** A task an applied amendment adds or changes, with the dependencies and write sets the state needs. */
 export interface AmendedTask {
   id: string;
@@ -281,7 +284,7 @@ function list(ids: string[]): string {
 export async function drainInbox(opts: InboxDrainOptions): Promise<boolean> {
   let applied = false;
 
-  const refuse = (chatId: string, reason: string, file: string, appliedAt: "live" | "resume"): void => {
+  const refuse = (chatId: string, reason: string, file: string, appliedAt: "live" | "resume", text?: string): void => {
     opts.emit("run.amended", {
       chat_id: chatId,
       outcome: "rejected",
@@ -304,7 +307,7 @@ export async function drainInbox(opts: InboxDrainOptions): Promise<boolean> {
       reason,
     };
     appendSystemChat(opts.runDir, {
-      text: `Amendment refused: ${reason}`,
+      text: text ?? `Amendment refused: ${reason}`,
       status: "refused",
       reply_to: chatId,
       amendment,
@@ -332,9 +335,17 @@ export async function drainInbox(opts: InboxDrainOptions): Promise<boolean> {
 
     const phase = opts.getState().state;
     const appliedAt = opts.appliedAt;
-    if (phase === "FINISHED" || phase === "CANCELLED") {
+    if (ENDED_STATES.has(phase)) {
+      // The run ended with this message still unapplied (the loop drains the inbox once more at the end): say so in chat.
       opts.emit("run.message", { message_id: entry.n, kind: "amendment", chat_id: message.chat_id });
-      refuse(message.chat_id, phase === "FINISHED" ? "job finished" : "job cancelled", entry.file, appliedAt);
+      refuse(
+        message.chat_id,
+        `job ${phase.toLowerCase()}`,
+        entry.file,
+        appliedAt,
+        `The run ended (${phase.toLowerCase()}) before this change could be applied, so it was not applied. ` +
+          "You can resume this job to apply it, or start a follow-up job for the change."
+      );
       continue;
     }
     if (phase !== "EXECUTING" || !opts.mayChange()) break;

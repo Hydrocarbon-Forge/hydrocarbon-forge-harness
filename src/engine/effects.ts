@@ -35,7 +35,7 @@ import { getTaskBranch, sweepRunWorkspaces } from "../git/index.js";
 import { withRepoLock } from "../git/repo-lock.js";
 import { applyJournalEvent, usageTokensOf, type RunJournal } from "./journal.js";
 import { timeLimitSecondsOf } from "./time-limit.js";
-import { drainInbox } from "./amendment.js";
+import { drainInbox, ENDED_STATES, type InboxDrainOptions } from "./amendment.js";
 
 export { safeParseManifest, safeLoadPlan } from "./actions/shared.js";
 
@@ -536,18 +536,20 @@ export async function runEffectsLoop(
    * action in flight holds them back (they move the run branch). When one lands, the tasks it made ready are
    * released and the dependents of a dropped task are skipped, as they are after any settle.
    */
+  const inboxOptions = (mayChange: () => boolean): InboxDrainOptions => ({
+    runId: ctx.runId,
+    repoRoot: ctx.repoRoot,
+    runDir: ctx.runDir,
+    settings: ctx.settings,
+    appliedAt: ctx.resumed ? "resume" : "live",
+    getState: () => journal.state,
+    mayChange,
+    emit: emitLoopEvent,
+  });
+
   const drainAmendments = async (): Promise<void> => {
     if (halted) return;
-    const applied = await drainInbox({
-      runId: ctx.runId,
-      repoRoot: ctx.repoRoot,
-      runDir: ctx.runDir,
-      settings: ctx.settings,
-      appliedAt: ctx.resumed ? "resume" : "live",
-      getState: () => journal.state,
-      mayChange: () => ![...flights.values()].some((f) => f.kind !== "worker"),
-      emit: emitLoopEvent,
-    });
+    const applied = await drainInbox(inboxOptions(() => ![...flights.values()].some((f) => f.kind !== "worker")));
     if (applied) {
       for (const taskId of unreleasedRootTasks(journal.state)) {
         emitLoopEvent("task.ready", { task_id: taskId });
@@ -678,6 +680,14 @@ export async function runEffectsLoop(
   }
 
   const state = journal.state;
+  // An amendment that reached the inbox after the last drain is refused in chat now, not silently left behind.
+  if (ENDED_STATES.has(state.state)) {
+    try {
+      await drainInbox(inboxOptions(() => true));
+    } catch (err: any) {
+      log.warn(`failed to refuse the run's unapplied chat messages: ${err?.message ?? String(err)}`);
+    }
+  }
   if (state.state === "FINISHED" || state.state === "FAILED") {
     // A finished or failed run leaves no worktree or task branch behind. The work of
     // every task that did not merge is saved under packets/ first, so it stays evidence.

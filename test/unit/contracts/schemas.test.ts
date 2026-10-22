@@ -24,6 +24,7 @@ const EXPECTED_DECLARATIONS = [
   "TaskSpecFrontmatter",
   "VerifyResult",
   "UsageRecord",
+  "UsageRoleName",
   "WorkerReport",
   "FailurePacket",
   "Diagnostic",
