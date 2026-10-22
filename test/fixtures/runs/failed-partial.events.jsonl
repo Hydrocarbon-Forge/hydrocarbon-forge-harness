@@ -1,0 +1,14 @@
+{"v": 1, "seq": 1, "ts": "2026-10-22T10:01:00.000Z", "run_id": "r_FAILEDRUN234", "type": "run.created", "data": {"run_id": "r_FAILEDRUN234", "base_branch": "main", "merge": true, "mode": "plan"}}
+{"v": 1, "seq": 2, "ts": "2026-10-22T10:02:00.000Z", "run_id": "r_FAILEDRUN234", "type": "plan.produced", "data": {"tasks": [{"id": "T1", "title": "add the score counter", "class": "feature", "depends_on": []}, {"id": "T2", "title": "add the pause key", "class": "feature", "depends_on": ["T1"]}], "manifest": {"integration_verify": [{"run": "npm test", "timeout_s": 120}]}}}
+{"v": 1, "seq": 3, "ts": "2026-10-22T10:03:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.session.started", "data": {"task_id": "T1", "session_id": "s1"}}
+{"v": 1, "seq": 4, "ts": "2026-10-22T10:04:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.merged", "data": {"task_id": "T1"}}
+{"v": 1, "seq": 5, "ts": "2026-10-22T10:05:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.session.started", "data": {"task_id": "T2", "session_id": "s2"}}
+{"v": 1, "seq": 6, "ts": "2026-10-22T10:06:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.healing", "data": {"task_id": "T2"}}
+{"v": 1, "seq": 7, "ts": "2026-10-22T10:07:00.000Z", "run_id": "r_FAILEDRUN234", "type": "replan.started", "data": {"task_id": "T2", "generation": 2, "target_tier": "work", "reason": "verify failed"}}
+{"v": 1, "seq": 8, "ts": "2026-10-22T10:08:00.000Z", "run_id": "r_FAILEDRUN234", "type": "replan.finished", "data": {"task_id": "T2", "generation": 2}}
+{"v": 1, "seq": 9, "ts": "2026-10-22T10:09:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.session.started", "data": {"task_id": "T2", "session_id": "s3"}}
+{"v": 1, "seq": 10, "ts": "2026-10-22T10:10:00.000Z", "run_id": "r_FAILEDRUN234", "type": "replan.started", "data": {"task_id": "T2", "generation": 3, "target_tier": "plan", "reason": "verify failed again"}}
+{"v": 1, "seq": 11, "ts": "2026-10-22T10:11:00.000Z", "run_id": "r_FAILEDRUN234", "type": "replan.l2", "data": {"task_id": "T2", "generation": 3, "invalidated": []}}
+{"v": 1, "seq": 12, "ts": "2026-10-22T10:12:00.000Z", "run_id": "r_FAILEDRUN234", "type": "replan.finished", "data": {"task_id": "T2", "generation": 3}}
+{"v": 1, "seq": 13, "ts": "2026-10-22T10:13:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.failed", "data": {"task_id": "T2", "generation": 3, "failure_class": "verify_failed", "can_replan": false, "detail": "npm test exited 1"}}
+{"v": 1, "seq": 14, "ts": "2026-10-22T10:14:00.000Z", "run_id": "r_FAILEDRUN234", "type": "run.finished", "data": {"exit_code": 1, "status": "failed", "reason": "tasks_failed", "failed_tasks": ["T2"]}}

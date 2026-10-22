@@ -87,6 +87,8 @@ export interface CliCommand {
 
 const { createFormatter, summaryPayload } = await import(`../output.js`);
 const { ProgressLog, runDirOf, writeOutcome } = await import(`../run-files.js`);
+const { reportOfRun, writeRunReportFile } = await import(`../run-report-io.js`);
+const { renderReportMarkdown, renderReportText } = await import(`../../engine/run-report.js`);
 const { modelPreflight, repoPreflight, reportPreflightError, writeNotice } = await import(`../preflight.js`);
 const { registry } = await import(`../registry.js`);
 
@@ -532,6 +534,8 @@ export const runCommand: CliCommand = {
     const { progressModelsFor } = await import(`../progress.js`);
     // R10.2: the progress log opens when the run is created, and takes every progress line.
     let progressLog: InstanceType<typeof ProgressLog> | undefined;
+    // P2.2: the run's id once it exists, so an exception that ends the run still gets its report.
+    let runIdSeen: string | undefined;
     const formatter = createFormatter(
       ctx.flags.outputFormat ?? "text",
       ctx.stdout,
@@ -556,6 +560,7 @@ export const runCommand: CliCommand = {
         if (mode === "auto" && warnNoVerify && event.type === "run.routed" && (event.data as { mode?: unknown }).mode === "solo") {
           ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
         }
+        runIdSeen = String(event.run_id);
         if (event.type === "run.created") {
           progressLog = new ProgressLog(runDirOf(ctx.cwd, event.run_id), (m) => ctx.stderr.write(m));
           progressLog.header(`run ${event.run_id} started ${new Date().toISOString()}`);
@@ -595,13 +600,16 @@ export const runCommand: CliCommand = {
         mergeRequested: mergeChoiceOf(ctx.flags, requestMerge) ?? effectiveSettings.git?.auto_merge === true,
         events: runEvents,
       });
-      formatter.onSummary(landed.summary, session?.sessionId ?? "");
+      // P2.2: the report is read from the run's files, so it names what the landing left.
+      const report = reportOfRun(ctx.cwd, landed.summary.run_id, landed.summary);
+      formatter.onSummary(landed.summary, session?.sessionId ?? "", report);
       await formatter.flush();
       // R10.2: the outcome is kept in the run directory, whatever state the run ended in.
       writeOutcome(
         runDirOf(ctx.cwd, landed.summary.run_id),
         formatter.renderedSummary() ?? "",
-        summaryPayload(landed.summary, session?.sessionId ?? "", runEvents),
+        summaryPayload(landed.summary, session?.sessionId ?? "", runEvents, report),
+        renderReportMarkdown(report),
       );
       return landed.exitCode;
     } catch (err: any) {
@@ -610,13 +618,19 @@ export const runCommand: CliCommand = {
         await formatter.flush();
         return 2;
       }
+      // P2.2: a run that ends in an exception (an interrupt, a crash while finishing) still gets its REPORT.md,
+      // and in text mode its report on stdout, from what is on disk.
+      const unfinished = runIdSeen !== undefined ? writeRunReportFile(ctx.cwd, runIdSeen) : undefined;
       if (err.name === "AbortError" || err.message?.includes("SIGINT")) {
+        if (unfinished !== undefined && (ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
         return 130;
       }
       if (err.message?.includes("SIGTERM")) {
+        if (unfinished !== undefined && (ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
         return 143;
       }
       formatter.onError(err);
+      if (unfinished !== undefined && (ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
       await formatter.flush();
       return 1;
     }

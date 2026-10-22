@@ -70,6 +70,9 @@ export interface CliCommand {
 
 const { createFormatter, summaryPayload } = await import(`../output.js`);
 const { ProgressLog, writeOutcome } = await import(`../run-files.js`);
+const { reportOfRun, writeRunReportFile } = await import(`../run-report-io.js`);
+const { renderReportMarkdown, renderReportText } = await import(`../../engine/run-report.js`);
+const { runProcessOf } = await import(`../../store/run-lock.js`);
 const { registry } = await import(`../registry.js`);
 const { buildSettingsOverrides, concurrencyFlagProblem, landRun, mergeChoiceOf, mergeFlagsConflict, timeoutFlagProblem } = await import(`./run.js`);
 const { withRequestedRoles } = await import(`../../config/index.js`);
@@ -206,6 +209,12 @@ export const resumeCommand: CliCommand = {
         ctx.stdout.write(`not merged yet: substrate merge ${resolved.runId}\n`);
       }
       return 0;
+    }
+
+    // P2.2: a run that stopped without finishing says what happened before it continues (text mode only).
+    if ((ctx.flags.outputFormat ?? "text") === "text" && runProcessOf(ctx.cwd, resolved.runId)?.alive !== true) {
+      const prior = reportOfRun(ctx.cwd, resolved.runId);
+      if (prior.outcome !== "planned" && prior.outcome !== "finished") ctx.stdout.write(renderReportText(prior));
     }
 
     // R10.2: the resume appends to the run's progress log, under a `# resumed` line.
@@ -452,18 +461,21 @@ export const resumeCommand: CliCommand = {
             : `substrate resume ${summary.run_id} --work <provider:model[:effort]>`,
         ];
       }
+      // P2.2: the report is read from the run's files, as it stands after the resume.
+      const report = reportOfRun(ctx.cwd, summary.run_id, summary);
       if (forked) {
         await sessionStore.addRun(forked.sessionId, summary.run_id);
-        formatter.onSummary(summary, forked.sessionId);
+        formatter.onSummary(summary, forked.sessionId, report);
       } else {
-        formatter.onSummary(summary, resolved.sessionId ?? "");
+        formatter.onSummary(summary, resolved.sessionId ?? "", report);
       }
       await formatter.flush();
       // R10.2: a resumed run's outcome replaces the earlier summary.txt and result.json.
       writeOutcome(
         runDir,
         formatter.renderedSummary() ?? "",
-        summaryPayload(summary, forked ? forked.sessionId : (resolved.sessionId ?? ""), runEvents),
+        summaryPayload(summary, forked ? forked.sessionId : (resolved.sessionId ?? ""), runEvents, report),
+        renderReportMarkdown(report),
       );
 
       return landed.exitCode;
@@ -473,13 +485,18 @@ export const resumeCommand: CliCommand = {
         await formatter.flush();
         return 2;
       }
+      // P2.2: an exception that ends the resume still writes the run's REPORT.md, from what is on disk.
+      const unfinished = writeRunReportFile(ctx.cwd, resolved.runId);
       if (err.name === "AbortError" || err.message?.includes("SIGINT")) {
+        if ((ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
         return 130;
       }
       if (err.message?.includes("SIGTERM")) {
+        if ((ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
         return 143;
       }
       formatter.onError(err);
+      if ((ctx.flags.outputFormat ?? "text") === "text") ctx.stdout.write(renderReportText(unfinished));
       await formatter.flush();
       return 1;
     }

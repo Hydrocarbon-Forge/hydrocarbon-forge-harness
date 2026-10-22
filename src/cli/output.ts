@@ -1,6 +1,6 @@
 import type { EngineEvent, Question, RunId, RunSummary } from "../contracts/index.js";
 import { MERGE_TURNED_OFF_REASON, TEXT_FILES_LIMIT } from "../engine/landing.js";
-import { failedRunNext } from "../engine/failed-run.js";
+import { buildRunReport, renderReportText, type RunReport } from "../engine/run-report.js";
 
 const { streamTypeFor } = await import(`./stream-map.js`);
 const { Heartbeat, RunProgress, followLines, followStderrLine, formatCost, heartbeatMsFromEnv, progressLine } =
@@ -41,11 +41,13 @@ export interface StreamResultEvent {
   failure_class?: string;
   message?: string;
   drafts_dir?: string;
+  report?: RunReport;
 }
 
 export interface OutputFormatter {
   onEvent(event: EngineEvent): void;
-  onSummary(summary: RunSummary, sessionId: string): void;
+  /** Renders the end of a run. `report` is the run's report (P2.2); without one it is built from the summary and the events seen. */
+  onSummary(summary: RunSummary, sessionId: string, report?: RunReport): void;
   onError(error: Error | string): void;
   flush(): Promise<void>;
   /** A resumed run that emits no run.resumed event of its own: prints the resume's start line (R10.2). */
@@ -74,7 +76,12 @@ class TextSink {
 }
 
 /** The result object `--output-format json` prints for a run's summary; result.json holds the same object (R10.2). */
-export function summaryPayload(summary: RunSummary, sessionId: string, events: EngineEvent[]): Record<string, unknown> {
+export function summaryPayload(
+  summary: RunSummary,
+  sessionId: string,
+  events: EngineEvent[],
+  report?: RunReport,
+): Record<string, unknown> {
   const lastPaused = [...events].reverse().find((e) => e.type === "run.paused");
   const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
   const isNeedsInput = summary.pause_reason === "needs_human" && questions !== undefined;
@@ -85,6 +92,8 @@ export function summaryPayload(summary: RunSummary, sessionId: string, events: E
     ...summary,
     ...(isNeedsInput ? { subtype: "needs_input", run_id: summary.run_id, questions } : {}),
     ...(planWarnings > 0 ? { plan_warnings: planWarnings } : {}),
+    // P2.2: the run report, the same object REPORT.md is rendered from.
+    report: report ?? buildRunReport({ runId: summary.run_id, events, summary }),
     session_id: sessionId,
     events,
   };
@@ -114,6 +123,8 @@ class TextFormatter implements OutputFormatter {
   private readonly progress: RunProgressState;
   private readonly heartbeat: HeartbeatState;
   private summaryBlock: string | undefined;
+  /** Every event the run emitted to this formatter, for the report built when no report is given. */
+  private readonly events: EngineEvent[] = [];
 
   // Text mode writes progress to stdout, in order with the summary, so a caller reading
   // one stream sees the whole run. Errors and warnings stay on stderr. In json modes the
@@ -157,6 +168,7 @@ class TextFormatter implements OutputFormatter {
   onEvent(event: EngineEvent): void {
     const at = this.now();
     this.heartbeat.start();
+    this.events.push(event);
     // R10.5: the task list of the plan the run planned (the summary of a planned run names it).
     if (event.type === "plan.produced" && Array.isArray((event.data as any)?.tasks)) {
       this.plannedTasks = (event.data as any).tasks.filter((t: any) => t && typeof t.id === "string");
@@ -179,11 +191,11 @@ class TextFormatter implements OutputFormatter {
     }
   }
 
-  onSummary(summary: RunSummary, sessionId: string): void {
+  onSummary(summary: RunSummary, sessionId: string, report?: RunReport): void {
     this.heartbeat.stop();
     this.out.capture = [];
     try {
-      this.renderSummary(summary, sessionId);
+      this.renderSummary(summary, sessionId, report ?? buildRunReport({ runId: summary.run_id, events: this.events, summary }));
       this.summaryBlock = this.out.capture.join("");
     } finally {
       this.out.capture = undefined;
@@ -220,7 +232,7 @@ class TextFormatter implements OutputFormatter {
     );
   }
 
-  private renderSummary(summary: RunSummary, sessionId: string): void {
+  private renderSummary(summary: RunSummary, sessionId: string, report: RunReport): void {
     if (summary.status === "planned") {
       this.renderPlanned(summary, sessionId);
       return;
@@ -250,7 +262,6 @@ class TextFormatter implements OutputFormatter {
         const defStr = q.default !== undefined ? ` (default: ${q.default})` : "";
         this.out.write(`  [${q.id}] ${q.text}${defStr}\n`);
       }
-      this.out.write(`\nsubstrate resume ${summary.run_id} --answers <file>\n`);
     }
 
     // Four decimals, as the progress line prints a cost (R9.1).
@@ -291,69 +302,10 @@ class TextFormatter implements OutputFormatter {
     if (landed && summary.drafts_dir === undefined && summary.branch !== undefined) {
       this.writeResult(summary);
     }
-    // Only a failed run is "NOT merged: N of M failed"; an interrupted run is paused (R8.2).
-    if (summary.status === "failed" && summary.branch !== undefined && passed > 0 && !summary.merged) {
-      if (summary.failure_class === "integration_failed") {
-        // R12.2: the tasks passed their own checks; the final check is what failed, and Reason names it.
-        this.out.write(
-          `NOT merged: the integration check failed (see Reason); the ${passed} ${passed === 1 ? "task" : "tasks"} ` +
-            `passed their own checks and ${passed === 1 ? "stays" : "stay"} on branch ${summary.branch}\n`,
-        );
-      } else {
-        // A partial run lands nothing: the passed work stays on the run branch (R8.1).
-        this.out.write(
-          `NOT merged: ${failedCount + skippedCount} of ${taskKeys.length} tasks failed or were skipped; ` +
-            `the ${passed} passed ${passed === 1 ? "task stays" : "tasks stay"} on branch ${summary.branch}\n`,
-        );
-      }
-    }
-    if (summary.drafts_dir !== undefined || (!landed && summary.exit_code !== 0)) {
-      this.out.write(`Drafts and logs: .substrate/runs/${summary.run_id}/\n`);
-      if (!needsInput) {
-        if (summary.status === "failed") {
-          // R10.4: a failed run is resumed: its Next lines lead with the resume, then the partial landing of a
-          // passed task (when the plan has integration verify), then a new request. Continuation lines align.
-          const partialLandable = summary.next?.some((c) => c.includes(" --partial")) === true;
-          const planningFailed = Object.keys(summary.tasks ?? {}).length === 0;
-          const internalError = summary.failure_class === "internal_error";
-          const verifyOnly = summary.failure_class === "integration_failed" && Object.values(summary.tasks ?? {}).every((t) => t.state === "PASSED");
-          const lines = failedRunNext(summary.run_id, { partialLandable, planningFailed, verifyOnly, internalError });
-          this.out.write(`Next:       ${lines[0]}\n`);
-          for (const line of lines.slice(1)) this.out.write(`            ${line}\n`);
-        } else {
-          // Without a branch the run failed in planning, and resuming plans again (R7.9).
-          const replan = summary.branch === undefined ? "  (re-runs planning; costs again)" : "";
-          // A budget stop names the resume with a higher budget (R8.2); other runs name plain resume.
-          const resume = summary.next?.find((c) => c.startsWith("substrate resume ")) ?? `substrate resume ${summary.run_id}`;
-          this.out.write(`Next:       ${resume}${replan}\n`);
-        }
-      }
-      if (summary.failure_class !== undefined) {
-        const message = summary.message ? `: ${summary.message}` : "";
-        // An internal error reads as one phrase: `internal error: <message>` (R9.1).
-        const label = summary.failure_class === "internal_error" ? "internal error" : summary.failure_class;
-        this.out.write(`Reason:     ${label}${message}\n`);
-        // R12.2: a failed final check shows the last ten non-empty lines of its output.
-        if (summary.failure_class === "integration_failed" && summary.output_tail !== undefined) {
-          const lines = summary.output_tail.split("\n").map((line) => line.trimEnd()).filter((line) => line !== "");
-          if (lines.length > 0) {
-            this.out.write(`Output:\n`);
-            for (const line of lines.slice(-10)) this.out.write(`  ${line}\n`);
-          }
-        }
-      }
-    }
-    // R12.4: a failed final check that the repairs did not fix says how many attempts ran, why the last one
-    // did not pass, and each attempt's outcome.
-    if (summary.repair !== undefined && !summary.repair.passed) {
-      const n = summary.repair.attempts;
-      const reason = summary.repair.reason !== undefined ? ` (${summary.repair.reason})` : "";
-      this.out.write(`Repair:     ${n} ${n === 1 ? "attempt" : "attempts"}, none passed${reason}\n`);
-      for (const line of summary.repair.outcomes) this.out.write(`            ${line}\n`);
-    }
-    // R8.2: an interrupted run says how to continue, in the words a caller can copy.
-    if (summary.pause_reason === "user_cancel") {
-      this.out.write(`Interrupted. Resume with: substrate resume ${summary.run_id}\n`);
+    // P2.2: every run that did not finish says what happened, what it left and what to run next. A finished
+    // run prints nothing more: its landing lines above are its whole account.
+    if (report.outcome !== "finished" && report.outcome !== "planned") {
+      this.out.write(renderReportText(report));
     }
   }
 
@@ -434,9 +386,10 @@ class JsonFormatter implements OutputFormatter {
   }
 
   // JSON mode: exactly one JSON object on stdout, nothing else.
-  onSummary(summary: RunSummary, sessionId: string): void {
-    this.text.onSummary(summary, sessionId);
-    this.out.write(JSON.stringify(summaryPayload(summary, sessionId, this.events)) + "\n");
+  onSummary(summary: RunSummary, sessionId: string, report?: RunReport): void {
+    const r = report ?? buildRunReport({ runId: summary.run_id, events: this.events, summary });
+    this.text.onSummary(summary, sessionId, r);
+    this.out.write(JSON.stringify(summaryPayload(summary, sessionId, this.events, r)) + "\n");
   }
 
   onError(error: Error | string): void {
@@ -507,9 +460,10 @@ class StreamJsonFormatter implements OutputFormatter {
     this.out.write(JSON.stringify(payload) + "\n");
   }
 
-  onSummary(summary: RunSummary, sessionId: string): void {
+  onSummary(summary: RunSummary, sessionId: string, report?: RunReport): void {
     this.heartbeat.stop();
-    this.text.onSummary(summary, sessionId);
+    const r = report ?? buildRunReport({ runId: summary.run_id, events: this.events, summary });
+    this.text.onSummary(summary, sessionId, r);
     const lastPaused = [...this.events].reverse().find((e) => e.type === "run.paused");
     const questions = summary.questions ?? (lastPaused?.data as any)?.questions;
 
@@ -567,6 +521,7 @@ class StreamJsonFormatter implements OutputFormatter {
       ...(summary.branch !== undefined ? { branch: summary.branch } : {}),
       ...(questions !== undefined ? { questions } : {}),
       ...landingFields(summary),
+      report: r,
     };
 
     this.out.write(JSON.stringify(resultEvent) + "\n");

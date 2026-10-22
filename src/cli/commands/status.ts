@@ -277,6 +277,7 @@ export const statusCommand: CliCommand = {
     }
 
     const { state, events } = reduceRunEvents(eventsFile, ctx.stderr);
+    const { reportOfRun } = await import(`../run-report-io.js`);
 
     let pendingQuestions: Question[] | undefined;
     const questionsFile = path.join(runDir, "QUESTIONS.md");
@@ -382,8 +383,17 @@ export const statusCommand: CliCommand = {
     }
 
     const timeLimit = typeof timeLimitS === "number" ? { limitS: timeLimitS, elapsedS: limitElapsedS } : undefined;
-    for (const line of liveHeader(record, { settings, rows, next, now, elapsedS, timeLimit }, progress.progress)) {
+    // P2.2: a run that is not running and did not finish says what happened: the report replaces the Next line,
+    // so the resume command is named once.
+    const report = record.status !== "running" && record.status !== "finished" && record.status !== "planned"
+      ? reportOfRun(ctx.cwd, record.runId)
+      : undefined;
+    for (const line of liveHeader(record, { settings, rows, next: report !== undefined ? [] : next, now, elapsedS, timeLimit }, progress.progress)) {
       ctx.stdout.write(`${line}\n`);
+    }
+    if (report !== undefined) {
+      const { renderReportText } = await import("../../engine/run-report.js");
+      ctx.stdout.write(renderReportText(report));
     }
     if (record.terminal && (outcome.summary_path !== undefined || outcome.result_path !== undefined)) {
       const files = [outcome.summary_path !== undefined ? "summary.txt" : undefined, outcome.result_path !== undefined ? "result.json" : undefined];

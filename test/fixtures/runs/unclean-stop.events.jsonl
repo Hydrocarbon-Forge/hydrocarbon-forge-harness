@@ -1,0 +1,5 @@
+{"v": 1, "seq": 1, "ts": "2026-10-22T10:01:00.000Z", "run_id": "r_FAILEDRUN234", "type": "run.created", "data": {"run_id": "r_FAILEDRUN234", "base_branch": "main", "merge": true}}
+{"v": 1, "seq": 2, "ts": "2026-10-22T10:02:00.000Z", "run_id": "r_FAILEDRUN234", "type": "plan.produced", "data": {"tasks": [{"id": "T1", "title": "add the score counter", "class": "feature", "depends_on": []}, {"id": "T2", "title": "add the pause key", "class": "feature", "depends_on": ["T1"]}], "manifest": {"integration_verify": []}}}
+{"v": 1, "seq": 3, "ts": "2026-10-22T10:03:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.session.started", "data": {"task_id": "T1", "session_id": "s1"}}
+{"v": 1, "seq": 4, "ts": "2026-10-22T10:04:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.merged", "data": {"task_id": "T1"}}
+{"v": 1, "seq": 5, "ts": "2026-10-22T10:05:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.session.started", "data": {"task_id": "T2", "session_id": "s2"}}

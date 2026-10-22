@@ -401,7 +401,7 @@ describe("R12.2: a failed final check says what failed and shows the tail of its
       const res = cli(s, RUN_ARGS);
       expect(res.status, diag(res)).toBe(1);
       expect(res.stdout, diag(res)).toContain(
-        "NOT merged: the integration check failed (see Reason); the 2 tasks passed their own checks and stay on branch substrate/runs/",
+        "Nothing was merged. All two tasks passed their own checks, but the final check failed",
       );
       expect(res.stdout, diag(res)).not.toContain("tasks failed or were skipped");
       const reasonLines = res.stdout.split("\n").filter((line) => line.startsWith("Reason:"));

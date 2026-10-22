@@ -1,0 +1,11 @@
+{"v": 1, "seq": 1, "ts": "2026-10-22T10:01:00.000Z", "run_id": "r_FAILEDRUN234", "type": "run.created", "data": {"run_id": "r_FAILEDRUN234", "base_branch": "main", "merge": true}}
+{"v": 1, "seq": 2, "ts": "2026-10-22T10:02:00.000Z", "run_id": "r_FAILEDRUN234", "type": "plan.produced", "data": {"tasks": [{"id": "T1", "title": "add the score counter", "class": "feature", "depends_on": []}, {"id": "T2", "title": "add the pause key", "class": "feature", "depends_on": []}], "manifest": {"integration_verify": [{"run": "npm test", "timeout_s": 120}]}}}
+{"v": 1, "seq": 3, "ts": "2026-10-22T10:03:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.session.started", "data": {"task_id": "T1", "session_id": "s1"}}
+{"v": 1, "seq": 4, "ts": "2026-10-22T10:04:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.merged", "data": {"task_id": "T1"}}
+{"v": 1, "seq": 5, "ts": "2026-10-22T10:05:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.session.started", "data": {"task_id": "T2", "session_id": "s2"}}
+{"v": 1, "seq": 6, "ts": "2026-10-22T10:06:00.000Z", "run_id": "r_FAILEDRUN234", "type": "task.merged", "data": {"task_id": "T2"}}
+{"v": 1, "seq": 7, "ts": "2026-10-22T10:07:00.000Z", "run_id": "r_FAILEDRUN234", "type": "integration.started", "data": {}}
+{"v": 1, "seq": 8, "ts": "2026-10-22T10:08:00.000Z", "run_id": "r_FAILEDRUN234", "type": "integration.failed", "data": {"failure_class": "integration_failed", "message": "npm test exited 1", "command": "npm test", "exit_code": 1, "output_tail": "line 1\nline 2\nFAIL src/score.test.ts"}}
+{"v": 1, "seq": 9, "ts": "2026-10-22T10:09:00.000Z", "run_id": "r_FAILEDRUN234", "type": "integration.repair.started", "data": {"task_id": "REPAIR-1", "attempt": 1}}
+{"v": 1, "seq": 10, "ts": "2026-10-22T10:10:00.000Z", "run_id": "r_FAILEDRUN234", "type": "integration.repair.finished", "data": {"task_id": "REPAIR-1", "attempt": 1, "passed": false, "reason": "the check still fails"}}
+{"v": 1, "seq": 11, "ts": "2026-10-22T10:11:00.000Z", "run_id": "r_FAILEDRUN234", "type": "run.finished", "data": {"exit_code": 1, "status": "failed"}}

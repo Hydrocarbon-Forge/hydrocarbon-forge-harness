@@ -303,7 +303,7 @@ describe("R10.2: a run's progress is visible from another process", () => {
 
       const status = cli(repo, ["status", id]);
       expect(status.stdout).toContain("Process: not running (stopped)");
-      expect(status.stdout).toContain(`Next:  substrate resume ${id}`);
+      expect(status.stdout).toContain(`Next:       substrate resume ${id}`);
       expect(status.stdout).toMatch(new RegExp(`Run ${id}  stopped`));
 
       const statusJson = JSON.parse(cli(repo, ["status", id, "--output-format", "json"]).stdout);

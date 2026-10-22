@@ -89,7 +89,7 @@ describe("R8.1 graceful: failures are reported, contained and cleaned up", () =>
       // Nothing lands in the user's branch from a partial run; the passed work stays on the run branch.
       expect(git(res.repoDir, ["rev-parse", "HEAD"])).toBe(headBefore);
       expect(res.stdout).toContain("Tasks:      1 passed, 1 failed, 1 skipped / 3 total");
-      expect(res.stdout).toMatch(/NOT merged: 2 of 3 tasks failed or were skipped/);
+      expect(res.stdout).toMatch(/Nothing was merged\. 1 of 3 tasks finished; T2 failed/);
       const runBranch = git(res.repoDir, ["for-each-ref", "--format=%(refname:short)", "refs/heads/substrate/runs/"]);
       expect(runBranch.length).toBeGreaterThan(0);
 

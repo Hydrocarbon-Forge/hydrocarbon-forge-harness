@@ -41,25 +41,35 @@ export class ProgressLog {
   }
 }
 
+/** Writes one file of a run directory under a temporary name, then renames it, so a reader never sees half of it. */
+function writeWhole(runDir: string, name: string, text: string): void {
+  fs.mkdirSync(runDir, { recursive: true });
+  const target = path.join(runDir, name);
+  const tmp = `${target}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, text, "utf8");
+  fs.renameSync(tmp, target);
+}
+
 /**
  * Writes a run's outcome (R10.2): `summary.txt` (the summary block the run printed) and
- * `result.json` (the json object `--output-format json` prints). Each file is written under a
- * temporary name and renamed, so a reader never sees half of one. Best effort: never fatal.
+ * `result.json` (the json object `--output-format json` prints), and, when given, `REPORT.md` (P2.2).
+ * Best effort: never fatal.
  */
-export function writeOutcome(runDir: string, summaryText: string, result: unknown): void {
+export function writeOutcome(runDir: string, summaryText: string, result: unknown, reportMarkdown?: string): void {
   try {
-    fs.mkdirSync(runDir, { recursive: true });
-    const files: Array<[string, string]> = [
-      ["summary.txt", summaryText],
-      ["result.json", JSON.stringify(result) + "\n"],
-    ];
-    for (const [name, text] of files) {
-      const target = path.join(runDir, name);
-      const tmp = `${target}.tmp-${process.pid}`;
-      fs.writeFileSync(tmp, text, "utf8");
-      fs.renameSync(tmp, target);
-    }
+    writeWhole(runDir, "summary.txt", summaryText);
+    writeWhole(runDir, "result.json", JSON.stringify(result) + "\n");
+    if (reportMarkdown !== undefined) writeWhole(runDir, "REPORT.md", reportMarkdown);
   } catch {
     // Best effort: the run's outcome is already on stdout and in events.jsonl.
+  }
+}
+
+/** Writes `REPORT.md` alone (P2.2): the path a run takes when it ends without a summary (an interrupt, a crash while finishing). Best effort. */
+export function writeReportMarkdown(runDir: string, reportMarkdown: string): void {
+  try {
+    writeWhole(runDir, "REPORT.md", reportMarkdown);
+  } catch {
+    // Best effort: the event log is the run's record.
   }
 }
