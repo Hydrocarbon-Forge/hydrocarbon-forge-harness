@@ -4,8 +4,8 @@ Substrate has a browser UI. It shows the jobs of every project registered on thi
 `$XDG_STATE_HOME/substrate/projects.json`), not only the project in the current directory. The UI runs as a background
 service, so it is up even when no `substrate` command is running. The design is in `docs/design/web-ui.md`.
 
-- By default it listens on the loopback interface only, reached as `localhost`, and it is not reachable from other
-  machines. It has no login: anyone who can open the URL can see the runs and stop or resume them.
+- By default it listens on the loopback interface, reached as `localhost`, so it is not reachable from other machines.
+  It has no login: anyone who can open the URL can see the runs and stop or resume them.
 - The host is `localhost` unless you set it. `--host <name-or-address>` (on `ui serve` and `ui start`) names the
   interface to listen on: an interface name or address. Set it to the all-interfaces wildcard address to listen on every
   network interface, so other machines on the network can reach the UI. The UI has no authentication then, as it has
@@ -17,6 +17,15 @@ service, so it is up even when no `substrate` command is running. The design is 
 - `ui.json` also holds the host, under the key `host`. An explicit `--host` (and an explicit `--port`) is saved there,
   so the service and the next start use it. The systemd unit runs `ui serve` with no options, so it listens on the host
   and port that `ui.json` names.
+
+## Reachability and exposure
+
+The UI is unauthenticated, and that is accepted (DECISIONS A6). Anyone who can reach its port can see every registered
+project's runs, read transcripts, diffs and verify output, stop or resume jobs, and send chat messages to a job's
+planner, which may write plan amendments. With the default host only this machine can reach it. If you set another host
+with `--host` or the `host` key of `ui.json`, anyone who can reach that address and the chosen port has the same access.
+In that case the Host-header check is skipped, because LAN clients use the machine's own name or address, but the
+`X-Substrate-UI` header is still required. A host firewall may need to allow the chosen port.
 
 ## Start, stop and status
 
@@ -81,8 +90,9 @@ systemctl --user enable --now substrate-ui.service
 loginctl enable-linger <your user>
 ```
 
-`loginctl enable-linger` is needed only if the UI must run before you log in, or after a reboot without a login. It is
-printed and never run by Substrate. On macOS and Windows the service commands exit `2`; use `substrate ui start`.
+A process started by `substrate ui start` is detached, and it does not survive a reboot. `substrate ui install-service`
+is the way to keep the UI always on. `loginctl enable-linger` is needed only if the UI must run before you log in, or
+after a reboot without a login. It is printed and never run by Substrate. On macOS and Windows the service commands exit `2`; use `substrate ui start`.
 
 `status` reports whether the unit file exists. It never calls systemctl.
 

@@ -19,7 +19,7 @@ This document is for the work packages that build the UI. Section 5 (HTTP API) a
 
 ### Non-goals
 - Authentication, authorisation, TLS, hardening and any security work. Out of scope per DECISIONS A6. The two cheap guards in section 5.0 are availability and correctness guards, not security, and the owner may drop them.
-- Remote access. The server binds to the loopback interface only, reached through the hostname `localhost`.
+- Remote access. Original non-goal, overridden by the owner on 2026-10-22: the bind address is configurable (`host` in `ui.json`, or `--host`), and the default stays the loopback interface reached as `localhost`. When bound elsewhere, the Host-header guard is skipped and the service is reachable from the network with no authentication. See section 8.2.
 - A terminal UI. DECISIONS still lists "A TUI" as out of scope. Bare `substrate` still prints help.
 - Editing code, merging, branch management or git operations from the UI. These stay on the CLI. The only write actions are Stop, Resume, Chat and (optional, phase 2) Start job.
 - Interactive permission prompts. Workers are headless and their permission decisions belong to the harness. The UI shows denials (`permission.denied`) as events; it does not answer prompts.
@@ -271,14 +271,14 @@ Plain ES modules loaded with `<script type="module">`. No CDN, no framework, no 
 type ErrorCode =
   | "bad_request"      // 400: malformed JSON, invalid field, invalid ref
   | "unsupported"      // 415: POST without Content-Type application/json
-  | "guard_failed"     // 403: POST without X-Substrate-UI, or Host not the loopback name
+  | "guard_failed"     // 403: POST without X-Substrate-UI, or (bound to localhost) Host not the loopback name
   | "not_found"        // 404: project, run, task, session, artifact or chat id unknown
   | "conflict"         // 409: stop of a run that is not live; resume of a live run; chat on a job that cannot take it
   | "unavailable"      // 503: the planner session cannot be started (e.g. harness missing)
   | "internal";        // 500
 ```
 
-- Every POST requires `Content-Type: application/json` and the request header `X-Substrate-UI: 1`, and the `Host` header must name the loopback hostname the server listens on. **Decided here**: these are cheap guards so that a web page in another tab cannot drive the service through a cross-site form post or DNS rebinding. They are not authentication and they are not security hardening (A6). The owner may drop them.
+- Every POST requires `Content-Type: application/json` and the request header `X-Substrate-UI: 1`. When the server is bound to `localhost`, the `Host` header must also name the loopback hostname; when it is bound to any other address, the Host check is skipped (owner override, 2026-10-22). **Decided here**: these are cheap guards so that a web page in another tab cannot drive the service through a cross-site form post or DNS rebinding. They are not authentication and they are not security hardening (A6). The owner may drop them.
 - Request bodies are capped at 64 KB. A chat message is capped at 8000 characters.
 - GET responses are not cached (`Cache-Control: no-store`).
 
@@ -705,7 +705,7 @@ Bare `substrate` still prints help. `substrate ui` with no subcommand prints the
 
 ### 8.2 Binding, port and config
 
-- The server listens on the loopback interface only, reached by the name `localhost`. It never listens on the all-interfaces address.
+- The bind address is set by the `host` key of `ui.json` or the `--host` flag on `ui serve` and `ui start` (owner override, 2026-10-22; the original rule was loopback only). The default is `localhost`, the loopback interface. When bound elsewhere, the `Host`-header guard is skipped, the `X-Substrate-UI` guard stays, and the UI has no authentication, so anyone who can reach the port can read transcripts and stop, resume or message jobs.
 - **Port**: on the first `ui serve` (or `ui start`), if `ui.json` has no port, the server asks the operating system for a free port on the loopback interface, writes it into `ui.json`, and uses it from then on. If the stored port is busy, `serve` exits with an error that names the port and the config file; it does not pick another one silently.
 - **`ui.json`**: in the user config directory, next to `settings.json`: `$SUBSTRATE_CONFIG_DIR` or `~/.config/substrate/ui.json`.
   ```ts
@@ -790,7 +790,7 @@ Each package has files and an acceptance check. Every package ends with `npm run
 2. Amendments are full plans diffed by task id (section 7.4).
 3. Chat on a finished job answers but cannot amend (section 7.8).
 4. Planner chat turns run as a detached child process, so the server stays responsive (section 7.1).
-5. The POST guards in section 5.0 (`X-Substrate-UI` header and loopback Host check) are cheap availability guards, not security. Owner may drop them under A6.
+5. The POST guards in section 5.0 (`X-Substrate-UI` header and, when bound to localhost, the loopback Host check) are cheap availability guards, not security. Owner may drop them under A6. The owner has already dropped the Host check for a non-localhost bind (2026-10-22).
 6. `ui install-service` writes the unit and prints the enable command; `--enable` runs systemctl. Linger is printed, not run.
 7. Projects found in the usage ledger are added to the registry on `ui serve` (backfill).
 8. `POST /api/runs` is phase 2 (W5). The core UI is read-plus-chat.

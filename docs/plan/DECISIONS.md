@@ -157,6 +157,8 @@ The rule now:
 - Chat with the planner, and the amendments it may write, follow the semantics in `docs/design/web-ui.md` section 7. Tasks already running or passed are never changed by chat. A live run applies an amendment through the engine inbox; a stopped run applies it on resume through the normal plan re-ingest path. The engine validates an amendment with plan lint, blockers only.
 - Security stays out of scope (A6). The UI adds no authentication, TLS or remote access. The contract in `docs/design/web-ui.md` section 5 is binding for the server and client work packages.
 
+Amended 2026-10-22 (owner): the bind address is configurable through the `host` key of `ui.json` or the `--host` flag, and defaults to `localhost`. When the UI is bound to any other address, the POST Host-header guard is skipped and the `X-Substrate-UI` header guard stays; the owner accepted the resulting exposure, since the service has no authentication (A6).
+
 Design and API contract: `docs/design/web-ui.md`.
 
 ## Note 2026-10-22 (R13.1): environment trouble is a warning or a retry, never a failed run
