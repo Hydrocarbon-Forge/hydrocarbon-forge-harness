@@ -10,6 +10,11 @@ export interface VerifyRunnerOptions {
   network?: "deny" | "allow";
   env?: Record<string, string>;
   maxTailBytes?: number;
+  /**
+   * Receives the full stdout and stderr of command `index` once it has ended. The returned path (stdout) is
+   * recorded on the result as full_output_path; nothing is kept when it returns undefined.
+   */
+  saveFullOutput?: (index: number, output: { stdout: string; stderr: string }) => string | undefined;
 }
 
 export interface VerifyRunner {
@@ -98,6 +103,7 @@ export class VerifyRunnerImpl implements VerifyRunner {
       const stderrCap = takeTail(stderr, maxTailBytes);
       const truncated = stdoutCap.truncated || stderrCap.truncated;
 
+      const fullOutputPath = options.saveFullOutput?.(results.length, { stdout, stderr });
       results.push({
         cmd: cmd.run,
         exit_code: timedOut ? null : child.exitCode,
@@ -106,6 +112,7 @@ export class VerifyRunnerImpl implements VerifyRunner {
         stdout_tail: stdoutCap.text,
         stderr_tail: stderrCap.text,
         truncated,
+        ...(fullOutputPath !== undefined ? { full_output_path: fullOutputPath } : {}),
       });
     }
 

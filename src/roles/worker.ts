@@ -35,6 +35,9 @@ import { bindAbort, HarnessSpawnError } from "../backends/process.js";
 import { startHarnessSession } from "../backends/spawn.js";
 import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { capBytes, HEAL_TAIL_MAX_BYTES } from "../util/index.js";
+import { capField, teeTranscript } from "../store/transcript.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { withRepoLock } from "../git/repo-lock.js";
 
 /** The action's typed emit (R1.2): every event is checked against the catalog. */
@@ -110,6 +113,8 @@ export interface WorkerRunOptions {
   signal?: AbortSignal;
   runPolicy?: WorkerRunPolicy;
   onEvent?: WorkerEmit;
+  /** The transcript role of this session: a repair attempt is recorded as `repair`, anything else as `worker`. */
+  transcriptRole?: "worker" | "repair";
   /**
    * Each attempt's report is handed to the action as soon as that attempt finishes, so
    * the action can record it (R3.5 rule 2). The role does not write files, so the
@@ -147,6 +152,34 @@ function formatFailures(results: VerifyResult[]): string {
     .join("\n\n");
 
   return capBytes(text, FAILURE_TAIL_CAP).text;
+}
+
+/** The full verify output of one command is kept on disk up to this many characters per stream (web UI, section 6.4). */
+const VERIFY_OUTPUT_CAP = 64 * 1024;
+
+/**
+ * Writes one verify command's full stdout and stderr under packets/verify/ as
+ * <task>-g<n>-attempt<k>-<i>.out and .err. Returns the stdout path, relative to the run directory, which
+ * the VerifyResult carries as full_output_path. A file that cannot be written leaves the result without one.
+ */
+function saveVerifyOutput(
+  runDir: string,
+  taskId: string,
+  generation: number,
+  attempt: number,
+  index: number,
+  output: { stdout: string; stderr: string },
+): string | undefined {
+  try {
+    const dir = join(runDir, "packets", "verify");
+    mkdirSync(dir, { recursive: true });
+    const base = `${taskId}-g${generation}-attempt${attempt}-${index}`;
+    writeFileSync(join(dir, `${base}.out`), capField(output.stdout, VERIFY_OUTPUT_CAP), "utf8");
+    writeFileSync(join(dir, `${base}.err`), capField(output.stderr, VERIFY_OUTPUT_CAP), "utf8");
+    return join("packets", "verify", `${base}.out`);
+  } catch {
+    return undefined;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -379,7 +412,16 @@ async function runAttempt(
   const unbind = bindAbort(opts.signal, handle);
 
   try {
-    for await (const event of handle.events) {
+    const isRepair = opts.transcriptRole === "repair";
+    const transcriptMeta = {
+      role: isRepair ? ("repair" as const) : ("worker" as const),
+      task_id: isRepair ? null : opts.taskId,
+      generation: isRepair ? null : opts.generation,
+      attempt,
+      backend: route.backend,
+      model: route.model,
+    };
+    for await (const event of teeTranscript(handle.events, opts.rawDir, transcriptMeta)) {
       if (event.type === "error" && event.kind === "crash") {
         crashDetail = event.message;
       }
@@ -510,6 +552,8 @@ async function runAttempt(
       commands: opts.spec.verify ?? [],
       sandbox: opts.settings.sandbox.enabled,
       network: "allow",
+      saveFullOutput: (index, output) =>
+        saveVerifyOutput(opts.rawDir, opts.taskId, opts.generation, attempt, index, output),
     });
     const passed =
       (opts.spec.verify?.length ?? 0) === 0 ? true : runner.isAllPassed(verifyResults);
@@ -841,6 +885,7 @@ export async function runRepairWorker(opts: RepairWorkerOptions): Promise<{ repo
     at: new Date().toISOString(),
   };
   const workerOpts: WorkerRunOptions = {
+    transcriptRole: "repair",
     runId: opts.runId,
     taskId: opts.taskId,
     spec,

@@ -35,6 +35,7 @@ import {
 import { toDelta, type UsageTotals } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
 import { startHarnessSession } from "../backends/spawn.js";
+import { teeTranscript } from "../store/transcript.js";
 import { commitContractStubs, finishLine, REQUIRED_HEADINGS } from "../roles/planner.js";
 import { buildReplanL2Prompt, buildReplanPrompt } from "../roles/prompts/replan.js";
 import { evaluateEscalation, type EscalationAction } from "./ladder.js";
@@ -638,7 +639,16 @@ async function runPlannerSession(
   let sawUsage = false;
 
   try {
-    for await (const evt of handle.events) {
+    // A replan session is a planner session about one task: its transcript is filed under that task.
+    const transcriptMeta = {
+      role: "planner" as const,
+      task_id: opts.taskId,
+      generation: opts.packet.generation,
+      attempt: null,
+      backend: route.backend,
+      model: route.model,
+    };
+    for await (const evt of teeTranscript(handle.events, opts.runDir, transcriptMeta)) {
       if (evt.type !== "usage") continue;
       sawUsage = true;
       const { delta, next } = toDelta(totals, evt.record, evt.cumulative);

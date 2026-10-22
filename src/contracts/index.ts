@@ -117,6 +117,9 @@ export const VerifyResult = z.object({
   stdout_tail: z.string(),
   stderr_tail: z.string(),
   truncated: z.boolean(),
+  // The full stdout of the command on disk, relative to the run directory (packets/verify/...). Its stderr is the
+  // sibling .err file. Absent for reports written before the web UI (docs/design/web-ui.md, section 6.4).
+  full_output_path: z.string().optional(),
 }).strict();
 export type VerifyResult = z.infer<typeof VerifyResult>;
 

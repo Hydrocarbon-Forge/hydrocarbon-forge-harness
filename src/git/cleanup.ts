@@ -64,6 +64,35 @@ function saveEvidence(
 }
 
 /**
+ * Saves the patch of a task that merged, before its worktree goes away: the task's changes against the
+ * integration HEAD it was merged onto (taken before the merge, when the branch still differs). The file is
+ * packets/merged/<name>.patch. Returns false when the patch cannot be written; the merge does not depend on it.
+ */
+export function saveMergedPatch(
+  repoRoot: string,
+  runDir: string,
+  name: string,
+  integrationHead: string,
+  taskBranch: string,
+): boolean {
+  try {
+    // A patch can be larger than execFileSync's default buffer, so the limit is raised here.
+    const patch = execFileSync("git", ["diff", "--binary", `${integrationHead}...${taskBranch}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const dir = join(runDir, "packets", "merged");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${name}.patch`), patch, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Removes every worktree and task branch a finished run left behind. The run branch is
  * kept: it holds the commits of the tasks that merged into it. Work directories named in
  * `unmerged` are saved as evidence before they are removed; `unmerged` maps a directory

@@ -32,6 +32,7 @@ import type { UsageTotals } from "../ledger/usage.js";
 import { toDelta } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
 import { startHarnessSession } from "../backends/spawn.js";
+import { teeTranscript } from "../store/transcript.js";
 import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { resolveBaseRef } from "../git/base-ref.js";
 import { boundedMessage } from "../util/index.js";
@@ -730,7 +731,8 @@ export async function runPlanner(
     let harnessError: string | undefined;
     let res: Awaited<ReturnType<typeof handle.result>>;
     try {
-      for await (const evt of handle.events) {
+      const transcriptMeta = { role: "planner" as const, task_id: null, generation: null, attempt, backend: route.backend, model: route.model };
+      for await (const evt of teeTranscript(handle.events, opts.runDir, transcriptMeta)) {
         if (evt.type === "session.started") sessionId = evt.session_id;
         // The adapter's own explanation of a failure (for example a missing
         // base URL) is kept for the failure message; the last one wins.

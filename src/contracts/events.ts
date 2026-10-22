@@ -216,6 +216,9 @@ export const PlanProducedEvent = member(
       manifest: z.unknown().optional(),
       tasks: z.array(PlanTaskEntry).optional(),
       commit_sha: z.string().optional(),
+      // The planner session that produced the plan (web UI, docs/design/web-ui.md 6.5): its transcript is
+      // runs/<id>/transcripts/<session>.jsonl. Absent for a plan reused from a draft or reviewed by a person.
+      planner_session_id: z.string().optional(),
       // R10.5: where the accepted plan came from. `draft` is a complete draft a resume reused (the planner did not run).
       source: z.enum(["planner", "draft", "review"]).optional(),
       // R12.3: the lint warnings of the accepted plan, at most 20 (the first ones), each message at most 300

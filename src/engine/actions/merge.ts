@@ -6,6 +6,7 @@ import type { EffectContext, EngineAction } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { withRepoLock } from "../../git/repo-lock.js";
+import { saveMergedPatch } from "../../git/cleanup.js";
 import {
   advanceRunRef,
   createIntegrationWorktree,
@@ -94,6 +95,8 @@ export async function runMergeAction(
       return;
     }
 
+    // The patch of a merged task is kept under the run directory (web UI, section 6.4); the merge does not wait on it.
+    saveMergedPatch(ctx.repoRoot, ctx.runDir, `${taskId}-g${gen}`, integrationHead, taskBranch);
     integrationHead = await withRepoLock(ctx.repoRoot, () =>
       mergeInto(integrationWorktree, taskBranch, `merge: task ${taskId}`)
     );

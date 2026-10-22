@@ -122,6 +122,8 @@ export interface EngineState {
    * as rows. Their state is RUNNING, MERGED (the attempt passed) or FAILED. The run state never changes for them.
    */
   repairs?: Record<string, TaskRuntimeState>;
+  /** The planner session of the accepted plan (plan.produced.planner_session_id); unset when none was recorded. */
+  planner_session_id?: string;
 }
 
 export function reduce(state: EngineState, event: EngineEvent): EngineState {
@@ -179,6 +181,7 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         ...state,
         state: "LINTING",
         tasks: nextTasks,
+        ...(typeof data.planner_session_id === "string" ? { planner_session_id: data.planner_session_id } : {}),
       };
     }
 

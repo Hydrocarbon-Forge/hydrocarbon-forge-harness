@@ -36,6 +36,7 @@ import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
 import { bindAbort } from "../../backends/process.js";
 import { startHarnessSession } from "../../backends/spawn.js";
+import { teeTranscript } from "../../store/transcript.js";
 import { runLintAction } from "./approve.js";
 import { log } from "../../util/log.js";
 import { boundedMessage } from "../../util/index.js";
@@ -195,7 +196,8 @@ export async function runPlanAction(
 
       const res = await (async () => {
         try {
-          for await (const evt of handle.events) {
+          const transcriptMeta = { role: "planner" as const, task_id: null, generation: null, attempt, backend: route.backend, model: route.model };
+          for await (const evt of teeTranscript(handle.events, ctx.runDir, transcriptMeta)) {
             if (evt.type === "session.started" && evt.session_id) {
               currentSessionId = evt.session_id;
             }
@@ -313,6 +315,7 @@ export async function runPlanAction(
         manifest,
         tasks: planTasksForEvent(manifest, parsedPlan.specs),
         commit_sha: commitSha,
+        ...(currentSessionId ? { planner_session_id: currentSessionId } : {}),
         ...planWarningsEventData(warnings),
       });
       return;
@@ -416,6 +419,7 @@ export async function runPlanAction(
     manifest: outcome.plan.manifest,
     tasks: planTasksForEvent(outcome.plan.manifest, outcome.plan.specs),
     commit_sha: outcome.commitSha,
+    ...(outcome.sessionId ? { planner_session_id: outcome.sessionId } : {}),
     ...planWarningsEventData(outcome.warnings),
   });
 }
