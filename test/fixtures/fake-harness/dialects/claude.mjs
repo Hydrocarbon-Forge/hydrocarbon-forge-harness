@@ -79,10 +79,22 @@ async function runTrace(trace) {
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<number>}
  */
+/**
+ * The prompt the real CLI reads from stdin when `-p` has no prompt argument (R13.1: the adapter sends the
+ * prompt on stdin so a long prompt cannot exceed the argument size limit). Empty on a terminal.
+ */
+async function readPromptFromStdin() {
+  if (process.stdin.isTTY) return "";
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 export async function runDialect(argv, env) {
+  const prompt = argv.includes("--version") ? "" : await readPromptFromStdin();
   const argvLog = env.FAKE_ARGV_LOG || process.env.FAKE_ARGV_LOG;
   if (argvLog) {
-    fs.appendFileSync(argvLog, JSON.stringify({ argv }) + "\n", "utf8");
+    fs.appendFileSync(argvLog, JSON.stringify({ argv, prompt }) + "\n", "utf8");
   }
 
   if (argv.includes("--version")) {
@@ -130,9 +142,10 @@ export async function runDialect(argv, env) {
   applyCall(call, process.cwd());
 
   // R11.1: every invocation's argv (its prompt included) is kept beside the scenario file, so a test can read
-  // the prompt the harness was given. The adapter's environment allowlist does not carry test variables.
+  // the prompt the harness was given. The prompt arrives on stdin, so it is appended as the last entry here.
+  // The adapter's environment allowlist does not carry test variables.
   if (scenarioFile) {
-    fs.appendFileSync(`${scenarioFile}.argv.jsonl`, JSON.stringify({ argv }) + "\n", "utf8");
+    fs.appendFileSync(`${scenarioFile}.argv.jsonl`, JSON.stringify({ argv: prompt ? [...argv, prompt] : argv }) + "\n", "utf8");
   }
 
   if (call.probe) {

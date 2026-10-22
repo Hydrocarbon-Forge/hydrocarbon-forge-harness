@@ -34,6 +34,7 @@ import {
 } from "../spec/index.js";
 import { toDelta, type UsageTotals } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
+import { startHarnessSession } from "../backends/spawn.js";
 import { commitContractStubs, finishLine, REQUIRED_HEADINGS } from "../roles/planner.js";
 import { buildReplanL2Prompt, buildReplanPrompt } from "../roles/prompts/replan.js";
 import { evaluateEscalation, type EscalationAction } from "./ladder.js";
@@ -218,6 +219,9 @@ async function runL1(
   });
 
   const outcome = await runPlannerSession(opts, emit, action.route, prompt);
+  if (outcome.spawnFailure !== undefined) {
+    return giveUp(opts, emit, "the planner could not start", action, outcome.spawnFailure);
+  }
   if (outcome.cancelled) {
     return { level: "L1", status: "paused", action, packet: opts.packet, pauseReason: "user_cancel" };
   }
@@ -268,16 +272,18 @@ function giveUp(
   emit: TypedEmit,
   reason: string,
   action: EscalationAction,
+  cause?: string,
 ): ReplanResult {
   // The failure the task carried is the reason a caller reads (an integration command,
-  // a verify command); the ladder's own dead end is only the fallback.
+  // a verify command); the ladder's own dead end is only the fallback. A planner that could not
+  // start names its own cause (`cause`).
   const original = opts.state.tasks[opts.taskId]?.failure_message;
   emit("task.failed", {
     task_id: opts.taskId,
     generation: opts.packet.generation,
     failure_class: opts.packet.failure_class,
     can_replan: false,
-    detail: original ?? `replan gave up: ${reason}`,
+    detail: cause ?? original ?? `replan gave up: ${reason}`,
   });
   return { level: action.level, status: "failed", action, packet: opts.packet };
 }
@@ -344,6 +350,9 @@ async function runL2(
   });
 
   const outcome = await runPlannerSession(opts, emit, route, prompt);
+  if (outcome.spawnFailure !== undefined) {
+    return giveUp(opts, emit, "the planner could not start", action, outcome.spawnFailure);
+  }
   if (outcome.cancelled) {
     return { level: "L2", status: "paused", action, packet: opts.packet, pauseReason: "user_cancel" };
   }
@@ -570,6 +579,8 @@ interface SessionOutcome {
   unavailable: boolean;
   /** True when the run was cancelled, so nothing is recorded for this replan. */
   cancelled: boolean;
+  /** Set when the planner session could not start at all (after the spawn retries): the spawn error in plain words. */
+  spawnFailure?: string;
 }
 
 async function runPlannerSession(
@@ -607,7 +618,21 @@ async function runPlannerSession(
     session: { id: crypto.randomUUID() },
   };
 
-  const handle = adapter.spawn(request);
+  // A planner that cannot start gives up this one task (R13.1); it does not throw out of the engine.
+  const started = await startHarnessSession(adapter, request).then(
+    (handle) => ({ handle }),
+    (err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }),
+  );
+  if ("error" in started) {
+    return {
+      result: emptyResult(),
+      stopped: false,
+      unavailable: false,
+      cancelled: false,
+      spawnFailure: started.error,
+    };
+  }
+  const handle = started.handle;
   const unbind = bindAbort(opts.signal, handle);
   let totals: UsageTotals = { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
   let sawUsage = false;

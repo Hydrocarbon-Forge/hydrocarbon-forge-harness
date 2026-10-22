@@ -158,3 +158,13 @@ The rule now:
 - Security stays out of scope (A6). The UI adds no authentication, TLS or remote access. The contract in `docs/design/web-ui.md` section 5 is binding for the server and client work packages.
 
 Design and API contract: `docs/design/web-ui.md`.
+
+## Note 2026-10-22 (R13.1): environment trouble is a warning or a retry, never a failed run
+
+The owner's run `r_OVMJVL27O53V` failed for two environment reasons: a plan's `setup` (`cd ui && npm install`) ran in task worktrees where `ui/` did not exist and turned into `worker_crashed` with no worker ever running, and the L2 replan passed its whole prompt as a command-line argument and died with `E2BIG`, which ended the run as `internal_error`. The rule now, in four parts:
+- **Setup failure is a warning.** A plan's `setup` that fails in a task worktree emits `task.setup.failed` (a warning, shown in progress). The worker still runs, and its prompt carries the failed command and the last ~1 KB of its output (`assets/prompts/worker/setup-failed.md`) so it can repair its own environment. A setup failure never fails the task and never counts a heal or replan. The integration worktree and `merge --partial` already treat a failed setup as a check that could not run (R12.2), a warning; they are unchanged.
+- **Prompts go over stdin.** The claude adapter writes the prompt to the child's stdin instead of passing it as an argument, so a long prompt cannot exceed the argument size limit. opencode and agy still pass the prompt as an argument; they are not changed here, and the same argument-size hazard remains there (not yet checked against their documented CLIs).
+- **An unstartable spawn retries twice.** A harness process that cannot start at all (E2BIG, ENOENT, EAGAIN, before any output) is retried inside the same attempt after 2 seconds and then 5 seconds, through one helper (`src/backends/spawn.ts`) that the worker, planner and replan spawns all call. A start that still fails fails the attempt with the spawn error in plain words. Retries never touch the heal or replan counters.
+- **A crashed replan gives up one task.** A replan whose planner session cannot start is not an `internal_error`: the task takes the `giveUp` path (`task.failed`, `can_replan: false`, with the spawn error as the detail), its dependents are skipped, independent tasks continue, and the run ends `failed` with a readable reason.
+
+Code and tests: `src/backends/process.ts`, `src/backends/spawn.ts`, `src/backends/adapters/claude.ts`, `src/roles/worker.ts`, `src/engine/replan.ts`, `src/git/setup.ts`; `test/e2e/environment-trouble.test.ts`, `test/integration/engine/replan.test.ts`, `test/unit/backends/claude-stdin.test.ts`.

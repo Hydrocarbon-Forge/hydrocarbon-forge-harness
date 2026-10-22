@@ -476,6 +476,20 @@ export const TaskFailedEvent = member(
     .strict()
 );
 
+// R13.1: a plan's setup failed in a task worktree. A warning: the worker still runs and is told in its prompt.
+export const TaskSetupFailedEvent = member(
+  "task.setup.failed",
+  z
+    .object({
+      task_id: z.string(),
+      generation: z.number(),
+      attempt: z.number(),
+      command: z.string().max(500),
+      reason: z.string().max(100),
+    })
+    .strict()
+);
+
 export const TaskReplannedEvent = member(
   "task.replanned",
   z.object({ task_id: z.string(), generation: z.number().int() }).strict()
@@ -667,6 +681,7 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   TaskBlockedEvent,
   TaskSkippedEvent,
   TaskFailedEvent,
+  TaskSetupFailedEvent,
   TaskReplannedEvent,
   TasksInvalidatedEvent,
   ReplanStartedEvent,
@@ -722,6 +737,7 @@ export const EVENT_TYPES = [
   "task.blocked",
   "task.skipped",
   "task.failed",
+  "task.setup.failed",
   "task.replanned",
   "tasks.invalidated",
   "replan.started",

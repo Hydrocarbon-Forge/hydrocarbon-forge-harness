@@ -21,6 +21,7 @@ assets/
       replan-l2.md       user turn: amend contracts/manifest/specs (fresh planner session)
     worker/
       task.md            user turn for a worker (spec path)
+      setup-failed.md    appended to the worker's user turn when the plan's setup failed in its worktree (R13.1)
       heal.md            user turn for the single L0 fix attempt (resumed worker session)
       repair.md          user turn for one repair attempt of a failed final check (R12.4)
       class/<class>.md   short addendum appended to the worker system prompt for that task class
@@ -55,6 +56,7 @@ Syntax is `{{name}}` only: no logic, no loops, no conditionals. Code builds ever
 | `planner/replan-l1.md` | `task_id`, `generation`, `failure_class`, `spec_path`, `failure_details`, `diff_summary`, `worker_summary`, `task_spec`, `related_contracts`, `dependents`, `decisions` |
 | `planner/replan-l2.md` | `task_id`, `failure_class`, `escalation_reason`, `failure_details`, `worker_summary`, `manifest`, `task_states`, `contracts`, `decisions` |
 | `worker/task.md`, `test-writer/task.md` | `spec_path` (absolute) |
+| `worker/setup-failed.md` | `command` (the failed setup command), `output_tail` (the last ~1 KB of its output) |
 | `worker/heal.md` | `failures` (failing command, exit code, stdout/stderr tails, capped at 8 KB total) |
 | `worker/repair.md` | `attempt`, `max_attempts`, `request` (the run's request), `check_command`, `output_tail` (the last 60 lines of the check's output), `tasks` (merged tasks, id and title), `previous` (the previous attempt's outcome, or `(none)`) |
 | `reviewer/review.md` | `task_specs`, `contracts`, `diff` |

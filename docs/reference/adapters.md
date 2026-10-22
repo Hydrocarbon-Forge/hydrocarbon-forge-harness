@@ -61,6 +61,9 @@ The `claude` adapter writes the raw stream of a session to `<session id>.ndjson`
   - permissions bypassed (the harness's skip-permissions option, `dangerously-skip-permissions`) with prompts turned off. The engine's `permission_mode` is an approval gate and does not change this;
   - the request's deny list plus the Agent tool as disallowed tools. The allow list is not passed, because permissions are bypassed;
   - a USD cap, when the budget sets one above zero.
+
+  The prompt is not an argument: it is written to the child's stdin and the stdin is closed, which print mode reads when no prompt argument is given (R13.1). A long prompt therefore cannot exceed the system's argument size limit (E2BIG).
+- **Start failures.** A child that cannot start at all (no harness output exists) is retried twice inside the same attempt, after 2 seconds and then 5 seconds. A start that still fails fails the attempt with the spawn error in plain words. Retries do not count against heal or replan.
 - **Environment.** The child process gets a fixed set of variables (`PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`) and the request's environment.
 - **Cost.** Reported by the harness (`cost_reported` is true).
 

@@ -174,7 +174,7 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
       expect(log).toContain("substrate-engine");
     });
 
-    it("executes setup commands in worktree, and fails task if a setup command fails", async () => {
+    it("executes setup commands in worktree; a failing setup is a warning and the worker still runs (R13.1)", async () => {
       const runId = makeRunId();
       const collector = createEmitCollector(runId);
       const spec = sampleValidTaskSpecFrontmatter({ id: "T1" });
@@ -197,11 +197,12 @@ describe("Worker Runner (src/roles/worker.ts)", () => {
         onEvent: collector.onEvent,
       });
 
-      expect(report.status).toBe("failed");
-      expect(report.failure_class).toBe("worker_crashed");
-      expect(collector.first("task.failed")).toBeDefined();
-      // No worker session should have spawned because setup failed
-      expect(adapter.spawnedRequests.length).toBe(0);
+      // The setup failure is a warning: no task.failed, the worker spawns with the failure in its prompt.
+      expect(collector.first("task.failed")).toBeUndefined();
+      expect(collector.first("task.setup.failed")).toBeDefined();
+      expect(report.failure_class).not.toBe("worker_crashed");
+      expect(adapter.spawnedRequests.length).toBe(1);
+      expect(adapter.spawnedRequests[0]?.prompt).toContain("Setup failed before you started");
     });
   });
 

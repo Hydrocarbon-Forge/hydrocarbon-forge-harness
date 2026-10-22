@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS } from "../../../src/config/index.js";
 import type { ParsedPlan, ParsedTaskSpec } from "../../../src/spec/index.js";
 import type { EngineState } from "../../../src/engine/reducer.js";
 import type { EscalationAction } from "../../../src/engine/ladder.js";
+import { HarnessSpawnError } from "../../../src/backends/process.js";
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
 import {
   createMockAdapter,
@@ -377,6 +378,54 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
       expect(result.pauseReason).toBe("rate_limited");
       expect(adapter.spawnedRequests.length).toBe(0);
     });
+
+    it("a planner that cannot start gives its one task up: task.failed names the spawn error, nothing throws (R13.1)", async () => {
+      const runId = makeRunId();
+      const collector = createEventCollector();
+      const state = makeInitialEngineState(runId, "T1");
+
+      const packet: Contracts.FailurePacket = {
+        run_id: runId,
+        task_id: "T1",
+        generation: 1,
+        failure_class: "verify_failed",
+        spec_path: specPath,
+        attempts: [makeSampleWorkerReport("T1", 1, 2)],
+        diff: { stat: "1 file changed", patch_path: join(packetDir, "T1-g1.patch"), truncated: false },
+        verify_output: [],
+        scope_violations: [],
+        worker_summary: "Failed tests",
+        related_contracts: [],
+        dependents: [],
+      };
+
+      // The spawn retries (2s, then 5s) before it gives up, so this case takes about 7 seconds.
+      const unstartable = {
+        ...createMockAdapter(),
+        spawn(): never {
+          throw new HarnessSpawnError("could not start claude: spawn E2BIG", "E2BIG");
+        },
+      };
+
+      const result = await executeReplan({
+        runId,
+        taskId: "T1",
+        packet,
+        state,
+        settings: DEFAULT_SETTINGS,
+        adapter: unstartable,
+        runDir,
+        repoRoot: repo.dir,
+        baseRef: "main",
+        onEvent: collector.onEvent,
+      });
+
+      expect(result.status).toBe("failed");
+      const failed = collector.first("task.failed");
+      expect(failed?.data).toMatchObject({ task_id: "T1", can_replan: false });
+      expect(String((failed?.data as { detail?: string }).detail)).toContain("E2BIG");
+      expect(collector.first("run.paused")).toBeUndefined();
+    }, 20000);
 
     it("executes L1 spec replan: escalates tier, spawns planner, parses and lints revised spec", async () => {
       const runId = makeRunId();

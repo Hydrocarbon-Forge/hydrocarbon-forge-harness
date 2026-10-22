@@ -365,9 +365,10 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
 
     const args = buildClaudeArgs(req);
 
-    // Prepend prompt with -p
+    // -p with no prompt argument: the prompt travels on stdin (R13.1), never in argv
     expect(args[0]).toBe("-p");
-    expect(args[1]).toBe("echo minimal");
+    expect(args[1]).toBe("--output-format");
+    expect(args).not.toContain("echo minimal");
 
     // Output format and verbosity
     expect(args).toContain("--output-format");

@@ -303,6 +303,9 @@ export class RunProgress {
         this.mergingTasks.delete(tid);
         this.taskPhase(at);
         return [`${taskLabel} merged, ${formatCost(this.taskCostUsd.get(tid) ?? 0)}`];
+      case "task.setup.failed":
+        // R13.1: a warning, not a failure: the worker still runs in the same worktree.
+        return [`${taskLabel} warning: setup failed (${String(data.command ?? "?").slice(0, 160)}: ${String(data.reason ?? "no reason recorded")}); the worker runs anyway`];
       case "task.failed": {
         this.runningTasks.delete(tid);
         this.verifyingTasks.delete(tid);

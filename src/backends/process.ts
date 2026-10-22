@@ -7,12 +7,28 @@ import { redactSecrets, takeTail } from "../util/index.js";
 export interface SupervisedProcessOptions {
   command: string;
   args?: string[];
+  /** Written to the child's stdin, which is then closed (a headless harness reads its prompt from it). */
+  input?: string;
   cwd: string;
   env?: Record<string, string>;
   timeoutMs?: number;
   gracePeriodMs?: number;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
+}
+
+/**
+ * The harness process could not start at all (E2BIG, ENOENT, EAGAIN ...): no harness output exists.
+ * `code` is the system error code when Node reports one synchronously (for example E2BIG).
+ */
+export class HarnessSpawnError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "HarnessSpawnError";
+    this.code = code;
+  }
 }
 
 export interface ProcessExitResult {
@@ -215,16 +231,27 @@ export function spawnSupervisedProcess(
     env = { ...env, PWD: path.resolve(options.cwd) };
   }
 
-  const child = spawn(options.command, options.args ?? [], {
-    cwd: options.cwd,
-    env,
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  let child;
+  try {
+    child = spawn(options.command, options.args ?? [], {
+      cwd: options.cwd,
+      env,
+      detached: true,
+      stdio: [options.input !== undefined ? "pipe" : "ignore", "pipe", "pipe"],
+    });
+  } catch (err: any) {
+    throw new HarnessSpawnError(`could not start ${options.command}: ${err?.message ?? String(err)}`, err?.code);
+  }
 
   const pid = child.pid;
   if (!pid || pid <= 0) {
-    throw new Error(`Failed to spawn child process: invalid PID (${pid})`);
+    // Node reports a missing binary asynchronously. The listener keeps that event from crashing the process.
+    child.on("error", () => {});
+    throw new HarnessSpawnError(`could not start ${options.command}: the system did not start the process`);
+  }
+  if (options.input !== undefined && child.stdin) {
+    child.stdin.on("error", () => {});
+    child.stdin.end(options.input, "utf8");
   }
   const processGroupPid = pid;
 

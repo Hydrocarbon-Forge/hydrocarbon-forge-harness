@@ -35,6 +35,7 @@ import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
 import { bindAbort } from "../../backends/process.js";
+import { startHarnessSession } from "../../backends/spawn.js";
 import { runLintAction } from "./approve.js";
 import { log } from "../../util/log.js";
 import { boundedMessage } from "../../util/index.js";
@@ -184,7 +185,7 @@ export async function runPlanAction(
         session: { resume: currentSessionId },
       };
 
-      const handle = adapter.spawn(spawnReq);
+      const handle = await startHarnessSession(adapter, spawnReq);
       // R10.5: recorded like a worker's pid until the session ends (see endStaleWorkers).
       const pidRecord = { task_id: PLANNER_PID_TASK, generation: 0, attempt, pid: handle.pid, backend: route.backend };
       recordWorkerPid(ctx.runDir, pidRecord);

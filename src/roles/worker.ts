@@ -9,6 +9,7 @@ import type {
   HarnessAdapter,
   Route,
   RunId,
+  SessionHandle,
   SessionResult,
   Settings,
   SpawnRequest,
@@ -30,7 +31,8 @@ import {
 } from "../git/index.js";
 import { VerifyRunner } from "../verify/index.js";
 import { resolveTaskRoute } from "./router.js";
-import { bindAbort } from "../backends/process.js";
+import { bindAbort, HarnessSpawnError } from "../backends/process.js";
+import { startHarnessSession } from "../backends/spawn.js";
 import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { capBytes, HEAL_TAIL_MAX_BYTES } from "../util/index.js";
 import { withRepoLock } from "../git/repo-lock.js";
@@ -232,7 +234,41 @@ async function runAttempt(
     },
   };
 
-  const handle = opts.adapter.spawn(spawnReq);
+  let handle: SessionHandle;
+  try {
+    handle = await startHarnessSession(opts.adapter, spawnReq);
+  } catch (err) {
+    // The harness never started (R13.1): the attempt fails with the spawn error, no output exists.
+    if (!(err instanceof HarnessSpawnError)) throw err;
+    opts.onEvent?.("task.failed", {
+      task_id: opts.taskId,
+      generation: opts.generation,
+      attempt,
+      failure_class: "worker_crashed",
+      detail: err.message,
+    });
+    return {
+      report: {
+        task_id: opts.taskId,
+        generation: opts.generation,
+        attempt,
+        session_id: session.resume ?? session.id ?? "",
+        backend: route.backend,
+        model: route.model,
+        ...(route.effort ? { effort: route.effort } : {}),
+        status: "failed",
+        failure_class: "worker_crashed",
+        files_changed: [],
+        usage,
+        duration_ms: Date.now() - startTime,
+        verify: [],
+        denials: [],
+        final_message: err.message,
+      },
+      stopped: false,
+      verifyFailed: false,
+    };
+  }
   // R8.2: the session is recorded in the run directory until it ends (see endStaleWorkers).
   const pidRecord = { task_id: opts.taskId, generation: opts.generation, attempt, pid: handle.pid, backend: route.backend };
   recordWorkerPid(opts.rawDir, pidRecord);
@@ -580,36 +616,29 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
     branch: "",
   };
 
-  // Rule 2: manifest setup, the same helper the integration worktree uses (src/git/setup.ts).
-  // A failure fails the task and keeps the worktree.
+  // Rule 2: manifest setup, the same helper the integration worktree uses (src/git/setup.ts). A failing
+  // setup is a warning, never a failed task (R13.1): the worker still runs, and its prompt says what failed
+  // so it can repair its own environment. It does not count against heal or replan.
+  let setupNote = "";
   if (opts.setupCommands && opts.setupCommands.length > 0) {
     const setup = await runSetupCommands(worktree.worktreePath, opts.setupCommands);
     if (!setup.passed) {
-      const failedCmd = setup.failure.command;
-      opts.onEvent?.("task.failed", {
+      const failure = setup.failure;
+      opts.onEvent?.("task.setup.failed", {
         task_id: opts.taskId,
         generation: opts.generation,
         attempt,
-        failure_class: "worker_crashed",
-        detail: failedCmd,
+        command: failure.command.slice(0, 500),
+        reason: failure.timed_out
+          ? "timed out"
+          : failure.exit_code === null
+            ? "could not start"
+            : `exit ${failure.exit_code}`,
       });
-      return {
-        task_id: opts.taskId,
-        generation: opts.generation,
-        attempt,
-        session_id: opts.session?.resume ?? opts.session?.id ?? "",
-        backend: route.backend,
-        model: route.model,
-        ...(route.effort ? { effort: route.effort } : {}),
-        status: "failed",
-        failure_class: "worker_crashed",
-        files_changed: [],
-        usage,
-        duration_ms: Date.now() - startTime,
-        verify: [],
-        denials: [],
-        final_message: `setup command failed: ${failedCmd}`,
-      };
+      setupNote = render(loadTemplate("worker/setup-failed.md"), {
+        command: failure.command,
+        output_tail: failure.output_tail ?? "",
+      });
     }
   }
 
@@ -641,9 +670,10 @@ export async function runWorker(opts: WorkerRunOptions): Promise<WorkerReport> {
     });
   }
 
-  const taskPrompt = render(loadTemplate("worker/task.md"), {
-    spec_path: baseline.specPath,
-  });
+  const taskPrompt =
+    render(loadTemplate("worker/task.md"), {
+      spec_path: baseline.specPath,
+    }) + (setupNote ? `\n\n${setupNote}` : "");
 
   const runWithBackoff = async (
     promptText: string,

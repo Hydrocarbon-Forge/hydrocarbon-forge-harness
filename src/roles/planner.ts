@@ -31,6 +31,7 @@ import {
 import type { UsageTotals } from "../ledger/usage.js";
 import { toDelta } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
+import { startHarnessSession } from "../backends/spawn.js";
 import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { resolveBaseRef } from "../git/base-ref.js";
 import { boundedMessage } from "../util/index.js";
@@ -717,7 +718,7 @@ export async function runPlanner(
       ...(attempt === 1 ? { session: { id: attemptSessionId } } : { session: { resume: attemptSessionId } }),
     };
 
-    const handle = opts.adapter.spawn(spawnReq);
+    const handle = await startHarnessSession(opts.adapter, spawnReq);
     // R10.5: the planner session is recorded like a worker's until it ends, so a resume after a
     // killed CLI ends it before planning again (see endStaleWorkers).
     const pidRecord = { task_id: PLANNER_PID_TASK, generation: 0, attempt: attempt, pid: handle.pid, backend: route.backend };

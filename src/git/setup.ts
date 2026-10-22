@@ -9,11 +9,18 @@ import { VerifyRunner } from "../verify/runner.js";
 // verify (src/engine/actions/integrate.ts, src/cli/commands/merge.ts). One helper, so the two
 // cannot diverge: a check that needs installed dependencies finds them wherever it runs.
 
-/** The command that failed a setup: its text, its exit code (null when it timed out) and whether it timed out. */
+/** The setup output kept for a worker's prompt: the last ~1 KB of the failed command's output (R13.1). */
+const SETUP_OUTPUT_TAIL_CHARS = 1024;
+
+/**
+ * The command that failed a setup: its text, its exit code (null when it timed out or could not start),
+ * whether it timed out, and the tail of its output (empty when it could not start).
+ */
 export interface SetupFailure {
   command: string;
   exit_code: number | null;
   timed_out: boolean;
+  output_tail?: string;
 }
 
 export type SetupOutcome = { passed: true; ran: number } | { passed: false; ran: number; failure: SetupFailure };
@@ -30,7 +37,7 @@ export async function runSetupCommands(worktreePath: string, commands: Command[]
     try {
       [result] = await runner.runVerify({ cwd: worktreePath, commands: [cmd], sandbox: false, network: "allow" });
     } catch {
-      return { passed: false, ran, failure: { command: cmd.run, exit_code: null, timed_out: false } };
+      return { passed: false, ran, failure: { command: cmd.run, exit_code: null, timed_out: false, output_tail: "" } };
     }
     ran += 1;
     if (result.exit_code !== 0 || result.timed_out) {
@@ -41,6 +48,7 @@ export async function runSetupCommands(worktreePath: string, commands: Command[]
           command: cmd.run,
           exit_code: result.timed_out ? null : result.exit_code,
           timed_out: result.timed_out,
+          output_tail: `${result.stdout_tail}${result.stderr_tail}`.slice(-SETUP_OUTPUT_TAIL_CHARS),
         },
       };
     }

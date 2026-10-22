@@ -82,9 +82,10 @@ function convertClaudePermissionRule(rule: string): string {
 }
 
 export function buildClaudeArgs(req: SpawnRequest): string[] {
+  // The prompt is not an argument: `claude -p` with no prompt argument reads it from stdin (see spawn), so a
+  // long prompt cannot exceed the system's argument size limit (E2BIG).
   const args: string[] = [
     "-p",
-    req.prompt,
     "--output-format",
     "stream-json",
     "--verbose",
@@ -276,6 +277,7 @@ export class ClaudeAdapter implements HarnessAdapter {
     const proc = spawnSupervisedProcess({
       command: this.options.bin ?? "claude",
       args,
+      input: req.prompt,
       cwd: req.cwd,
       env: envRecord,
       timeoutMs: req.budget.timeout_ms,

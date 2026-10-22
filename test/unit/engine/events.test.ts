@@ -59,6 +59,7 @@ const SAMPLES: Record<EventType, Record<string, unknown>> = {
   "task.blocked": { task_id: "T1" },
   "task.skipped": { task_id: "T2", reason: "dependency_failed", failed: ["T1"], skipped: [] },
   "task.failed": { failure_class: "verify_failed" },
+  "task.setup.failed": { task_id: "T1", generation: 1, attempt: 1, command: "npm ci", reason: "exit 1" },
   "task.replanned": { task_id: "T1", generation: 2 },
   "tasks.invalidated": { task_ids: ["T1"] },
   "replan.started": {},

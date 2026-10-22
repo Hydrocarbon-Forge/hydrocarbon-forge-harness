@@ -413,6 +413,9 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       };
     }
 
+    case "task.setup.failed":
+      // R13.1: a warning. The worker still runs in the same worktree, so the task's state does not change.
+      return state;
     case "task.failed": {
       const taskId = data.task_id;
       if (!taskId) return state;
