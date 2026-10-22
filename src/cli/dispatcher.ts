@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import type { Effort, Engine, PermissionMode } from "../contracts/index.js";
 import type { SessionStore } from "../store/sessions.js";
 import { readEnvLayer } from "../config/index.js";
+import { serveUi } from "../web/server.js";
 
 export interface CliGlobalFlags {
   help?: boolean;
@@ -44,6 +45,8 @@ export interface CliGlobalFlags {
   detach?: boolean;
   /** run, resume, plan: workers that may run at once, 1 to 16 (R10.3). */
   concurrency?: number;
+  /** ui serve: the port to listen on (0 lets the system choose); otherwise ui.json names it (web-ui design, 8.2). */
+  port?: number;
   /** run: plan only and stop for review; the run records --work so a bare resume runs the reviewed plan (R10.5). */
   review?: boolean;
   hard?: boolean;
@@ -79,6 +82,8 @@ export interface CommandContext {
   signal?: AbortSignal;
   /** The CLI's argv (R10.3): a detached run starts itself again with the same arguments. */
   argv?: string[];
+  /** The web server, handed to the `ui` command: the CLI may not import src/web (boundaries, section 15). */
+  web?: { serveUi: typeof serveUi };
 }
 
 const { registry } = await import(`./registry.js`);
@@ -109,6 +114,7 @@ await import(`./commands/gc.js`);
 await import(`./commands/watch.js`);
 await import(`./commands/runs.js`);
 await import(`./commands/stop.js`);
+await import(`./commands/ui.js`);
 await import(`./bench.js`);
 
 const CLI_OPTIONS = {
@@ -163,6 +169,7 @@ const CLI_OPTIONS = {
   "all-versions": { type: "boolean" },
   "older-than": { type: "string" },
   "history-all": { type: "boolean" },
+  port: { type: "string" },
 } as const;
 
 export interface ParseCliArgsResult {
@@ -268,6 +275,9 @@ export function parseCliArgs(argv: string[]): ParseCliArgsResult {
   }
   if (parsedValues["history-all"]) {
     flags.historyAll = true;
+  }
+  if (parsedValues.port !== undefined) {
+    flags.port = Number(parsedValues.port);
   }
 
   let commandName: string | undefined;
@@ -504,6 +514,7 @@ export async function runCli(
     stderr,
     signal: streams?.signal,
     argv,
+    web: { serveUi },
   };
 
   return cmd.execute(ctx);

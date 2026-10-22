@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { endRunProcess, type ProcessControl } from "../../../src/cli/commands/stop.js";
+import { endRunProcess, type ProcessControl } from "../../../src/util/process-control.js";
 
 // R10.3: endRunProcess with an injected process control. The e2e file cannot make a CLI ignore
 // SIGTERM deterministically, so the --force path is exercised here: the control reports the pid

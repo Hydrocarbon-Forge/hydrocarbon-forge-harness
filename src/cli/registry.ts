@@ -12,6 +12,8 @@ export interface CliGlobalFlags {
   continue?: boolean;
   forkSession?: boolean;
   mode?: "auto" | "solo" | "plan";
+  /** ui serve: the port to listen on (web-ui design, 8.2). */
+  port?: number;
 }
 
 export interface CliGovernanceFlags {

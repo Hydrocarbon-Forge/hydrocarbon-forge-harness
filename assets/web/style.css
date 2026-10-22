@@ -1,0 +1,116 @@
+/* Colours are tokens on :root. Dark values apply by system preference unless the page is set to light, and
+   always when the page is set to dark (the theme button sets data-theme). */
+:root {
+  --bg: #ffffff;
+  --fg: #1d1f23;
+  --muted: #5b616b;
+  --line: #d9dce1;
+  --accent: #1f5fbf;
+  --ok: #17703a;
+  --bad: #b3261e;
+  --warn: #8a5a00;
+  --panel: #f5f6f8;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b;
+    --fg: #e6e8ec;
+    --muted: #9aa1ad;
+    --line: #2e333b;
+    --accent: #7aa7f0;
+    --ok: #5fcf85;
+    --bad: #ff8a80;
+    --warn: #e7b65a;
+    --panel: #1d2026;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b;
+  --fg: #e6e8ec;
+  --muted: #9aa1ad;
+  --line: #2e333b;
+  --accent: #7aa7f0;
+  --ok: #5fcf85;
+  --bad: #ff8a80;
+  --warn: #e7b65a;
+  --panel: #1d2026;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 system-ui, sans-serif;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 16px;
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-family: ui-monospace, monospace; }
+.conn { color: var(--muted); font-size: 13px; }
+.topbar .ghost { margin-left: auto; }
+.layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  min-height: calc(100vh - 3rem);
+}
+.sidebar {
+  border-right: 1px solid var(--line);
+  padding: 0.5rem 16px;
+  overflow-x: hidden;
+}
+.sidebar h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 1rem 0 0.4rem; }
+.count { font-weight: normal; }
+.jobs { list-style: none; padding: 0; margin: 0; }
+.jobs li { margin: 0 0 0.25rem; }
+.jobs a {
+  display: block;
+  padding: 0.3rem 0.4rem;
+  border-radius: 4px;
+  color: var(--fg);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.jobs a:hover, .jobs a[aria-current="true"] { background: var(--panel); }
+.jobs .sub { color: var(--muted); font-size: 13px; }
+.main { padding: 1rem 16px 2rem; min-width: 0; }
+.empty { color: var(--muted); }
+.job-head h1 { font-size: 18px; margin: 0 0 0.3rem; overflow-wrap: anywhere; }
+.meta, .status-line { color: var(--muted); margin: 0.2rem 0; font-size: 14px; }
+.status-line strong { color: var(--fg); }
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.6rem 0 1rem; }
+button {
+  font: inherit;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+button:disabled { color: var(--muted); cursor: default; }
+button.ghost { background: transparent; }
+.action-msg { color: var(--muted); font-size: 14px; }
+h2 { font-size: 16px; }
+table.tasks { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.tasks th, table.tasks td { text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.events { list-style: none; padding: 0; margin: 0; font: 13px/1.5 ui-monospace, monospace; max-height: 50vh; overflow: auto; }
+.events li { padding: 0.15rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.events .t { color: var(--muted); margin-right: 0.5rem; }
+.bad { color: var(--bad); }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+
+/* Phone width: the sidebar stacks above the job, and nothing scrolls sideways. */
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+  .main, .sidebar { padding-left: 16px; padding-right: 16px; }
+}

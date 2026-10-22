@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Substrate</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <strong class="brand">substrate</strong>
+    <span id="conn" class="conn" aria-live="polite">connecting</span>
+    <button id="theme" type="button" class="ghost" title="Toggle light or dark">theme: system</button>
+  </header>
+  <div class="layout">
+    <nav class="sidebar" aria-label="Jobs">
+      <section>
+        <h2>Running <span id="count-running" class="count"></span></h2>
+        <ul id="list-running" class="jobs"></ul>
+      </section>
+      <section>
+        <h2>Past <span id="count-past" class="count"></span></h2>
+        <ul id="list-past" class="jobs"></ul>
+      </section>
+    </nav>
+    <main id="main" class="main">
+      <p id="empty" class="empty">Choose a job on the left.</p>
+      <article id="job" class="job" hidden>
+        <header class="job-head">
+          <h1 id="job-request"></h1>
+          <p id="job-meta" class="meta"></p>
+          <p id="job-status" class="status-line"></p>
+          <div class="actions">
+            <button id="btn-stop" type="button">Stop</button>
+            <button id="btn-resume" type="button">Resume</button>
+            <span id="action-msg" class="action-msg" role="status"></span>
+          </div>
+        </header>
+        <section>
+          <h2>Tasks</h2>
+          <table class="tasks">
+            <thead><tr><th>Task</th><th>State</th><th>Attempt</th><th>Verify</th><th>Cost</th></tr></thead>
+            <tbody id="task-rows"></tbody>
+          </table>
+        </section>
+        <section>
+          <h2>Engine</h2>
+          <ol id="events" class="events"></ol>
+        </section>
+      </article>
+    </main>
+  </div>
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>

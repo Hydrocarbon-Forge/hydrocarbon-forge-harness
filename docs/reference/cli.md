@@ -522,6 +522,21 @@ Runs the benchmark suite in `bench/` against the task files that match the globs
 - Only the task globs reach the command. `--dry-run` is not passed through, so it does not prevent the attempts. The other bench options (`--arms`, `--repetitions`, `--format`, `--output`, `--max-budget`, `--concurrency`, `--tasks`, `--top-model`, `--cheap-model`, `--local-model`) are dropped by the dispatcher. A value after one of them is read as a task glob, which fails with `No benchmark tasks found matching pattern(s)`.
 - Exit `0` on success, `1` on error.
 
+## ui
+
+```text
+substrate ui serve [--port <n>]
+```
+
+The browser UI (web-ui design, section 8): a local web server that shows the jobs of every project registered on this
+machine. `ui serve` runs it in the foreground: it prints the URL on one line (`http://localhost:<port>`) and runs until
+SIGINT or SIGTERM, then closes its streams and exits `0`. It is what a systemd user unit runs.
+
+- The server listens on the loopback interface only, reached as `localhost`. It never listens on an all-interfaces address.
+- The port is `--port <n>` (a whole number from 0 to 65535, otherwise exit `2`). Without the flag it is the `port` in the user-level `ui.json`, in the same directory as `settings.json` (`$SUBSTRATE_CONFIG_DIR`, else `~/.config/substrate`). A `ui.json` that names no valid port exits `2`. Without either, the operating system chooses a free port and the URL printed shows it. A port that is in use exits `1` with a message that names it.
+- The API is under `/api` (see the design, section 5). State-changing requests (`stop`, `resume`) need `Content-Type: application/json` and the header `X-Substrate-UI: 1`, and the Host header must name `localhost`. These are availability guards, not authentication.
+- `ui` with no subcommand lists the subcommands. An unknown subcommand exits `2`.
+
 ## Interrupt and resume (R8.2)
 
 - **Ctrl+C (SIGINT) or SIGTERM** stops the run promptly (under 5 seconds with a hung harness). The harness processes of the run's workers are killed with their process groups. The run is `paused` with reason `user_cancel`, and its summary ends with `Interrupted. Resume with: substrate resume <run-id>`.
