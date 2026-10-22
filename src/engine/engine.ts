@@ -564,8 +564,12 @@ export class EngineImpl implements Engine {
           if (passedWork && restoreTaskBranch(repoRoot, runId, task.id, task.generation ?? 1)) {
             continue;
           }
+          // A task a rate limit stopped is a transient failure: it goes back to the queue on resume,
+          // like a killed attempt, and is not replanned (the pause for the limit is not sticky).
+          const rateLimited = task.state === "FAILED" && task.failure_class === "rate_limited";
           if (
             !passedWork &&
+            !rateLimited &&
             task.state !== "RUNNING" &&
             task.state !== "SCOPE_CHECK" &&
             task.state !== "VERIFYING"

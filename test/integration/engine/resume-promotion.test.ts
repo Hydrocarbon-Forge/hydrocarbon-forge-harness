@@ -164,4 +164,60 @@ describe("engine resume promotes PENDING tasks from a replayed log", () => {
     },
     120000
   );
+
+  it(
+    "resumes a run paused on a rate limit: the task is tried again, not replanned into a second pause",
+    async () => {
+      const single = {
+        ...sampleValidManifest(),
+        tasks: [{ id: "A", spec: "tasks/A.md" }],
+        integration_verify: [{ run: "echo integration verify pass", timeout_s: 30 }],
+      };
+      const files: Record<string, string> = { ...chainPlanFiles(), "manifest.yaml": YAML.stringify(single) };
+      delete files["tasks/B.md"];
+
+      // The first run hits a rate limit at the concurrency floor: the run pauses with rate_limited and
+      // task A is FAILED (rate_limited). The engine then has no replan for it.
+      const limited = fakeClaudeAdapter([PLANNER_CALL(files), { failure: "rate_limit", reply: "Rate limit" }]);
+      let runId: RunId;
+      try {
+        const first = await createEngine({
+          settings: { ...env.settings, concurrency: { workers: 1 } },
+          adapter: limited.adapter,
+        }).run({
+          cwd: env.repoRoot,
+          prompt: "Rate limited resume case",
+          mode: "plan",
+          permission_mode: "bypassPermissions",
+        });
+        expect(first.status).toBe("paused");
+        expect(first.pause_reason).toBe("rate_limited");
+        runId = first.run_id;
+      } finally {
+        limited.cleanup();
+      }
+
+      // The limit has cleared: the resume runs A once more and the run finishes.
+      const resume = fakeClaudeAdapter([WORKER_A]);
+      let summary: RunSummary;
+      try {
+        summary = await createEngine({ adapter: resume.adapter }).resume(runId, {
+          cwd: env.repoRoot,
+          permission_mode: "bypassPermissions",
+        });
+      } finally {
+        resume.cleanup();
+      }
+
+      const events = readEventLog(env.runDir, runId);
+      const afterResume = events.slice(events.map((e) => e.type).lastIndexOf("run.resumed"));
+      expect(summary.status).toBe("finished");
+      expect(summary.exit_code).toBe(0);
+      expect(afterResume.some((e) => e.type === "task.blocked" || e.type === "task.replanned")).toBe(false);
+      expect(afterResume.some((e) => e.type === "run.paused")).toBe(false);
+      expect(countOf(events, "task.session.started", "A")).toBe(2);
+      expect(countOf(events, "task.merged", "A")).toBe(1);
+    },
+    120000
+  );
 });

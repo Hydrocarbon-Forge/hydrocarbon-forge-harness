@@ -454,6 +454,11 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
       let nextState: TaskState;
       if (data.can_replan === false) {
         nextState = "BLOCKED";
+      } else if (data.failure_class === "rate_limited") {
+        // A rate limit is never replanned (replan.ts, ladder.ts): the task stays FAILED, and the
+        // resume that follows the rate-limit pause puts it back in the queue. REPLANNING here would
+        // send it to the replan action on resume, which pauses the run again without trying the task.
+        nextState = "FAILED";
       } else if (data.can_replan === true) {
         nextState = "REPLANNING";
       } else {
