@@ -14,6 +14,7 @@ assets/
   prompts/
     planner/
       format.md          exact plan format + worked example + pre-flight checklist (appended to the planner system prompt)
+      explorer.md        static system prompt of the read-only `explorer` subagent a claude planner may start (no variables)
       request.md         first user turn of a planning session
       correction.md      user turn when the linter rejects the plan (resumed planner session)
       answers.md         user turn when the caller answers questions (resumed planner session)

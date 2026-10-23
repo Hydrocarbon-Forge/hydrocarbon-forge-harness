@@ -38,6 +38,7 @@ import { clearWorkerPid, recordWorkerPid } from "../backends/worker-pids.js";
 import { resolveBaseRef } from "../git/base-ref.js";
 import { boundedMessage } from "../util/index.js";
 import { buildPlannerPrompt, buildCorrectionPrompt } from "./prompts/planner.js";
+import { plannerSubagentsOf } from "./planner-subagents.js";
 
 /**
  * The action's typed emit, handed to the planner so each backend usage event is
@@ -357,14 +358,6 @@ export const REQUIRED_HEADINGS = [
   "Out of scope",
 ];
 
-const DENY_PERMISSIONS = [
-  "git commit",
-  "git push",
-  "git checkout",
-  "git reset",
-  "subagents",
-];
-
 const INSTRUCTION_CANDIDATES = ["CLAUDE.md", "AGENTS.md", "SUBSTRATE.md"];
 
 /** The last non-empty line of `final_text`, trimmed. */
@@ -658,6 +651,7 @@ export async function runPlanner(
 
     const attemptSessionId = sessionId === "" ? crypto.randomUUID() : sessionId;
 
+    const subagents = plannerSubagentsOf(settings, route.backend);
     const spawnReq: SpawnRequest = {
       role: "planner",
       cwd: opts.runDir,
@@ -667,8 +661,9 @@ export async function runPlanner(
       ...(route.effort !== undefined ? { effort: route.effort } : {}),
       permission: {
         allow: [opts.runDir],
-        deny: DENY_PERMISSIONS,
+        deny: subagents.deny,
       },
+      ...(subagents.subagents !== undefined ? { subagents: subagents.subagents } : {}),
       // The planner does not know the session id before the first spawn, so it
       // generates one; a format error resumes that same session.
       ...(attempt === 1 ? { session: { id: attemptSessionId } } : { session: { resume: attemptSessionId } }),

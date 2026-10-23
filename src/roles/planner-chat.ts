@@ -29,6 +29,7 @@ import { assembleSystem, loadTemplate } from "../prompts/index.js";
 import { render } from "../prompts/render.js";
 import { resolvePlannerRoute } from "./router.js";
 import { ingestPlanDraft, sessionFailureMessage } from "./planner.js";
+import { plannerSubagentsOf } from "./planner-subagents.js";
 import { diffAmendment } from "../engine/amendment.js";
 import type { EngineState } from "../engine/reducer.js";
 import { isSubstrateProcess, processInfoOf } from "../util/process-control.js";
@@ -51,8 +52,6 @@ const DETAIL_CHARS = 200;
 const HISTORY_TEXT_CHARS = 1000;
 const REASON_MAX = 2000;
 const NO_TEXT_REPLY = "(the planner gave no text reply)";
-/** A chat turn is read-only for the repository: the same denials a planning session gets. */
-const DENY_PERMISSIONS = ["git commit", "git push", "git checkout", "git reset", "subagents"];
 /** Run states the engine refuses an amendment in (engine/amendment.ts, drainInbox). */
 const CANNOT_AMEND = new Set(["FINISHED", "CANCELLED"]);
 /**
@@ -352,6 +351,7 @@ function addTotals(totals: UsageTotals, record: UsageRecord): UsageTotals {
 async function askPlanner(opts: ChatTurnOptions, message: ChatMessageView, snap: Snapshot): Promise<{ text: string; sessionId: string }> {
   const { runDir, settings, adapters } = opts;
   const route = resolvePlannerRoute(settings);
+  const subagents = plannerSubagentsOf(settings, route.backend);
   const adapter = adapters[route.backend];
   if (adapter === undefined) {
     throw new ChatTurnFailure(`The planner could not be started: no harness is set up for ${route.backend}`);
@@ -366,7 +366,8 @@ async function askPlanner(opts: ChatTurnOptions, message: ChatMessageView, snap:
     system_append: assembleSystem("planner", {}),
     model: route.model,
     ...(route.effort !== undefined ? { effort: route.effort } : {}),
-    permission: { allow: [runDir], deny: DENY_PERMISSIONS },
+    permission: { allow: [runDir], deny: subagents.deny },
+    ...(subagents.subagents !== undefined ? { subagents: subagents.subagents } : {}),
     session: recorded !== undefined ? { resume: recorded } : { id: sessionId },
   };
 

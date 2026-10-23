@@ -276,6 +276,13 @@ export const SpawnRequest = z.object({
     resume: SessionId.optional(),
     fork: z.boolean().optional(),
   }).strict().optional(),
+  // Native subagents the harness may start (DECISIONS A1). Only the claude adapter honours it.
+  subagents: z.array(z.object({
+    name: z.string(),
+    description: z.string(),
+    prompt: z.string(),
+    model: z.string(),
+  }).strict()).optional(),
 }).strict();
 export type SpawnRequest = z.infer<typeof SpawnRequest>;
 

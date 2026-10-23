@@ -9,6 +9,7 @@ import { createRunId } from "../../../src/util/index.js";
 import type { ParsedPlan } from "../../../src/spec/index.js";
 import { assembleSystem, loadTemplate } from "../../../src/prompts/index.js";
 import { createTestRepo, type TestRepo } from "../git/test-repo.js";
+import { resolveTaskRoute } from "../../../src/roles/router.js";
 import {
   createMockAdapter,
   sampleValidManifestYaml,
@@ -160,19 +161,37 @@ describe("Planner role (§14.5 #13, R3.1)", () => {
       expect(req.prompt).toContain("Implement authenticated feature");
       expect(req.prompt).toContain(`run_id: ${runId}`);
 
-      // Invariant: the planner is denied git writes and subagents.
+      // Invariant: the planner is denied git writes. On claude it may start the read-only explorer subagent (DECISIONS A1).
       expect(req.permission.deny).toContain("git commit");
       expect(req.permission.deny).toContain("git push");
       expect(req.permission.deny).toContain("git checkout");
       expect(req.permission.deny).toContain("git reset");
-      expect(req.permission.deny).toContain("subagents");
+      expect(req.permission.deny).not.toContain("subagents");
       expect(req.permission.allow).toEqual([runDir]);
+      expect(req.subagents).toHaveLength(1);
+      expect(req.subagents?.[0]?.name).toBe("explorer");
+      expect(req.subagents?.[0]?.model).toBe(resolveTaskRoute("search", 1, DEFAULT_SETTINGS).model);
+      expect(req.subagents?.[0]?.prompt).toBe(loadTemplate("planner/explorer.md"));
 
       // Behavior 2: the planner has no session id before the first spawn.
       expect(req.session?.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
       );
       expect(req.session?.resume).toBeUndefined();
+    });
+
+    it("denies subagents and sends none when the planner runs on a harness without them", async () => {
+      const adapter = adapterFor([{ reply: "PLAN READY", files: planFiles(runId) }]);
+      const settings = {
+        ...DEFAULT_SETTINGS,
+        roles: { ...DEFAULT_SETTINGS.roles, planner: { ...DEFAULT_SETTINGS.roles.planner, backend: "opencode" as const } },
+      };
+
+      await runPlanner(options(adapter, { settings }));
+
+      const req = adapter.spawnedRequests[0];
+      expect(req.permission.deny).toContain("subagents");
+      expect(req.subagents).toBeUndefined();
     });
 
     it("reports the detected ecosystem as the first repo_map line", async () => {

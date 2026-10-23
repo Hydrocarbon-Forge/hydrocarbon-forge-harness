@@ -6,7 +6,8 @@ Status: FINAL as of 2026-10-17. If any other document (`SUBSTRATE-PLAN.md`, `REA
 Substrate is a CLI that other agents (mainly "Hermes") and people call to get coding work done cheaply and reliably. It asks one strong **planner** model to turn a request into a plan, then runs cheaper **worker** models on the plan's tasks, one headless harness process per task in its own git worktree, verifies every task with real commands, and merges only what passes. Control flow is ordinary code, not an LLM. It drives three existing harnesses: Claude Code (`claude`), OpenCode (`opencode`) and Antigravity (`agy`).
 
 ## Architecture
-- **A1. Execution model.** One headless harness process per task, each in its own git worktree. The engine (TypeScript code) is the orchestrator: it sequences tasks, assembles prompts, runs verify commands, commits, merges and escalates. There is **no orchestrator LLM** and **no native subagents**; workers get the `Agent`/subagent tool denied.
+- **A1. Execution model.** One headless harness process per task, each in its own git worktree. The engine (TypeScript code) is the orchestrator: it sequences tasks, assembles prompts, runs verify commands, commits, merges and escalates. There is **no orchestrator LLM**; workers get the `Agent`/subagent tool denied.
+  2026-10-23 (owner): the planner and the planner chat may spawn native subagents through `SpawnRequest.subagents` on the `claude` harness only (opencode and agy have none). Subagents run on the worker's cheap search route (the `explorer` subagent, `src/roles/planner-subagents.ts`). Workers still get the subagent tool denied. The engine remains the orchestrator, with no orchestrator LLM.
 - **A2. Roles.** Planner (strong model), worker (medium model), a cheap "fast" model for easy task classes, test-writer (a worker of class `tests`), reviewer (optional, off by default). The **governor / local triage model is retired from the default path.** Existing governor code stays compiled and untouched until work package R5.4 (optional) removes it. Do not wire it, extend it, or add tests for it.
   2026-10-20 (owner): the governor and the local-model front-door idea were dropped; the deterministic router replaces them; the governor code was deleted.
 - **A3. Models per provider ("profile").** Each provider (`claude`, `opencode`, `agy`) has a profile of up to three model slots, each `{model, effort}`: `plan` (strongest), `work` (medium), `fast` (optional, cheapest). A run needs a planner provider and a worker provider; the planner may come from a different provider than the workers. Task classes map to slots: `search`, `mechanical`, `boilerplate` use `fast` (or `work` if `fast` is absent); `tests`, `feature`, `refactor` use `work`; `debug`, `review` use `plan`. The escalation chain on replan is `fast → work → plan`, skipping repeats. The planner never names a model.
@@ -48,7 +49,7 @@ Substrate is a CLI that other agents (mainly "Hermes") and people call to get co
 | Prompts | All prompt text lives in `assets/agents/*.md` and `assets/prompts/**` (already written). Code loads and renders them; it never contains prompt text. |
 
 ## Out of scope (do not build, do not "scaffold")
-A TUI (the existing scaffold is deleted by R0.7), hooks, slash commands, skills semantics, MCP server, benchmark execution, security work (A6), the governor (A2), an orchestrator LLM (A1), native subagents (A1), packaging for npm publication.
+A TUI (the existing scaffold is deleted by R0.7), hooks, slash commands, skills semantics, MCP server, benchmark execution, security work (A6), the governor (A2), an orchestrator LLM (A1), native subagents for workers (A1), packaging for npm publication.
 
 ## Note 2026-10-20 (R7.2): explicit models and a git repository before a run
 

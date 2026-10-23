@@ -70,6 +70,13 @@ export const CLAUDE_FAMILY_IDS = [
 /** Efforts every alias and every known id accepts, in the order the CLI takes them. */
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
+/**
+ * The built-in Claude Code subagent types, denied by `Agent(<type>)` rules when a request names its own subagents so
+ * only those can run. The `Agent(<type>)` rule form is taken from the task spec and is not confirmed by `claude --help`
+ * (which documents only `--disallowedTools` with `Bash(...)` rules); see docs/reference/adapters.md.
+ */
+const CLAUDE_BUILTIN_SUBAGENTS = ["general-purpose", "Explore", "Plan"];
+
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -122,15 +129,34 @@ export function buildClaudeArgs(req: SpawnRequest): string[] {
   // engine's permission_mode is an approval gate and does not reach the harness.
   args.push("--dangerously-skip-permissions", "--permission-prompts", "none");
 
-  const disallowedSet = new Set<string>(["Agent"]);
+  // Without subagents the Agent tool is denied outright (workers). With subagents (DECISIONS A1, planner only) it
+  // stays available, the built-in subagent types are denied by name, and only the listed subagents can run.
+  const subagents = req.subagents ?? [];
+  const disallowedSet = new Set<string>(subagents.length > 0 ? [] : ["Agent"]);
   for (const rule of req.permission.deny) {
     const converted = convertClaudePermissionRule(rule);
     if (converted) {
       disallowedSet.add(converted);
     }
   }
+  if (subagents.length > 0) {
+    for (const builtin of CLAUDE_BUILTIN_SUBAGENTS) {
+      disallowedSet.add(`Agent(${builtin})`);
+    }
+  }
   const disallowed = Array.from(disallowedSet);
   args.push("--disallowedTools", disallowed.join(","));
+
+  if (subagents.length > 0) {
+    // `--agents` takes a JSON object keyed by subagent name (S1: it adds to the built-ins, never replaces them).
+    const agents = Object.fromEntries(
+      subagents.map((agent) => [
+        agent.name,
+        { description: agent.description, prompt: agent.prompt, model: agent.model },
+      ]),
+    );
+    args.push("--agents", JSON.stringify(agents));
+  }
 
   return args;
 }
