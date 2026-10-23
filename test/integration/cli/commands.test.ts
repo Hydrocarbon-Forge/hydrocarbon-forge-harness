@@ -979,7 +979,7 @@ describe("cli: inspection and lifecycle commands", () => {
       const ctxSet: CommandContext = {
         cwd: tmpDir,
         flags: {},
-        rawArgs: ["set", "budgets.run.max_usd", "25"],
+        rawArgs: ["set", "budgets.planner_format_retries", "3"],
         stdout,
         stderr,
       };
@@ -995,13 +995,13 @@ describe("cli: inspection and lifecycle commands", () => {
       const ctxGet: CommandContext = {
         cwd: tmpDir,
         flags: {},
-        rawArgs: ["get", "budgets.run.max_usd"],
+        rawArgs: ["get", "budgets.planner_format_retries"],
         stdout: stdoutGet,
         stderr,
       };
       const exitGet = await configCommand.execute(ctxGet);
       expect(exitGet).toBe(0);
-      expect(stdoutGet.getOutput()).toContain("25");
+      expect(stdoutGet.getOutput()).toContain("3");
 
       // 3. list
       const stdoutList = createMockStream();

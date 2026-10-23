@@ -32,7 +32,7 @@ Substrate is a CLI that other agents (mainly "Hermes") and people call to get co
 | Topic | Decision |
 |---|---|
 | Worker network | Not denied (Claude needs it to reach its API; security is out of scope). |
-| Run budget exhausted | Run `PAUSED(budget_exhausted)`, exit 4. A single task timeout or per-task budget exceeded is an L1 trigger. |
+| Run budget exhausted | *Superseded 2026-10-23: there is no run budget, so no run pauses for its cost. See the note of 2026-10-23.* Run `PAUSED(budget_exhausted)`, exit 4. A single task timeout or per-task budget exceeded is an L1 trigger. |
 | `substrate plan` | Always stops after plan + lint + cost estimate, whatever the cost. |
 | Worktree path | `.substrate/worktrees/<run_id>/<task_id>-g<n>/`; task branch `substrate/tasks/<run_id>/<task_id>-g<n>`; run branch `substrate/runs/<run_id>`. |
 | `routing.escalation` | List of model ids resolved through the profile slots (A3), not aliases. |
@@ -94,7 +94,7 @@ The rule now:
 
 Code: `src/engine/engine.ts` (`endedFailed`, `reopenData`), `src/engine/reducer.ts` (`run.reopened`, `ladder_base`), `src/engine/ladder.ts`, `src/engine/actions/integrate.ts`, `src/engine/failed-run.ts`, `src/cli/commands/resume.ts`.
 
-## Note 2026-10-21 (R12.1): spend and time limits are opt-in; planner budgets are estimates
+## Note 2026-10-21 (R12.1): spend and time limits are opt-in; planner budgets are estimates (superseded in part, 2026-10-23: see the last note)
 
 The owner's instruction (2026-10-21): "there's no need, that seems like it will just stop agents that end up taking too long because their task is actually hard". This supersedes the budget-default rows above: "Run budget exhausted" (the exit 4 row, and its clause that a per-task budget exceeded is an L1 trigger, which now needs a per-task cap the caller set) and "Solo mode" (its budget checks run only when a cap is set).
 
@@ -126,13 +126,13 @@ The owner's rule (2026-10-21): a check that cannot run is a warning, never a fai
 
 Code and tests: `src/engine/verify-outcome.ts`, `src/engine/verify-markers.ts`, `test/unit/engine/verify-outcome.test.ts`, `test/e2e/integration-setup.test.ts`; known issue 71.
 
-## Note 2026-10-21 (R12.3): plan lint blocks only a plan that cannot run
+## Note 2026-10-21 (R12.3): plan lint blocks only a plan that cannot run (2026-10-23: L016, L022 and L025 are removed; see the last note)
 
 The owner's policy (2026-10-21): plan-lint false positives rejected valid plans twice (L009 and L012 on the first snake run, L011 on `d=$(mktemp -d)`), and each rejection cost a paid planner retry or a failed run. A check that cannot run, or a rule that only guesses, must not block. The engine already enforces scope (a change outside a task's write set is dropped at merge), each task's verify and the final verify, so most pre-flight lint rules were redundant gates. The rule now:
 - A blocker is the only error. It refuses the plan and costs a planner format retry. A blocker is a plan that cannot be scheduled or would corrupt the engine's state: a manifest that does not parse or fails its schema; a task spec that is missing, outside the run directory, unreadable or unparsable; a duplicate or invalid task id; `depends_on` naming an unknown task; a dependency cycle; a contract file outside the repository. The table in `docs/reference/plan-lint.md` lists each rule's severity.
 - Every other rule is a warning: write-set and scope overlap, protected paths, verify binary and cwd, the read set, the contract typecheck (a type error and a checker that cannot run alike), placeholder tokens, required sections, budgets, class and route checks, test structure and style. A warning never refuses a plan and never costs a retry. Warnings are recorded and shown to the reviewer (R12.3 outputs, see the cli reference).
 - Unknown task classes are not a blocker: routing has a fallback for every class.
-- L022 (the estimate above the approval threshold) stays a `gate`. It was never a blocker and does not refuse or retry; the approval pause is decided by the run's estimate.
+- L022 (the estimate above the approval threshold) stays a `gate`. *Superseded 2026-10-23: L022 is removed and the approval pause with it.* It was never a blocker and does not refuse or retry.
 
 Code and tests: `src/spec/rules.ts`, `src/roles/planner.ts` (`ingestPlanDraft`), `test/unit/spec/lint-severity.test.ts`, `test/e2e/planner-retry-post-contract.test.ts`; known issue 24.
 
@@ -170,3 +170,48 @@ The owner's run `r_OVMJVL27O53V` failed for two environment reasons: a plan's `s
 - **A crashed replan gives up one task.** A replan whose planner session cannot start is not an `internal_error`: the task takes the `giveUp` path (`task.failed`, `can_replan: false`, with the spawn error as the detail), its dependents are skipped, independent tasks continue, and the run ends `failed` with a readable reason.
 
 Code and tests: `src/backends/process.ts`, `src/backends/spawn.ts`, `src/backends/adapters/claude.ts`, `src/roles/worker.ts`, `src/engine/replan.ts`, `src/git/setup.ts`; `test/e2e/environment-trouble.test.ts`, `test/integration/engine/replan.test.ts`, `test/unit/backends/claude-stdin.test.ts`.
+
+## Note 2026-10-23: gates fail soft; the plan and the state agree; one task's failure stays with that task
+
+The owner's instruction (2026-10-23): Substrate's own checks kept stopping good work. The rule now, in four parts:
+- **Placeholder text is a warning at spec load (a).** The spec parser (`src/spec/parser.ts`) no longer throws for TODO, FIXME, TBD, `...` or `<placeholder>` in Interface or Behavior. Rule L013 reports the finding as a warning, through the one detector `findPlaceholders` (`src/spec/placeholders.ts`). An ellipsis counts only as the whole content of a line or bullet, or as `etc...`; a bare `...` in a sentence and call shorthand in backticks are not placeholders. Real markers stay TODO, FIXME and TBD as uppercase whole words.
+- **The manifest and the live state agree (b).** A replan (L1 or L2) and an amendment rewrite the manifest; the engine then emits `plan.synced` (`src/engine/plan-sync.ts`, `src/contracts/events.ts`), which registers every manifest task the state lacks, updates the dependencies and write sets of tasks that have not started, and abandons pending tasks the manifest no longer names. The loop also reconciles whenever the manifest text changes, so a resume or a crash after the rewrite is repaired. A task that has started is never changed. A dependency that names no task of the plan is dropped and reported, never silently kept. Rule L004 is a warning for that reason (it was a blocker in the R12.3 list above, which this note supersedes for that one line). A task starts only after all its dependencies are merged.
+- **A check or a rule that cannot pass the plan is a warning (c).** A missing required heading in an L1 or L2 spec is the REPLAN warning, as L014 is in the planner; the contract typecheck does not refuse an L2 or amendment (R12.3 already makes it a warning). An L1 or L2 that a warning would have refused now goes through. The routing of a failure that belongs to another task's scope was open here; it is resolved by the note of 2026-10-23 (item 88) below.
+- **One task's failure stays with that task (d).** An exception inside one task's worker, heal or replan action is recorded as that task's `task.failed` (`can_replan: false`, the error text in `detail`, `src/engine/effects.ts` `taskExceptionData`): the task is BLOCKED, its dependents are skipped, and the other tasks keep running. Only an exception outside any single task stays a run-level internal error. A run that ends with some tasks merged and others failed or skipped has summary status `partial`. Its exit code stays 1 and its internal state stays FAILED, so `resume` still retries only the blocked and skipped tasks (R10.4), and `merge --partial` still lands the merged ones. The owner should confirm that exit 1 with status `partial` is the intended caller contract.
+
+Superseded wording, for the record: R8.1 said "the run ends failed (exit 1)" for a run that lost a task. It now ends with status `partial` when some tasks merged, and `failed` otherwise; the exit code is unchanged.
+
+Code and tests: `src/spec/parser.ts`, `src/spec/placeholders.ts`, `src/spec/rules.ts` (L004, L013), `src/engine/plan-sync.ts`, `src/engine/reducer.ts` (`plan.synced`, `run.amended`), `src/engine/replan.ts`, `src/engine/amendment.ts`, `src/engine/effects.ts`, `src/engine/engine.ts`; `test/unit/spec/placeholders.test.ts`, `test/unit/spec/parser.test.ts`, `test/unit/engine/plan-sync.test.ts`, `test/unit/engine/events.test.ts`, `test/unit/spec/lint-severity.test.ts`.
+
+## Note 2026-10-23 (owner: caps/approval/turn limits removed)
+
+The owner decided on 2026-10-23: Substrate is only asked to do work that is already approved, and its own limits and gates kept stopping good work. This note supersedes the spend, time, approval and turn rules above. Changes made to the statements above, each marked in place:
+- **Spend, token and time caps are removed.** The settings keys `budgets.run.*` (`max_usd`, `max_tokens`, `max_wall_min`), `budgets.task.*` (`max_usd`, `max_tokens`, `timeout_min`, `max_turns`) and the env var `SUBSTRATE_MAX_BUDGET_USD` are removed. `--max-budget-usd` and `--timeout` are accepted and ignored with a warning, and the request's `budget` object is accepted and ignored. A settings file that still has the removed keys loads; they are dropped at load (`src/config/index.ts`, `dropRemovedKeys`). No cap reaches a harness: `--max-budget-usd` is not passed to claude, no worker, planner or repair session has a timeout, and no run pauses for its cost or time. Cost is still reported (status, watch, summary, usage).
+- **Turn limits are removed.** No turn limit is passed to a harness and none is enforced by the engine. The spec's `budget.max_turns` stays an advisory field.
+- **Approval is removed.** The estimate never pauses a run; lint rule L022 and the approval threshold are removed; the `default` permission mode no longer pauses for approval. A plan that passes lint goes to setup. `plan.lint` reports the advisory estimate as `estimated_usd`. A run that a log wrote as paused for approval resumes as approved.
+- **Retry counts stay.** `budgets.l1_replans_per_task`, `budgets.l2_per_run` and `budgets.planner_format_retries` are the retry ladder's counts. The owner did not say whether they are turn limits; they are kept (open question, see `docs/known-issues.md`).
+- **`substrate config unset <key> [--local]`** removes a key from the project or local settings file, so the key takes its default again.
+- **Time limit and exit 4.** The wall-clock limit and the budget stop are removed; exit 4 is not produced by new runs.
+- Rules L016, L022 and L025 are removed; their tests are removed.
+
+Code and tests: `src/config/index.ts`, `src/contracts/index.ts`, `src/engine/effects.ts`, `src/engine/engine.ts`, `src/engine/actions/*.ts`, `src/roles/worker.ts`, `src/roles/planner.ts`, `src/backends/*`, `src/cli/commands/config.ts`, `src/cli/commands/run.ts`; `test/unit/config/config-command.test.ts` (unset cases), `test/unit/config/unset.test.ts`.
+
+## Note 2026-10-23 (owner: no-output idle watchdog replaces the removed timeout)
+
+The owner runs Substrate 24/7, and a harness process that hangs with no output would now wait forever, because the wall-clock timeout went with the other limits. The rule now:
+- **The idle watchdog is a hang detector, not a limit.** A harness session (worker, planner, planner chat, repair or replan) that writes no stdout or stderr for `watchdog.idle_minutes` is killed with kill reason `timeout`. The default is 30 minutes; `0` turns it off; fractional minutes are allowed; `substrate config unset watchdog.idle_minutes` returns it to 30.
+- **It is classified like any task failure.** The task fails with failure class `timeout` and the message `no output for <N> min`, and the normal retry and heal ladder applies. A killed planner session fails its planning attempt with the same message. It is never a run-level crash.
+- **Slow but active sessions are never killed.** Any chunk on either stream counts as output. There is no total-time cap; the wall-clock timeout is not reintroduced.
+- Code: `spawnSupervisedProcess` (`src/backends/process.ts`, `idleTimeoutMs`), each adapter's spawn, `createAdapters` (`src/backends/registry.ts`), `idleMinutesOf` and `IDLE_MINUTES_DEFAULT` (`src/contracts/index.ts`), and the message in `src/roles/worker.ts` and `src/roles/planner.ts`. Reference: `docs/reference/config.md`, `### watchdog`. Known issue 93.
+
+## Note 2026-10-23 (owner, item 88): a failure in another task's files goes to the task that owns them
+
+A replan of one task cannot change another task, so a check that fails on files another task owns used to escalate to L2 and dead-end the task. The engine now routes it. The rules:
+- **Ownership** is the manifest's per-task `write` and `create` sets (from each task spec). The failing output (the failing check command, its stdout and stderr tails) names the owned paths as whole tokens; a directory entry matches its prefix.
+- **Routing is taken only when** the output names exactly one other task's files and none of the failed task's own files. Otherwise the ladder runs as before. That covers: no owner named; two owners; the owner is BLOCKED, ABANDONED or FAILED; the owner depends on the failed task (a cycle); the failed task already took 2 routings (`MAX_OWNER_ROUTINGS_PER_TASK`, counted from the `plan.synced` events that carry `owner_route`).
+- **`defer`** (the owner has not merged): the failed task gains a dependency on the owner. It is held in PENDING and released when the owner has merged.
+- **`fix`** (the owner has merged): a new task `<owner>-FIX<n>` is added to the manifest. It owns exactly the failing files, depends on the owner, and runs the failing check commands. Its spec body is `assets/prompts/planner/owner-fix-spec.md`. The failed task gains a dependency on the fix task and is held in PENDING until the fix has merged.
+- The routed plan is linted like any replanned plan. If it does not lint, the files are put back and the ladder runs.
+- Both routes emit `plan.synced` with an `owner_route` field (`kind`, `owner`, `files`, and `fix_task` for a fix), so the log shows the routing.
+
+Code and tests: `src/engine/owner-routing.ts`, `src/engine/replan.ts` (`routeToOwner`), `src/engine/actions/replan.ts` (`recordedOwnerRoutings`), `src/contracts/events.ts` (`PlanSyncedEvent.owner_route`); `test/unit/engine/owner-routing.test.ts`, `test/e2e/owner-routing.test.ts`.

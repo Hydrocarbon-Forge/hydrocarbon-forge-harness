@@ -427,6 +427,53 @@ describe("Replan Loop and Failure Packets (src/engine/packet.ts & src/engine/rep
       expect(collector.first("run.paused")).toBeUndefined();
     }, 20000);
 
+    it("a replan session the idle watchdog kills as hung fails its task with that reason, through L1 and L2, and nothing pauses or throws", async () => {
+      const runId = makeRunId();
+      const collector = createEventCollector();
+      const state = makeInitialEngineState(runId, "T1");
+
+      const packet: Contracts.FailurePacket = {
+        run_id: runId,
+        task_id: "T1",
+        generation: 1,
+        failure_class: "verify_failed",
+        spec_path: specPath,
+        attempts: [makeSampleWorkerReport("T1", 1, 2)],
+        diff: { stat: "1 file changed", patch_path: join(packetDir, "T1-g1.patch"), truncated: false },
+        verify_output: [],
+        scope_violations: [],
+        worker_summary: "Failed tests",
+        related_contracts: [],
+        dependents: [],
+      };
+
+      // Both planner sessions (L1, then the L2 it escalates to) are killed by the watchdog: no output, no final line.
+      const hung = { result: { ok: false, final_text: "", exit_code: null, killed_for: "timeout" as const } };
+      const adapter = createMockAdapter({ sessionConfigs: [hung, hung] });
+
+      const result = await executeReplan({
+        runId,
+        taskId: "T1",
+        packet,
+        state,
+        settings: { ...DEFAULT_SETTINGS, watchdog: { idle_minutes: 2 } },
+        adapter,
+        runDir,
+        repoRoot: repo.dir,
+        baseRef: "main",
+        onEvent: collector.onEvent,
+      });
+
+      expect(result.status).toBe("failed");
+      expect(adapter.spawnedRequests).toHaveLength(2);
+      const failed = collector.first("task.failed");
+      expect(failed?.data).toMatchObject({ task_id: "T1", can_replan: false });
+      expect(String((failed?.data as { detail?: string }).detail)).toBe(
+        "Planner session killed: no output for 2 min; the session was killed as hung",
+      );
+      expect(collector.first("run.paused")).toBeUndefined();
+    }, 20000);
+
     it("executes L1 spec replan: escalates tier, spawns planner, parses and lints revised spec", async () => {
       const runId = makeRunId();
       const collector = createEventCollector();

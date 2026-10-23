@@ -58,7 +58,6 @@ export function runAdapterConformanceSuite(
           prompt: "echo hello",
           model: "claude-haiku-5-5",
           permission: { allow: ["Bash"], deny: [] },
-          budget: { timeout_ms: 30000 },
         };
 
         const handle = adapter.spawn(req);
@@ -95,7 +94,6 @@ export function runAdapterConformanceSuite(
           prompt: "scenario:hang",
           model: "claude-haiku-5-5",
           permission: { allow: [], deny: [] },
-          budget: { timeout_ms: 30000 },
         };
 
         const handle = adapter.spawn(req);
@@ -124,7 +122,7 @@ export function runAdapterConformanceSuite(
       }
     });
 
-    it("terminates process group on handle.kill('budget') and marks killed_for: budget", async () => {
+    it("terminates process group on handle.kill('timeout') and marks killed_for: timeout", async () => {
       if (options?.skipScenarios?.includes("hang")) return;
 
       const cwd = mkdtempSync(join(tmpdir(), "conformance-budget-"));
@@ -135,19 +133,18 @@ export function runAdapterConformanceSuite(
           prompt: "scenario:hang",
           model: "claude-haiku-5-5",
           permission: { allow: [], deny: [] },
-          budget: { timeout_ms: 30000 },
         };
 
         const handle = adapter.spawn(req);
         expect(handle.pid).toBeGreaterThan(0);
 
         await new Promise((r) => setTimeout(r, 100));
-        await handle.kill("budget");
+        await handle.kill("timeout");
 
         const result = await handle.result();
         expect(SessionResult.safeParse(result).success).toBe(true);
         expect(result.ok).toBe(false);
-        expect(result.killed_for).toBe("budget");
+        expect(result.killed_for).toBe("timeout");
       } finally {
         rmSync(cwd, { recursive: true, force: true });
       }
@@ -164,7 +161,6 @@ export function runAdapterConformanceSuite(
           prompt: "scenario:soft_deny",
           model: "claude-haiku-5-5",
           permission: { allow: [], deny: ["Bash"] },
-          budget: { timeout_ms: 30000 },
         };
 
         const handle = adapter.spawn(req);
@@ -198,7 +194,6 @@ export function runAdapterConformanceSuite(
           prompt: "scenario:resume",
           model: "claude-haiku-5-5",
           permission: { allow: [], deny: [] },
-          budget: { timeout_ms: 30000 },
           session: { resume: targetSessionId },
         };
 

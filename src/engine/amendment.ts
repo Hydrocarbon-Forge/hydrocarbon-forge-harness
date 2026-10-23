@@ -173,13 +173,8 @@ export async function applyAmendment(req: AmendmentRequest): Promise<AmendmentOu
     if (contracts.files.some((file) => !insideDir(runDir, file))) {
       return { outcome: "rejected", reason: "a contract file path resolves outside the run directory" };
     }
-    const typecheck = await typecheckContracts(amendDir, contracts, { cwd: amendDir });
-    if (!typecheck.ok) {
-      return {
-        outcome: "rejected",
-        reason: truncate(`the amended contracts do not typecheck: ${typecheck.diagnostics.map((d) => d.message).join("; ")}`),
-      };
-    }
+    // 2026-10-23: the contract typecheck is a warning (R12.3); a type error does not refuse the amendment.
+    await typecheckContracts(amendDir, contracts, { cwd: amendDir });
   }
 
   let commitSha: string | undefined;

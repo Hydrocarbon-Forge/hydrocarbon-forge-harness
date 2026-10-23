@@ -130,12 +130,6 @@ const BLOCKERS: Row[] = [
     build: (repo) => ({ plan: planOf(repo, [{ id: "T1", spec: "tasks/missing.md" }]) }),
   },
   {
-    code: "L004",
-    severity: "error",
-    defect: "depends_on names an unknown task",
-    build: (repo) => ({ plan: oneTask(repo, { depends_on: ["NOPE"] }) }),
-  },
-  {
     code: "L005",
     severity: "error",
     defect: "a dependency cycle",
@@ -157,6 +151,12 @@ const BLOCKERS: Row[] = [
 ];
 
 const WARNINGS: Row[] = [
+  {
+    code: "L004",
+    severity: "warn",
+    defect: "depends_on names an unknown task (the engine drops it)",
+    build: (repo) => ({ plan: oneTask(repo, { depends_on: ["NOPE"] }) }),
+  },
   {
     code: "L003",
     severity: "warn",
@@ -243,15 +243,6 @@ const WARNINGS: Row[] = [
     build: (repo) => ({ plan: oneTask(repo, {}, undefined, sectionsWith({ "Edge cases": "" })) }),
   },
   {
-    code: "L016",
-    severity: "warn",
-    defect: "a task budget above the per-task cap",
-    build: (repo) => ({
-      plan: oneTask(repo, { budget: { max_usd: 0.25 } }),
-      settings: sampleSettings({ budgets: { task: { max_usd: 0.1 } } } as any),
-    }),
-  },
-  {
     code: "L017",
     severity: "warn",
     defect: "a read set above the context budget",
@@ -302,15 +293,6 @@ const WARNINGS: Row[] = [
     severity: "warn",
     defect: "class tests that writes a non-test path",
     build: (repo) => ({ plan: oneTask(repo, { class: "tests", write: ["src/feature.ts"] }) }),
-  },
-  {
-    code: "L025",
-    severity: "warn",
-    defect: "a manifest budget above the run cap",
-    build: (repo) => ({
-      plan: oneTask(repo, {}, { budget: { max_usd: 2 } } as any),
-      settings: sampleSettings({ budgets: { run: { max_usd: 0.5 } } } as any),
-    }),
   },
   {
     code: "L026",

@@ -7,13 +7,11 @@ import { fileURLToPath } from "node:url";
 import { runSubstrate, type RunSubstrateResult } from "./helpers/run-substrate.js";
 import { CONTRACT_STUB, contractFiles, manifestFor, planCall, taskSpec } from "./helpers/plan-scenario.js";
 
-// R7.7: a task without a budget is not a plan error. It runs with the per-task cap
-// (settings budgets.task.max_usd), which the worker's claude spawn receives as
-// --max-budget-usd. The fake claude dialect appends each spawn's argv to FAKE_ARGV_LOG.
+// R7.7: a task without a budget is not a plan error. Since 2026-10-23 no spend cap is
+// passed: the worker's claude spawn gets no --max-budget-usd. The fake claude dialect appends each spawn's argv to FAKE_ARGV_LOG.
 
 const CLAUDE_BIN = resolve(fileURLToPath(import.meta.url), "../../fixtures/fake-harness/bin/claude");
 const SEED = { "src/a.txt": "seed a\n", "src/b.txt": "seed b\n", "contracts/types.ts": CONTRACT_STUB };
-const TASK_CAP = 0.7;
 
 function claudeWrapper(dir: string, argvLog: string): string {
   const wrapper = join(dir, "claude-wrapper.sh");
@@ -42,7 +40,7 @@ function withoutBudget(spec: string): string {
 }
 
 describe("R7.7: a plan whose tasks have no budget", () => {
-  it("lints without errors and runs every task with the per-task cap", () => {
+  it("lints without errors and runs every task with no spend cap passed to claude", () => {
     const dir = mkdtempSync(join(tmpdir(), "substrate-r77-budget-"));
     const argvLog = join(dir, "argv.log");
     const claude = claudeWrapper(dir, argvLog);
@@ -58,7 +56,6 @@ describe("R7.7: a plan whose tasks have no budget", () => {
         ],
       },
       settings: {
-        budgets: { task: { max_usd: TASK_CAP } },
         backends: { claude: { bin: claude } },
       },
       args: ["run", "--permission-mode", "bypassPermissions", "--plan", "claude:claude-sonnet-5-5", "--work", "claude:haiku", "Two tasks without budgets"],
@@ -72,9 +69,7 @@ describe("R7.7: a plan whose tasks have no budget", () => {
       const workerSpawns = argvsOf(argvLog).slice(1);
       expect(workerSpawns.length, diagnostics(res)).toBe(2);
       for (const argv of workerSpawns) {
-        const idx = argv.indexOf("--max-budget-usd");
-        expect(idx, diagnostics(res)).toBeGreaterThanOrEqual(0);
-        expect(argv[idx + 1]).toBe(String(TASK_CAP));
+        expect(argv, diagnostics(res)).not.toContain("--max-budget-usd");
       }
     } finally {
       res.cleanup();

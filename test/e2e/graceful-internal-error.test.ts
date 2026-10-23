@@ -43,8 +43,11 @@ function git(res: RunSubstrateResult, args: string[]): string {
   return execFileSync("git", args, { cwd: res.repoDir, encoding: "utf8" }).trim();
 }
 
-describe("R9.1: an unexpected engine error ends the run cleanly", () => {
-  it("the text summary is printed, the stack is kept in error.txt, exit 1, and nothing is left behind", () => {
+// 2026-10-23 (owner, d): an exception inside one task's worker is that task's failure, not a run-level internal
+// error. The task is BLOCKED with the error text, the stack is kept under packets/, and the run ends failed with exit 1.
+// A run-level internal error (an exception outside any one task) keeps error.txt; this file covers the task boundary.
+describe("R9.1 / 2026-10-23 (d): an unexpected exception inside a task ends that task, cleanly", () => {
+  it("the text summary names the task failure, the stack is kept under packets/, exit 1, and nothing is left behind", () => {
     const res = runBroken(["run", "--permission-mode", "bypassPermissions", "Build the internal error case"]);
     try {
       expect(res.exitCode, diagnostics(res)).toBe(1);
@@ -54,26 +57,29 @@ describe("R9.1: an unexpected engine error ends the run cleanly", () => {
       expect(res.stderr, diagnostics(res)).not.toMatch(/Error: |^\s+at /m);
       // The normal failed-run summary, with the reason and the next step.
       expect(res.stdout, diagnostics(res)).toContain("Status:     failed");
-      expect(res.stdout, diagnostics(res)).toContain("Reason:     internal error: missing template variable: unknown_variable");
-      // R10.4: the resume leads the Next lines; the Substrate-bug line comes last, under them.
+      expect(res.stdout, diagnostics(res)).toContain("missing template variable: unknown_variable");
+      // R10.4: the resume leads the Next lines (the task is retried), and the run is not an internal error.
       expect(res.stdout, diagnostics(res)).toMatch(/Next: +substrate resume r_\w+ {2}\(retries the failed tasks; passed tasks are kept\)\n/);
-      expect(res.stdout, diagnostics(res)).toMatch(/\n {12}This is a Substrate bug; the run directory keeps the event log: \.substrate\/runs\/r_\w+\/\n/);
+      expect(res.stdout, diagnostics(res)).not.toContain("This is a Substrate bug");
       expect(res.stdout, diagnostics(res)).toContain("Exit Code:  1");
-      // The stack trace is in the run directory.
+      // The stack trace is kept in the run directory, next to the task's packet.
       expect(res.runDir, diagnostics(res)).not.toBeNull();
-      const errorTxt = join(res.runDir as string, "error.txt");
-      expect(existsSync(errorTxt), "error.txt written").toBe(true);
-      const stack = readFileSync(errorTxt, "utf8");
+      const stackFile = join(res.runDir as string, "packets", "T1-exception.txt");
+      expect(existsSync(stackFile), "task exception file written").toBe(true);
+      const stack = readFileSync(stackFile, "utf8");
       expect(stack).toContain("missing template variable: unknown_variable");
       expect(stack).toMatch(/\n\s+at /);
-      // The event log ends with the terminal failure, which carries the class and the message.
+      // The event log ends with the terminal failure: the task failed with the error text, the run is failed.
+      const failedTask = res.events.find((e) => e.type === "task.failed");
+      expect(failedTask?.data, diagnostics(res)).toMatchObject({ task_id: "T1", can_replan: false, failure_class: "worker_crashed" });
+      expect(String((failedTask?.data as any).detail), diagnostics(res)).toContain("missing template variable: unknown_variable");
       const last = res.events[res.events.length - 1];
       expect(last.type, diagnostics(res)).toBe("run.finished");
       expect(last.data, diagnostics(res)).toMatchObject({
         exit_code: 1,
         status: "failed",
-        failure_class: "internal_error",
-        message: "missing template variable: unknown_variable",
+        reason: "tasks_failed",
+        failed_tasks: ["T1"],
       });
       expect(res.events.filter((e) => e.type === "run.finished").length, diagnostics(res)).toBe(1);
       // Worktrees and task branches are swept; the run branch stays (it names the run).
@@ -85,14 +91,14 @@ describe("R9.1: an unexpected engine error ends the run cleanly", () => {
     }
   });
 
-  it("the json result is the same failed run: failure_class internal_error, the message, exit 1", () => {
+  it("the json result is the same failed run: the task's failure class and its message, exit 1", () => {
     const res = runBroken(["run", "--output-format", "json", "--permission-mode", "bypassPermissions", "Build the internal error case"]);
     try {
       expect(res.exitCode, diagnostics(res)).toBe(1);
       const summary = JSON.parse(res.stdout.trim());
       expect(summary.status, diagnostics(res)).toBe("failed");
-      expect(summary.failure_class, diagnostics(res)).toBe("internal_error");
-      expect(summary.message, diagnostics(res)).toBe("missing template variable: unknown_variable");
+      expect(summary.failure_class, diagnostics(res)).toBe("worker_crashed");
+      expect(summary.tasks.T1.failure_class, diagnostics(res)).toBe("worker_crashed");
       expect(summary.exit_code, diagnostics(res)).toBe(1);
     } finally {
       res.cleanup();

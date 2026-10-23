@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 
 import type { BackendEvent, Command, WorkerReport } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
-import { checkRunBudget, interruptOf } from "../effects.js";
+import { interruptOf } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
@@ -12,7 +12,6 @@ import { resolveTaskRoute } from "../../roles/router.js";
 import { getRunBranch, workspaceManager } from "../../git/index.js";
 import {
   runWorker,
-  type TaskTotals,
   type WorkerObservation,
   type WorkerRunPolicy,
   type WorkerStopDecision,
@@ -58,12 +57,6 @@ export async function runSoloTask(
     read: [],
     protected: [],
     verify: verifyList,
-    budget: {
-      max_usd: ctx.settings.budgets?.task?.max_usd,
-      max_tokens: ctx.settings.budgets?.task?.max_tokens,
-      timeout_min: ctx.settings.budgets?.task?.timeout_min,
-      max_turns: ctx.settings.budgets?.task?.max_turns,
-    },
   };
 
   const taskState = state.tasks["SOLO"] ?? {
@@ -97,15 +90,7 @@ export async function runSoloTask(
     return;
   }
 
-  let localTotal = state.usage.total_usd;
-  let localTokens = 0;
   let rateLimits = 0;
-
-  const taskBudget = {
-    max_usd: soloSpec.budget.max_usd ?? ctx.settings.budgets.task.max_usd,
-    max_tokens: soloSpec.budget.max_tokens ?? ctx.settings.budgets.task.max_tokens,
-    max_turns: soloSpec.budget.max_turns ?? ctx.settings.budgets.task.max_turns,
-  };
 
   const rateLimitDecision = (): WorkerStopDecision => {
     rateLimits += 1;
@@ -132,43 +117,7 @@ export async function runSoloTask(
     return { stop: true, kill: "cancel", backoff_ms: BACKOFF_MS[rateLimits - 1] };
   };
 
-  const taskBudgetDecision = (totals: TaskTotals): WorkerStopDecision | undefined => {
-    const crossed = (limit: number | undefined, value: number, label: string) =>
-      limit !== undefined && value >= limit ? label : undefined;
-
-    const which =
-      crossed(taskBudget.max_usd, totals.cost_usd, "cost") ??
-      crossed(taskBudget.max_tokens, totals.tokens, "tokens") ??
-      crossed(taskBudget.max_turns, totals.turns, "turns");
-
-    if (!which) return undefined;
-    return {
-      stop: true,
-      kill: "budget",
-      failure_class: "budget_exceeded",
-      detail: `task ${which} budget`,
-    };
-  };
-
   const runPolicy: WorkerRunPolicy = (obs: WorkerObservation) => {
-    const delta = obs.usageDelta;
-    const contributed =
-      (delta?.cost_usd ?? 0) + (delta?.input_tokens ?? 0) + (delta?.output_tokens ?? 0);
-
-    if (delta && contributed > 0) {
-      localTotal += delta.cost_usd ?? 0;
-      localTokens += (delta.input_tokens ?? 0) + (delta.output_tokens ?? 0);
-    }
-
-    if (checkRunBudget(ctx, emit, localTotal, localTokens)) {
-      return { stop: true, kill: "budget" };
-    }
-
-    if (obs.totals && (contributed > 0 || obs.totals.turns > 0)) {
-      const decision = taskBudgetDecision(obs.totals);
-      if (decision) return decision;
-    }
-
     if (obs.event?.type === "permission.denied") {
       emit("run.paused", { reason: "permission_denied" });
       return { stop: true, kill: "cancel" };
@@ -181,11 +130,6 @@ export async function runSoloTask(
     const res = obs.result;
     if (res) {
       if (interruptOf(ctx)?.aborted || res.killed_for === "cancel") {
-        return { stop: true };
-      }
-      if (res.killed_for === "budget") {
-        emit("run.budget.exceeded", { cost_usd: localTotal, max_usd: ctx.settings.budgets.run.max_usd });
-        emit("run.paused", { reason: "budget_exhausted" });
         return { stop: true };
       }
       if (res.denials && res.denials.length > 0) {

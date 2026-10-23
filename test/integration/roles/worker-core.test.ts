@@ -137,7 +137,7 @@ describe("Worker core (R3.3)", () => {
             execFileSync("git", ["-C", req.cwd, "commit", "-m", "worker commit"]);
           })(),
           result: () => handle.result(),
-          kill: (reason: "budget" | "timeout" | "cancel") => handle.kill(reason),
+          kill: (reason: "timeout" | "cancel") => handle.kill(reason),
         };
       },
     };

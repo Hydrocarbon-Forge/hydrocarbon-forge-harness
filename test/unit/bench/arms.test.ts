@@ -32,12 +32,9 @@ function makeSettings(overrides: Partial<Contracts.Settings> = {}): Contracts.Se
       },
     },
     budgets: {
-      run: { max_usd: 10 },
-      task: { max_usd: 2.0 },
       l1_replans_per_task: 2,
       l2_per_run: 2,
       planner_format_retries: 2,
-      approval_threshold_usd: 2,
     },
     concurrency: { workers: 3 },
     permissions: { allow: [], deny: [] },

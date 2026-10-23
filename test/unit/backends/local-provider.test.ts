@@ -139,12 +139,9 @@ describe("R4.3 local provider config and adapter", () => {
       routing: { feature: { backend: "claude" as const, model: "m" } },
       pricing: { asOf: "2026-10-16", sources: ["https://example.com"], models: {} },
       budgets: {
-        run: {},
-        task: {},
         l1_replans_per_task: 2,
         l2_per_run: 2,
         planner_format_retries: 2,
-        approval_threshold_usd: 2,
       },
       concurrency: { workers: 3 },
       permissions: { allow: [], deny: [] },
@@ -231,7 +228,6 @@ describe("R4.3 local provider config and adapter", () => {
           prompt: "test prompt",
           model: "local-model",
           permission: { allow: [], deny: [] },
-          budget: { timeout_ms: 30000 },
         };
 
         const baseUrl = `http://localhost:${port}/v1`;

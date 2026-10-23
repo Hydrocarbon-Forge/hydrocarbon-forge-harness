@@ -29,7 +29,6 @@ function fakeAdapter(
       version_pin: "0.0.0",
       effort: true,
       structured_output: false,
-      budget_flag: false,
       cost_reported: false,
       resume: false,
       permission_denial_signal: "none",

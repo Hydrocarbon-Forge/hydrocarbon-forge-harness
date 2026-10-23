@@ -8,7 +8,7 @@ export interface PlannerPromptOptions {
   skillsList?: Array<{ name: string; description: string }>;
   /**
    * Remaining `planner/request.md` variables (run_id, base_ref, repo_root,
-   * classes, task_budget, run_budget, max_tasks, charter, history). A variable
+   * classes, max_tasks, charter, history). A variable
    * the caller does not have is passed as an empty string and renders as
    * `(none)`.
    */
@@ -34,8 +34,6 @@ const REQUEST_VARS: Record<string, string> = {
   base_ref: "",
   repo_root: "",
   classes: "",
-  task_budget: "",
-  run_budget: "",
   max_tasks: "",
   charter: "",
   history: "",

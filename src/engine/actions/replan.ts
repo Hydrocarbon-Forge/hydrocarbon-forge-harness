@@ -9,7 +9,7 @@ import {
 import { parseManifest, parseTaskSpec, type ParsedTaskSpec } from "../../spec/index.js";
 import { EventStoreImpl } from "../../store/event-store.js";
 import type { EffectContext, EngineAction } from "../effects.js";
-import { checkRunBudget, interruptOf } from "../effects.js";
+import { interruptOf } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor, safeParseManifest } from "./shared.js";
@@ -73,8 +73,6 @@ export async function runReplanAction(
     dependents: manifest ? transitiveDependents(ctx.runDir, manifest, taskId) : [],
   });
 
-  let localTotal = state.usage.total_usd;
-
   // The ladder decides the route and executeReplan runs it: L1, L2 or the L3 pause.
   await executeReplan({
     runId: ctx.runId,
@@ -89,15 +87,10 @@ export async function runReplanAction(
     decisionsLog: readRunFile(ctx.runDir, "decisions.md"),
     taskClass: spec?.frontmatter.class,
     signal: interruptOf(ctx),
+    ownerRoutings: recordedOwnerRoutings(ctx, taskId),
     // The effects-loop emitter: every replan event is recorded through it, so the
     // reducer advances the task and run state as the ladder escalates.
     emit,
-    // The run budget stays the caller's decision; when it is exceeded the planner
-    // session is stopped and no replan is recorded (R3.4, R3.5 rule 10).
-    onUsage: (delta) => {
-      localTotal += delta.cost_usd ?? 0;
-      return checkRunBudget(ctx, emit, localTotal);
-    },
   });
 }
 
@@ -156,6 +149,21 @@ function recordedScopeViolations(ctx: EffectContext, taskId: TaskId, generation:
     for (const violation of data.violations ?? []) violations.push(violation);
   }
   return violations;
+}
+
+/** The owner routings this task has taken: the `plan.synced` events that carry an `owner_route` for it (item 88). */
+function recordedOwnerRoutings(ctx: EffectContext, taskId: TaskId): number {
+  const events = ctx.store
+    ? ctx.store.readAllSync()
+    : new EventStoreImpl(ctx.runId, { runDir: ctx.runDir }).readAllSync();
+
+  let routings = 0;
+  for (const evt of events) {
+    if (evt.type !== "plan.synced") continue;
+    const data = evt.data as { replan_task_id?: string; owner_route?: unknown };
+    if (data.replan_task_id === taskId && data.owner_route !== undefined) routings += 1;
+  }
+  return routings;
 }
 
 function readRunFile(runDir: string, relPath: string): string {

@@ -49,6 +49,7 @@ function createMockStream(): NodeJS.WriteStream & { getOutput: () => string } {
 
 let projectDir: string;
 let pathDir: string;
+let userConfigDir: string;
 const savedEnv: Record<string, string | undefined> = {};
 
 function isolateEnv(): void {
@@ -68,7 +69,10 @@ function isolateEnv(): void {
   symlinkSync(process.execPath, join(pathDir, "node"));
   symlinkSync(GIT_BINARY, join(pathDir, "git"));
   process.env.PATH = pathDir;
-  process.env.SUBSTRATE_CONFIG_DIR = "";
+  // An empty SUBSTRATE_CONFIG_DIR falls back to ~/.config/substrate, so a machine's own version pins would reach the
+  // checks. A fresh empty directory keeps the user settings out of these tests; the built-in pins are then the ones tested.
+  userConfigDir = mkdtempSync(join(tmpdir(), "substrate-doctor-config-"));
+  process.env.SUBSTRATE_CONFIG_DIR = userConfigDir;
   for (const key of ["SUBSTRATE_SETTINGS", "SUBSTRATE_PROJECT_DIR", "SUBSTRATE_MODEL"]) {
     process.env[key] = "";
   }
@@ -156,6 +160,7 @@ afterEach(() => {
   restoreEnv();
   rmSync(pathDir, { recursive: true, force: true });
   rmSync(projectDir, { recursive: true, force: true });
+  rmSync(userConfigDir, { recursive: true, force: true });
 });
 
 describe("doctor", () => {

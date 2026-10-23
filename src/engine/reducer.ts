@@ -12,7 +12,6 @@ export type RunState =
   | "ROUTING"
   | "PLANNING"
   | "LINTING"
-  | "AWAITING_APPROVAL"
   | "SETUP"
   | "EXECUTING"
   | "INTEGRATING"
@@ -75,7 +74,6 @@ declare module "../contracts/index.js" {
     | "ROUTING"
     | "PLANNING"
     | "LINTING"
-    | "AWAITING_APPROVAL"
     | "SETUP"
     | "EXECUTING"
     | "INTEGRATING"
@@ -198,9 +196,9 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
     }
 
     case "plan.lint": {
-      if (data.requires_approval === true) {
-        return { ...state, state: "AWAITING_APPROVAL" };
-      } else if (data.requires_approval === false) {
+      // There is no approval pause (owner, 2026-10-23). A log written before the removal may say
+      // requires_approval either way; both mean the plan goes on to setup, so an old run resumes.
+      if (data.requires_approval === true || data.requires_approval === false) {
         return { ...state, state: "SETUP" };
       }
       return state;
@@ -647,21 +645,16 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         (Array.isArray(data.tasks) ? data.tasks : []).map((t: any) => [t.id, t])
       );
       for (const id of Array.isArray(data.added) ? data.added : []) {
-        const entry = entries.get(id);
-        nextTasks[id] = {
-          id,
-          state: "PENDING",
-          generation: 1,
-          attempt: 1,
-          depends_on: entry?.depends_on ?? [],
-          write: entry?.write ?? [],
-          create: entry?.create ?? [],
-        };
+        nextTasks[id] = pendingTaskFrom(id, entries.get(id));
       }
       for (const id of Array.isArray(data.changed) ? data.changed : []) {
         const current = nextTasks[id];
         const entry = entries.get(id);
-        if (!current) continue;
+        if (!current) {
+          // 2026-10-23: a task the manifest has and the live state lacks is registered, never dropped silently.
+          nextTasks[id] = pendingTaskFrom(id, entry);
+          continue;
+        }
         nextTasks[id] = {
           ...current,
           state: "PENDING",
@@ -675,6 +668,46 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
         const current = nextTasks[id];
         if (!current) continue;
         nextTasks[id] = { ...current, state: "ABANDONED", dropped: true };
+      }
+      return { ...state, tasks: nextTasks };
+    }
+
+    case "plan.synced": {
+      // 2026-10-23: the manifest and the live state are reconciled (see PlanSyncedEvent). A task that has started
+      // is never changed or dropped; a pending task takes the dependencies and sets the manifest now gives it.
+      const entries = new Map<string, { depends_on: string[]; write: string[]; create: string[] }>(
+        (Array.isArray(data.tasks) ? data.tasks : []).map((t: any) => [t.id, t])
+      );
+      const nextTasks: Record<TaskId, TaskRuntimeState> = { ...state.tasks };
+      for (const id of Array.isArray(data.added) ? data.added : []) {
+        if (nextTasks[id] === undefined) nextTasks[id] = pendingTaskFrom(id, entries.get(id));
+      }
+      for (const id of Array.isArray(data.changed) ? data.changed : []) {
+        const current = nextTasks[id];
+        const entry = entries.get(id);
+        if (current === undefined) {
+          nextTasks[id] = pendingTaskFrom(id, entry);
+          continue;
+        }
+        if (entry === undefined) continue;
+        const sets = { depends_on: entry.depends_on, write: entry.write, create: entry.create };
+        if (id === data.replan_task_id) {
+          // The replan owns this task's state; only its dependencies and sets follow the rewritten spec.
+          nextTasks[id] = { ...current, ...sets };
+          continue;
+        }
+        const pending = current.state === "PENDING" || current.state === "READY";
+        const revived = current.state === "ABANDONED" && current.dropped === true;
+        if (pending || revived) {
+          nextTasks[id] = { ...current, ...sets, state: "PENDING", dropped: undefined };
+        }
+      }
+      for (const id of Array.isArray(data.dropped) ? data.dropped : []) {
+        const current = nextTasks[id];
+        if (current === undefined) continue;
+        if (current.state === "PENDING" || current.state === "READY") {
+          nextTasks[id] = { ...current, state: "ABANDONED", dropped: true };
+        }
       }
       return { ...state, tasks: nextTasks };
     }
@@ -703,6 +736,22 @@ export function reduce(state: EngineState, event: EngineEvent): EngineState {
     default:
       return state;
   }
+}
+
+/** A PENDING task as the manifest describes it: the dependencies and write and create sets of its spec. */
+function pendingTaskFrom(
+  id: TaskId,
+  entry: { depends_on: string[]; write: string[]; create: string[] } | undefined
+): TaskRuntimeState {
+  return {
+    id,
+    state: "PENDING",
+    generation: 1,
+    attempt: 1,
+    depends_on: entry?.depends_on ?? [],
+    write: entry?.write ?? [],
+    create: entry?.create ?? [],
+  };
 }
 
 export function computeDagLayers(

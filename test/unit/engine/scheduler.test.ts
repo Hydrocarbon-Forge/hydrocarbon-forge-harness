@@ -21,12 +21,9 @@ function makeSettings(workers = 3, maxUsd = 10): Contracts.Settings {
       models: {},
     },
     budgets: {
-      run: { max_usd: maxUsd },
-      task: { max_usd: 1.0 },
       l1_replans_per_task: 2,
       l2_per_run: 2,
       planner_format_retries: 2,
-      approval_threshold_usd: 2,
     },
     concurrency: { workers },
     permissions: { allow: [], deny: [] },
@@ -159,15 +156,4 @@ describe("engine: scheduler scheduleNextTasks concurrency and serialization", ()
     expect(next).toEqual([]);
   });
 
-  it("yields empty array when run budget is exhausted", () => {
-    const settings = makeSettings(3, 5.0); // max_usd 5.0
-    const state = makeState();
-    state.usage.total_usd = 5.5; // Exceeded
-    state.tasks = {
-      TaskA: { id: "TaskA", state: "READY", generation: 1, attempt: 1 },
-    };
-
-    const next = scheduleNextTasks(state, settings, 0);
-    expect(next).toEqual([]);
-  });
 });

@@ -16,7 +16,7 @@ import type {
   UsageLedgerEntry,
 } from "../contracts/index.js";
 import { parseManifest, parseTaskSpec } from "../spec/index.js";
-import { startHarnessSession } from "../backends/spawn.js";
+import { idleMinutesOf, startHarnessSession } from "../backends/spawn.js";
 import { appendUsage, ledgerPaths, toDelta, type UsageTotals } from "../ledger/usage.js";
 import { capField, teeTranscript } from "../store/transcript.js";
 import { EventStoreImpl } from "../store/event-store.js";
@@ -28,7 +28,7 @@ import { plannerCharter } from "../charter/index.js";
 import { assembleSystem, loadTemplate } from "../prompts/index.js";
 import { render } from "../prompts/render.js";
 import { resolvePlannerRoute } from "./router.js";
-import { ingestPlanDraft, plannerSpawnBudgetUsd, sessionFailureMessage } from "./planner.js";
+import { ingestPlanDraft, sessionFailureMessage } from "./planner.js";
 import { diffAmendment } from "../engine/amendment.js";
 import type { EngineState } from "../engine/reducer.js";
 import { isSubstrateProcess, processInfoOf } from "../util/process-control.js";
@@ -359,8 +359,6 @@ async function askPlanner(opts: ChatTurnOptions, message: ChatMessageView, snap:
   const prompt = render(loadTemplate("planner/chat.md"), packOf(opts, message, snap));
   const recorded = plannerSessionIdOf(snap.events);
   const sessionId = recorded ?? randomUUID();
-  const runCapUsd = settings.budgets?.run?.max_usd;
-  const timeoutMin = settings.budgets?.task?.timeout_min;
   const request: SpawnRequest = {
     role: "planner",
     cwd: runDir,
@@ -369,10 +367,6 @@ async function askPlanner(opts: ChatTurnOptions, message: ChatMessageView, snap:
     model: route.model,
     ...(route.effort !== undefined ? { effort: route.effort } : {}),
     permission: { allow: [runDir], deny: DENY_PERMISSIONS },
-    budget: {
-      max_usd: plannerSpawnBudgetUsd(runCapUsd, snap.state.usage.total_usd),
-      ...(timeoutMin ? { timeout_min: timeoutMin, timeout_ms: timeoutMin * 60 * 1000 } : {}),
-    },
     session: recorded !== undefined ? { resume: recorded } : { id: sessionId },
   };
 
@@ -405,6 +399,12 @@ async function askPlanner(opts: ChatTurnOptions, message: ChatMessageView, snap:
   }
   if (!sawUsage && res.usage) totals = addTotals(totals, res.usage);
   recordChatUsage(opts, route, totals);
+
+  // The idle watchdog killed the session as hung (owner, 2026-10-23): the turn fails with that reason, and the chat
+  // records it as a failed reply, so the UI shows why and the server keeps running.
+  if (res.killed_for === "timeout") {
+    throw new ChatTurnFailure(`The planner session was killed: no output for ${idleMinutesOf(settings)} min; the session was killed as hung`);
+  }
 
   if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
     throw new ChatTurnFailure(sessionFailureMessage(res.exit_code, res.final_text, harnessError, route.backend));

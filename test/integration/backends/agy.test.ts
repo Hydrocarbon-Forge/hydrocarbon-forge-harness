@@ -80,7 +80,7 @@ describe("AgyAdapter - Capabilities and Contracts", () => {
     expect(caps.version_pin).toBe("1.4.2");
     expect(caps.effort).toBe(true);
     expect(caps.structured_output).toBe(false);
-    expect(caps.budget_flag).toBe(false);
+    expect(caps).not.toHaveProperty('budget_flag');
     expect(caps.cost_reported).toBe(false);
     expect(caps.resume).toBe(true);
     expect(caps.permission_denial_signal).toBe("stderr");
@@ -137,7 +137,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "echo hello",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const handle = adapter.spawn(req);
@@ -170,7 +169,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         model: "gemini-3.8-flash-low",
         effort: "max", // S3: agy 1.4.0 accepts only low/medium/high, so this is omitted
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const argv = buildAgyArgv(req);
@@ -196,7 +194,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
       model: "gemini-3.8-flash-high",
       effort: "high",
       permission: { allow: [], deny: [] },
-      budget: { timeout_ms: 30000 },
     });
     expect(argv).toContain("--effort");
     expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
@@ -213,7 +210,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "scenario:soft_deny",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: ["command"] },
-        budget: { timeout_ms: 30000 },
       };
 
       const handle = adapter.spawn(req);
@@ -253,7 +249,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "echo hello",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const handle = adapter.spawn(req);
@@ -296,7 +291,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "echo hello",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const handle = adapter.spawn(req);
@@ -329,7 +323,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "echo hello",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: ["command"] },
-        budget: { timeout_ms: 30000 },
         env: { FAKE_SCENARIO: "soft_deny" },
       };
 
@@ -354,7 +347,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "scenario:resume",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
         session: { resume: resumeId },
       };
 
@@ -403,7 +395,6 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "scenario:hang",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const handle = adapter.spawn(req);
@@ -420,7 +411,7 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
     }
   });
 
-  it("terminates process group on kill('budget') with killed_for: 'budget'", async () => {
+  it("terminates process group on kill('timeout') with killed_for: 'timeout'", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "agy-kill-budget-"));
     try {
       const adapter = createAdapter();
@@ -430,16 +421,15 @@ describe("AgyAdapter - Execution, Supervision, and Lifecycle", () => {
         prompt: "scenario:hang",
         model: "gemini-3.8-flash-low",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const handle = adapter.spawn(req);
       await new Promise((r) => setTimeout(r, 100));
-      await handle.kill("budget");
+      await handle.kill("timeout");
 
       const res = await handle.result();
       expect(res.ok).toBe(false);
-      expect(res.killed_for).toBe("budget");
+      expect(res.killed_for).toBe("timeout");
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }

@@ -10,7 +10,6 @@ describe("Claude Argument Builder: buildClaudeArgs", () => {
     prompt: "run task",
     model: "claude-haiku-5-5",
     permission: { allow: [], deny: [] },
-    budget: { timeout_ms: 10000 },
     session: { id: "12345678-1234-1234-1234-123456789abc" },
   };
 
@@ -140,6 +139,36 @@ describe("Claude Argument Builder: buildClaudeArgs", () => {
     expect(args).toContain("--disallowedTools");
     const disallowed = args[args.indexOf("--disallowedTools") + 1].split(",");
     expect(disallowed).toContain("Agent");
+  });
+
+  it("omits --agents when the request names no subagents", () => {
+    expect(buildClaudeArgs(baseReq)).not.toContain("--agents");
+    expect(buildClaudeArgs({ ...baseReq, subagents: [] })).not.toContain("--agents");
+  });
+
+  it("with subagents, drops Agent from the disallowed list, keeps the deny rules and passes --agents JSON", () => {
+    const req: SpawnRequest = {
+      ...baseReq,
+      permission: { allow: [], deny: ["git commit"] },
+      subagents: [
+        { name: "explorer", description: "Read-only explorer", prompt: "Explore the repo.", model: "haiku" },
+      ],
+    };
+    const args = buildClaudeArgs(req);
+
+    const disallowed = args[args.indexOf("--disallowedTools") + 1].split(",");
+    expect(disallowed).not.toContain("Agent");
+    expect(disallowed).toContain("Bash(git commit*)");
+    expect(disallowed).toContain("Agent(general-purpose)");
+
+    expect(args).toContain("--agents");
+    const agents = JSON.parse(args[args.indexOf("--agents") + 1]);
+    expect(Object.keys(agents)).toEqual(["explorer"]);
+    expect(agents.explorer).toEqual({
+      description: "Read-only explorer",
+      prompt: "Explore the repo.",
+      model: "haiku",
+    });
   });
 });
 

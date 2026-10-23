@@ -40,7 +40,7 @@ describe("OpenCodeAdapter: Capabilities Specification", () => {
     expect(adapter.capabilities.version_pin).toBe("2.0.21");
     expect(adapter.capabilities.effort).toBe(true);
     expect(adapter.capabilities.structured_output).toBe(false);
-    expect(adapter.capabilities.budget_flag).toBe(false);
+    expect(adapter.capabilities).not.toHaveProperty('budget_flag');
     expect(adapter.capabilities.cost_reported).toBe(true);
     expect(adapter.capabilities.resume).toBe(true);
     expect(adapter.capabilities.permission_denial_signal).toBe("none");
@@ -99,7 +99,6 @@ describe("OpenCodeAdapter: Per-Run Config Generation", () => {
           allow: [],
           deny: ["Bash", "Edit", "WebFetch", "WebSearch"],
         },
-        budget: { timeout_ms: 30000 },
       };
 
       const config = generateOpenCodeRunConfigSync(req);
@@ -140,7 +139,6 @@ describe("OpenCodeAdapter: Per-Run Config Generation", () => {
         prompt: "echo test",
         model: "local-llama-model",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const options: OpenCodeAdapterOptions = {
@@ -170,7 +168,6 @@ describe("OpenCodeAdapter: Supervision and Lifecycle Invariants", () => {
         prompt: "echo hello",
         model: "opencode/deepseek-v4.1-flash-free",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       };
 
       const handle = adapter.spawn(req);
@@ -215,7 +212,6 @@ describe("OpenCodeAdapter: run argv", () => {
         prompt: "echo hello",
         model: "opencode/deepseek-v4.1-flash-free",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       });
       for await (const _ of handle.events) {
         // consume stream
@@ -256,7 +252,6 @@ describe("OpenCodeAdapter: session ids", () => {
         prompt: "echo hello",
         model: "opencode/deepseek-v4.1-flash-free",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
         session,
       });
       const events = [];
@@ -324,7 +319,6 @@ describe("OpenCodeAdapter: agent lookup follows the run directory", () => {
         prompt: "echo hello",
         model: "opencode/deepseek-v4.1-flash-free",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 30000 },
       });
       const events = [];
       for await (const event of handle.events) {

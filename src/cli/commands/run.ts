@@ -10,12 +10,8 @@ import { createSessionStore, type SessionRecord, type SessionStore } from "../..
 import { changedFilesOnRun, currentBranchName, runLandedInHead } from "../../git/landing.js";
 import {
   MERGE_TURNED_OFF_REASON,
-  budgetResumeCommand,
-  budgetStopMessage,
   failureOf,
   startBranchOf,
-  timeoutResumeCommand,
-  timeoutStopMessage,
   verificationOf,
   repairOf,
   repairedOf,
@@ -59,6 +55,7 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /** Accepted for old callers and ignored: run spend and time limits were removed (owner, 2026-10-23). */
   maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
@@ -159,19 +156,6 @@ export function buildSettingsOverrides(flags: CommandContext["flags"], mode?: st
     }
   }
 
-  if (flags.maxBudgetUsd !== undefined) {
-    overrides.budgets = overrides.budgets || {};
-    overrides.budgets.run = overrides.budgets.run || {};
-    overrides.budgets.run.max_usd = flags.maxBudgetUsd;
-  }
-
-  if (flags.timeout !== undefined) {
-    overrides.budgets = overrides.budgets || {};
-    overrides.budgets.run = overrides.budgets.run || {};
-    // --timeout takes seconds; budgets.run.max_wall_min is in minutes.
-    overrides.budgets.run.max_wall_min = flags.timeout / 60;
-  }
-
   if (flags.sandbox) {
     overrides.sandbox = { enabled: true };
   }
@@ -205,12 +189,17 @@ export function mergeChoiceOf(flags: { merge?: boolean; noMerge?: boolean }, req
   return requestMerge;
 }
 
-/** The --timeout value must be a whole number of seconds, 1 or more (R11.2); undefined when it is not given or is valid. */
-export function timeoutFlagProblem(flags: { timeout?: number }): string | undefined {
-  if (flags.timeout === undefined) return undefined;
-  return Number.isInteger(flags.timeout) && flags.timeout >= 1
-    ? undefined
-    : "Error: --timeout must be a whole number of seconds, 1 or more\n";
+/**
+ * The warning for --max-budget-usd and --timeout, which are accepted and ignored (owner, 2026-10-23: run spend and
+ * time limits were removed). undefined when neither is given.
+ */
+export function ignoredLimitFlagWarning(flags: { maxBudgetUsd?: number; timeout?: number }): string | undefined {
+  const given = [
+    ...(flags.maxBudgetUsd !== undefined ? ["--max-budget-usd"] : []),
+    ...(flags.timeout !== undefined ? ["--timeout"] : []),
+  ];
+  if (given.length === 0) return undefined;
+  return `warning: ${given.join(" and ")} ignored: run spend and time limits were removed\n`;
 }
 
 /** The --concurrency value must be a whole number from 1 to 16 (R10.3); undefined when it is not given or is valid. */
@@ -293,38 +282,8 @@ export async function landRun(
   }
   // A failed run never lands, even when its branch has no commits of its own.
   const merged = !runFailed && summary.branch !== undefined && runLandedInHead(ctx.cwd, summary.branch);
-  let failure = runFailed ? failureOf(opts.events) : undefined;
+  const failure = runFailed ? failureOf(opts.events) : undefined;
   let resumeCommand: string | undefined;
-  // R8.2: a run stopped by its run budget says what it spent, what each task was doing, and the
-  // resume command with a higher budget.
-  if (summary.pause_reason === "budget_exhausted") {
-    const exceeded = [...opts.events].reverse().find((e) => e.type === "run.budget.exceeded");
-    const spent = Number((exceeded?.data as { cost_usd?: unknown } | undefined)?.cost_usd ?? summary.usage?.total_usd ?? 0);
-    // R11.1: the cap the run recorded (its run.created, or the resume that replaced it), before the flag.
-    const cap = Number(
-      (exceeded?.data as { max_usd?: unknown } | undefined)?.max_usd ??
-        recordedRunOptions(opts.events).max_budget_usd ??
-        ctx.flags.maxBudgetUsd ??
-        0,
-    );
-    failure = {
-      failure_class: "budget_exhausted",
-      message: budgetStopMessage(spent, cap, summary.tasks),
-    };
-    resumeCommand = budgetResumeCommand(summary.run_id, spent, cap);
-  }
-  // R11.2: a run stopped by its wall-clock limit says the limit, what each task was doing, and the resume with
-  // a longer --timeout. The limit is the one the run paused with, else the one it recorded.
-  if (summary.pause_reason === "timeout") {
-    const paused = [...opts.events].reverse().find((e) => e.type === "run.paused" && (e.data as { reason?: unknown } | undefined)?.reason === "timeout");
-    const limit = Number(
-      (paused?.data as { time_limit_s?: unknown } | undefined)?.time_limit_s ??
-        recordedRunOptions(opts.events).time_limit_s ??
-        0,
-    );
-    failure = { failure_class: "timeout", message: timeoutStopMessage(limit, summary.tasks) };
-    resumeCommand = timeoutResumeCommand(summary.run_id, limit);
-  }
   // The final check's outcome (R12.2): passed, failed, skipped, or not run with its reason.
   const verification = verificationOf(opts.events);
   // R12.4: the repair attempts of a failed final check, and the attempt that passed one.
@@ -345,7 +304,7 @@ export async function landRun(
       ...(repair !== undefined ? { repair } : {}),
       ...(repaired !== undefined ? { repaired } : {}),
       // A task merged into the run branch is what `merge --partial` lands (R8.2).
-      partialLandable: summary.status === "failed" && summary.branch !== undefined &&
+      partialLandable: (summary.status === "failed" || summary.status === "partial") && summary.branch !== undefined &&
         opts.events.some((e) => e.type === "task.merged") &&
         planHasIntegrationVerify(path.join(ctx.cwd, ".substrate", "runs", summary.run_id)),
     },
@@ -363,11 +322,8 @@ export const runCommand: CliCommand = {
       ctx.stderr.write(concurrencyProblem);
       return 2;
     }
-    const timeoutProblem = timeoutFlagProblem(ctx.flags);
-    if (timeoutProblem !== undefined) {
-      ctx.stderr.write(timeoutProblem);
-      return 2;
-    }
+    const limitWarning = ignoredLimitFlagWarning(ctx.flags);
+    if (limitWarning !== undefined) ctx.stderr.write(limitWarning);
     // R10.5: --review is plan only. It is the plan command's path, and it records the worker, so a bare resume works.
     if (ctx.flags.review === true) {
       if (ctx.flags.work === undefined) {
@@ -444,9 +400,6 @@ export const runCommand: CliCommand = {
       if (reqRes.overrides.roles) {
         overrides.roles = { ...(overrides.roles ?? {}), ...reqRes.overrides.roles };
       }
-      if (reqRes.overrides.budgets) {
-        overrides.budgets = { ...(overrides.budgets ?? {}), ...reqRes.overrides.budgets };
-      }
       if (reqRes.overrides.verify) {
         runVerify = reqRes.overrides.verify;
       }
@@ -488,7 +441,7 @@ export const runCommand: CliCommand = {
       warnNoVerify = getDefaultVerify(eco).length === 0;
     }
     if (mode === "solo" && warnNoVerify) {
-      ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
+      ctx.stderr.write("warning: no verify commands; only scope checks apply\n");
     }
 
     const sessionStore =
@@ -561,7 +514,7 @@ export const runCommand: CliCommand = {
       signal: ctx.signal,
       onEvent: (event) => {
         if (mode === "auto" && warnNoVerify && event.type === "run.routed" && (event.data as { mode?: unknown }).mode === "solo") {
-          ctx.stderr.write("warning: no verify commands; only scope and budget checks apply\n");
+          ctx.stderr.write("warning: no verify commands; only scope checks apply\n");
         }
         runIdSeen = String(event.run_id);
         if (event.type === "run.created") {

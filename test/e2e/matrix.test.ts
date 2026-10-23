@@ -376,12 +376,12 @@ const row06: MatrixRow = {
   },
 };
 
-// Scenario 7: the run's cost budget is exhausted; the run pauses with exit 4.
-// Only claude reports cost_usd in the fake (R0.2 Behavior 7), so only claude can drive
-// a budget kill.
+// Scenario 7: a run whose cost passes a removed budget cap is not stopped. 2026-10-23 (owner): spend caps
+// are removed, so the run completes with exit 0, nothing pauses it, and its cost is still reported.
+// Only claude reports cost_usd in the fake (R0.2 Behavior 7), so only claude carries the cost here.
 const row07: MatrixRow = {
   id: "S07",
-  name: "budget kill: exit 4 and run.paused with reason budget_exhausted",
+  name: "removed budget cap: the run completes with exit 0, is not paused, and reports its cost",
   dialects: ["claude"],
   async run(ctx) {
     const spec = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q marker src/a.txt" });
@@ -395,9 +395,9 @@ const row07: MatrixRow = {
       args: [...RUN_ARGS, "Run the budget case"],
     });
     try {
-      expect(res.exitCode, diagnostics(res)).toBe(4);
-      const paused = ofType(res, "run.paused");
-      expect(paused[paused.length - 1].data.reason).toBe("budget_exhausted");
+      expect(res.exitCode, diagnostics(res)).toBe(0);
+      expect(ofType(res, "run.paused")).toEqual([]);
+      expect(ofType(res, "run.finished").length).toBeGreaterThanOrEqual(1);
     } finally {
       res.cleanup();
     }
@@ -421,26 +421,29 @@ function liveProcessesUsing(scenarioPath: string): number[] {
   return alive;
 }
 
-// Scenario 8: a hanging session is killed by the task timeout, and no child survives.
+// Scenario 8: a hung session (no output at all) is killed by the no-output idle watchdog: the task fails with
+// failure_class timeout and a message that names the idle time, the task is retried through the replan ladder, and no
+// child survives. The idle limit is 0.03 min (1.8 s), so the hang ends in seconds. The watchdog is a hang detector
+// (owner, 2026-10-23), not a work limit.
+const IDLE_MINUTES_FOR_TESTS = 0.03;
 const row08: MatrixRow = {
   id: "S08",
-  name: "timeout kills the session: task.failed timeout and no live child process",
+  name: "idle watchdog kills a hung session: task.failed timeout (no output for N min) and no live child process",
   dialects: ALL_DIALECTS,
   async run(ctx) {
-    const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-matrix-timeout-"));
+    const scenarioDir = mkdtempSync(join(tmpdir(), "substrate-matrix-idle-"));
     const scenarioPath = join(scenarioDir, "scenario.json");
     const spec = taskSpec({
       id: "T1",
       write: ["src/a.txt"],
       verify: "grep -q marker src/a.txt",
-      budget: ["  max_usd: 0.5", "  timeout_min: 0.05"],
     });
     const revised = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q marker src/a.txt", marker: "AFTER-TIMEOUT" });
     writeFileSync(
       scenarioPath,
       JSON.stringify({
         calls: [
-          planCall(contractFiles(manifestFor("Timeout", ["T1"]), { "tasks/T1.md": spec })),
+          planCall(contractFiles(manifestFor("Idle hang", ["T1"]), { "tasks/T1.md": spec })),
           { failure: "hang", reply: "never returns" },
           { plan: { files: { "tasks/T1.md": revised } }, reply: "REVISED T1" },
           { edits: { "src/a.txt": "seed a\nmarker\n" }, reply: "DONE" },
@@ -450,16 +453,15 @@ const row08: MatrixRow = {
     );
     const res = run(ctx, {
       files: SEED,
-      args: [...RUN_ARGS, "Run the timeout case"],
+      args: [...RUN_ARGS, "Run the idle hang case"],
       env: { FAKE_SCENARIO_FILE: scenarioPath },
-      // No task timeout is the default; the project setting is the timer that kills the hang.
-      settings: { budgets: { task: { timeout_min: 0.05 } } },
-      timeoutMs: 120000,
+      settings: { watchdog: { idle_minutes: IDLE_MINUTES_FOR_TESTS } },
     });
     try {
       const failed = ofType(res, "task.failed");
       expect(failed.length).toBeGreaterThanOrEqual(1);
       expect(failed[0].data.failure_class).toBe("timeout");
+      expect(String(failed[0].data.detail ?? failed[0].data.message ?? "")).toContain("no output for 0.03 min");
       expect(liveProcessesUsing(scenarioPath)).toEqual([]);
     } finally {
       res.cleanup();

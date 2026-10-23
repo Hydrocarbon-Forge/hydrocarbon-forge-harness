@@ -264,6 +264,45 @@ describe("E2E planner chat (ui chat, web-ui design section 7)", () => {
     }
   }, 300000);
 
+  it("a chat turn the idle watchdog kills as hung is a failed reply with the reason; nothing is queued and the server still answers", async () => {
+    const xdg = tempDir("substrate-chat-xdg-");
+    // T1 never passes its check, so the run ends failed. The watchdog limit is 0.03 min (1.8 s) for this project.
+    const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });
+    const res = runSubstrate({
+      files: SEED,
+      env: { XDG_STATE_HOME: xdg },
+      settings: { watchdog: { idle_minutes: 0.03 } },
+      scenario: {
+        calls: [planCall(contractFiles(manifestFor("One", ["T1"]), { "tasks/T1.md": t1 })), { task: "T1", reply: "DONE" }, { task: "T1", reply: "DONE" }],
+      },
+      args: [...RUN_ARGS, "One failing task"],
+    });
+    let ui: Ui | undefined;
+    try {
+      expect(res.exitCode).toBe(1);
+      const runDir = res.runDir as string;
+      const ref = refOf(res.repoDir, basename(runDir));
+
+      // The planner's turn gets a session that never writes: the watchdog kills it.
+      ui = await startUi(envOf(xdg, scenarioOf([{ failure: "hang", reply: "never returns" }])));
+      expect((await sendChat(ui.url, ref, "Why did T1 fail?")).status).toBe(202);
+
+      const chat = await waitForChat(ui.url, ref, (m) => m.some((x) => x.role === "system" && x.status === "failed"));
+      expect(chat.map((m) => `${m.role}:${m.status}`)).toEqual(["user:failed", "system:failed"]);
+      const reason = chat.find((m) => m.role === "system")?.text ?? "";
+      expect(reason).toContain("no output for 0.03 min");
+      expect(reason).toContain("Nothing was changed.");
+
+      // The failed turn queues nothing, and the UI still serves the chat after the kill.
+      expect(existsSync(join(runDir, "amendments"))).toBe(false);
+      expect(inboxKindsOf(runDir)).toEqual(["chat"]);
+      expect((await fetch(`${ui.url}/api/runs/${encodeURIComponent(ref)}/chat`)).status).toBe(200);
+    } finally {
+      await ui?.stop();
+      res.cleanup();
+    }
+  }, 300000);
+
   it("answers on a finished run in text and reports that it cannot amend, even when the planner writes an amendment", async () => {
     const xdg = tempDir("substrate-chat-xdg-");
     const t1 = taskSpec({ id: "T1", write: ["src/a.txt"], verify: "grep -q t1-done src/a.txt" });

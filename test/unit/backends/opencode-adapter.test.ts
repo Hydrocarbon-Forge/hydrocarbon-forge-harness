@@ -25,7 +25,6 @@ describe("OpenCode Adapter: Config Generation", () => {
         model: "opencode/deepseek-v4.1-flash-free",
         system_append: systemAppend,
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 10000 },
       };
 
       const config = generateOpenCodeRunConfigSync(req);
@@ -55,7 +54,6 @@ describe("OpenCode Adapter: Config Generation", () => {
           allow: [],
           deny: ["Agent", "Bash", "Edit"],
         },
-        budget: { timeout_ms: 10000 },
       };
 
       const config = generateOpenCodeRunConfigSync(req);
@@ -100,7 +98,6 @@ describe("OpenCode Adapter: Config Generation", () => {
           allow: [],
           deny: ["agent", "subagent", "subagent_custom"],
         },
-        budget: { timeout_ms: 10000 },
       };
 
       const config = generateOpenCodeRunConfigSync(req);
@@ -130,7 +127,6 @@ describe("OpenCode Adapter: Spawn and Local Provider Requirements", () => {
       prompt: "run local model",
       model: "local/llama-3.2",
       permission: { allow: [], deny: [] },
-      budget: { timeout_ms: 5000 },
     };
 
     const handle = adapter.spawn(req);
@@ -428,7 +424,6 @@ describe("OpenCode Adapter: a failed exit reports the harness stderr", () => {
         prompt: "plan it",
         model: "opencode/deepseek-v4.1-flash-free",
         permission: { allow: [], deny: [] },
-        budget: { timeout_ms: 10000 },
       });
 
       const events: BackendEvent[] = [];

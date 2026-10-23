@@ -12,7 +12,6 @@ export interface LintOptions {
 export interface LintResult {
   ok: boolean;
   hasErrors: boolean;
-  hasGates: boolean;
   diagnostics: Diagnostic[];
 }
 
@@ -59,13 +58,11 @@ export async function lintPlan(
   }
 
   const hasErrors = diagnostics.some((d) => d.severity === "error");
-  const hasGates = diagnostics.some((d) => d.severity === "gate");
   const ok = !hasErrors;
 
   return {
     ok,
     hasErrors,
-    hasGates,
     diagnostics,
   };
 }

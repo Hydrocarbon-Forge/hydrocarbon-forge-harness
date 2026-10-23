@@ -60,7 +60,7 @@ function rateLimitEvent(): BackendEvent {
   return { type: "error", kind: "rate_limit", message: "backend rate limit" };
 }
 
-describe("R3.4 unit: budgets, run budget warning once, rate limit backoff", () => {
+describe("R3.4 unit: rate limit backoff and the copy of the settings", () => {
   let env: ScenarioEnv;
 
   beforeEach(async () => {
@@ -116,149 +116,6 @@ describe("R3.4 unit: budgets, run budget warning once, rate limit backoff", () =
   function specWith(frontmatter: Record<string, unknown>): string {
     return sampleValidTaskSpecMarkdown({ frontmatter });
   }
-
-  it("a per-task cost budget cuts only the task, not the run", async () => {
-    const settings: Settings = {
-      ...DEFAULT_SETTINGS,
-      budgets: {
-        ...DEFAULT_SETTINGS.budgets,
-        run: { max_usd: 10 },
-        task: { max_usd: 0.002 },
-      },
-    };
-
-    const result = await runWorkerAction({
-      settings,
-      configs: [{ events: [startedEvent(), usageEvent(0.01, 100)] }],
-      // The per-task limit is the spec's own budget.
-      specMarkdown: specWith({ protected: [], budget: { max_usd: 0.002 } }),
-      concurrency: 4,
-    });
-
-    const failed = result.byType("task.failed");
-    expect(failed).toHaveLength(1);
-    expect((failed[0].data as any).failure_class).toBe("budget_exceeded");
-    expect((failed[0].data as any).attempt).toBe(1);
-
-    // The run is not paused by a per-task budget.
-    expect(result.byType("run.paused")).toHaveLength(0);
-    expect(result.adapter.killCalls.map((k) => k.reason)).toEqual(["budget"]);
-  });
-
-  it("a per-task turn budget cuts the task on the assistant turns of the generation", async () => {
-    const settings: Settings = {
-      ...DEFAULT_SETTINGS,
-      budgets: {
-        ...DEFAULT_SETTINGS.budgets,
-        run: { max_usd: 10 },
-        task: { max_usd: 5, max_turns: 2 },
-      },
-    };
-
-    const result = await runWorkerAction({
-      settings,
-      configs: [
-        {
-          events: [
-            startedEvent(),
-            usageEvent(0.01, 100),
-            textEvent(),
-            textEvent(),
-            textEvent(),
-          ],
-        },
-      ],
-      // Without a spec budget the settings task budget is the per-task limit.
-      specMarkdown: specWith({ protected: [], budget: undefined }),
-      concurrency: 4,
-    });
-
-    const failed = result.byType("task.failed");
-    expect(failed).toHaveLength(1);
-    expect((failed[0].data as any).failure_class).toBe("budget_exceeded");
-    expect(String((failed[0].data as any).detail)).toContain("turns");
-    expect(result.byType("run.paused")).toHaveLength(0);
-  });
-
-  it("the 80 percent run budget warning for cost is emitted once", async () => {
-    const settings: Settings = {
-      ...DEFAULT_SETTINGS,
-      budgets: {
-        ...DEFAULT_SETTINGS.budgets,
-        run: { max_usd: 1 },
-        task: { max_usd: 5 },
-      },
-    };
-
-    const result = await runWorkerAction({
-      settings,
-      configs: [
-        {
-          events: [
-            startedEvent(),
-            usageEvent(0.5, 10),
-            usageEvent(0.4, 10), // 0.9, past 80 percent: the warning fires
-            usageEvent(0.05, 10), // still past 80 percent: no second warning
-            usageEvent(0.1, 10), // 1.0: exceeded, the run pauses
-          ],
-        },
-      ],
-      // Only the run budget is in play here, so the task budget must not be crossed.
-      specMarkdown: specWith({ protected: [], budget: undefined }),
-      concurrency: 4,
-    });
-
-    const warnings = result.byType("run.budget.warning");
-    expect(warnings).toHaveLength(1);
-    expect((warnings[0].data as any).cost_usd).toBeCloseTo(0.9);
-
-    const exceeded = result.byType("run.budget.exceeded");
-    expect(exceeded).toHaveLength(1);
-    const paused = result.byType("run.paused");
-    expect(paused).toHaveLength(1);
-    expect((paused[0].data as any).reason).toBe("budget_exhausted");
-  });
-
-  it("the 80 percent run budget warning for tokens is emitted once", async () => {
-    const settings: Settings = {
-      ...DEFAULT_SETTINGS,
-      budgets: {
-        ...DEFAULT_SETTINGS.budgets,
-        run: { max_usd: 10, max_tokens: 1000 },
-        task: { max_usd: 5, max_tokens: 100000 },
-      },
-    };
-
-    const result = await runWorkerAction({
-      settings,
-      configs: [
-        {
-          events: [
-            startedEvent(),
-            usageEvent(0.01, 400),
-            usageEvent(0.01, 500), // 900 tokens, past 80 percent
-            usageEvent(0.01, 50), // still past 80 percent: no second warning
-            usageEvent(0.01, 50), // 1000 tokens: exceeded
-          ],
-        },
-      ],
-      // Only the run token budget is in play here.
-      specMarkdown: specWith({ protected: [], budget: undefined }),
-      concurrency: 4,
-    });
-
-    const warnings = result.byType("run.budget.warning");
-    expect(warnings).toHaveLength(1);
-    expect((warnings[0].data as any).tokens).toBe(900);
-    expect((warnings[0].data as any).max_tokens).toBe(1000);
-
-    const exceeded = result.byType("run.budget.exceeded");
-    expect(exceeded).toHaveLength(1);
-    expect((exceeded[0].data as any).tokens).toBe(1000);
-    const paused = result.byType("run.paused");
-    expect(paused).toHaveLength(1);
-    expect((paused[0].data as any).reason).toBe("budget_exhausted");
-  });
 
   it(
     "rate limits back off 1000, 2000 and 4000 ms, halve concurrency on a copy, and the " +
@@ -364,20 +221,5 @@ describe("R3.4 unit: budgets, run budget warning once, rate limit backoff", () =
     expect(actions).toHaveLength(1);
     expect(settings.concurrency.workers).toBe(8);
 
-    // The copy keeps the rest of the settings, so the scheduler still sees the budgets.
-    const budgetState: EngineState = {
-      ...state,
-      usage: {
-        total_usd: 10,
-        by_role: {},
-      },
-    };
-    const budgetSettings: Settings = {
-      ...settings,
-      budgets: { ...settings.budgets, run: { max_usd: 10 } },
-    };
-    expect(nextActions(budgetState, budgetSettings, { concurrency: 1 })).toEqual([
-      { type: "abort", reason: "budget" },
-    ]);
   });
 });

@@ -17,6 +17,7 @@ import type {
   UsageRecord,
 } from "../contracts/index.js";
 import type { EventData, EventType } from "../contracts/events.js";
+import { idleMinutesOf } from "../backends/spawn.js";
 import {
   parseManifest,
   parseTaskSpec,
@@ -64,23 +65,6 @@ export interface PlannerRunOptions {
   history?: string;
   /** Run abort signal: the planner session is killed when it aborts. */
   signal?: AbortSignal;
-  /** True once the run budget is spent; a retry the budget no longer covers is not started (R7.7). */
-  runBudgetExceeded?: () => boolean;
-  /** Spend so far in the run, all roles: the planner's spawn cap is the run budget left (R7.9). */
-  runSpentUsd?: () => number;
-}
-
-/** The smallest cap a planner session gets, so a nearly spent run can still start planning (R7.9). */
-export const PLANNER_MIN_USD = 0.5;
-
-/**
- * The --max-budget-usd of one planner session: the run budget not yet spent, floored at
- * PLANNER_MIN_USD and never above the run cap. The per-task cap binds tasks, not the planner (R7.9).
- * Undefined when the run has no cap (the default): the planner session then gets no cap either.
- */
-export function plannerSpawnBudgetUsd(runCapUsd: number | undefined, spentUsd: number): number | undefined {
-  if (runCapUsd === undefined) return undefined;
-  return Math.min(runCapUsd, Math.max(runCapUsd - spentUsd, PLANNER_MIN_USD));
 }
 
 export type PlannerOutcome =
@@ -103,10 +87,10 @@ export type PlannerOutcome =
     };
 
 export class PlannerFailure extends Error {
-  readonly reason: "format" | "session" | "budget";
+  readonly reason: "format" | "session";
   readonly diagnostics: string[];
 
-  constructor(reason: "format" | "session" | "budget", message: string, diagnostics: string[] = []) {
+  constructor(reason: "format" | "session", message: string, diagnostics: string[] = []) {
     super(diagnostics.length > 0 ? `${message}\n${diagnostics.map((d) => `- ${d}`).join("\n")}` : message);
     this.name = "PlannerFailure";
     this.reason = reason;
@@ -126,11 +110,6 @@ export function sessionFailureMessage(
     .join("; ");
   // Nothing from the harness is named as such, so the caller is not left with the exit code alone (R7.9).
   return `Planner session failed with exit code ${exitCode}: ${detail || `no error output from ${harness}`}`;
-}
-
-/** The message of a planner session that stopped at claude's --max-budget-usd cap (R7.9). */
-export function plannerBudgetMessage(capUsd: number, spentUsd: number, runCapUsd: number): string {
-  return `planner stopped at its budget cap of $${capUsd.toFixed(2)} (spent $${spentUsd.toFixed(2)}); the run budget is $${runCapUsd.toFixed(2)}`;
 }
 
 /**
@@ -456,10 +435,6 @@ function money(value: number | undefined): string {
 }
 
 /** A cap as the planner request shows it: the dollar amount, or `no limit` when the caller set none. */
-function capText(value: number | undefined): string {
-  return value === undefined ? "no limit" : money(value);
-}
-
 function addTotals(totals: UsageTotals, record: UsageRecord): UsageTotals {
   return {
     input_tokens: totals.input_tokens + (record.input_tokens ?? 0),
@@ -506,15 +481,11 @@ async function requestVars(opts: PlannerRunOptions, route: Route): Promise<Recor
     mapText = "";
   }
 
-  const budgets = opts.settings.budgets;
-
   return {
     run_id: opts.runId,
     base_ref: baseRef,
     repo_root: opts.repoRoot,
     classes: "search, mechanical, boilerplate, tests, feature, refactor, debug, review",
-    task_budget: capText(budgets?.task?.max_usd),
-    run_budget: capText(budgets?.run?.max_usd),
     max_tasks: "",
     charter: opts.charter ?? "",
     history: opts.history ?? "",
@@ -659,8 +630,6 @@ export async function runPlanner(
         : {}),
     };
   const maxAttempts = 1 + (settings.budgets?.planner_format_retries ?? 2);
-  // Undefined when the run has no cap (the default): the planner session gets no --max-budget-usd.
-  const runCapUsd = settings.budgets?.run?.max_usd;
   const instructionFiles = instructionFilesFor(opts);
 
   let totals: UsageTotals = { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
@@ -668,8 +637,6 @@ export async function runPlanner(
   let diagnostics: string[] = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    // The run budget stops the planner's retries as it stops the run (R7.7).
-    if (attempt > 1 && opts.runBudgetExceeded?.()) break;
     // diagnostics still hold the previous attempt's refusal: report it before the retry.
     if (attempt > 1) {
       opts.onEvent?.("plan.format_rejected", formatRejectedData(attempt - 1, maxAttempts, diagnostics));
@@ -701,18 +668,6 @@ export async function runPlanner(
       permission: {
         allow: [opts.runDir],
         deny: DENY_PERMISSIONS,
-      },
-      budget: {
-        max_usd: plannerSpawnBudgetUsd(runCapUsd, opts.runSpentUsd?.() ?? totals.cost_usd),
-        ...(settings.budgets?.task?.timeout_min
-          ? { timeout_ms: settings.budgets.task.timeout_min * 60 * 1000 }
-          : {}),
-        ...(settings.budgets?.task?.max_tokens
-          ? { max_tokens: settings.budgets.task.max_tokens }
-          : {}),
-        ...(settings.budgets?.task?.timeout_min
-          ? { timeout_min: settings.budgets.task.timeout_min }
-          : {}),
       },
       // The planner does not know the session id before the first spawn, so it
       // generates one; a format error resumes that same session.
@@ -758,12 +713,14 @@ export async function runPlanner(
       opts.onEvent?.("usage.recorded", { record: res.usage, role: "planner" });
     }
 
+    if (res.killed_for === "timeout") {
+      throw new PlannerFailure(
+        "session",
+        `Planner session killed: no output for ${idleMinutesOf(opts.settings)} min; the session was killed as hung`,
+      );
+    }
+
     if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
-      // claude stopped the session at its --max-budget-usd cap: a budget failure, not a crash (R7.9).
-      if (res.killed_for === "budget" && runCapUsd !== undefined) {
-        const spent = sessionTotals?.cost_usd ?? res.usage.cost_usd;
-        throw new PlannerFailure("budget", plannerBudgetMessage(spawnReq.budget.max_usd ?? 0, spent, runCapUsd));
-      }
       throw new PlannerFailure(
         "session",
         sessionFailureMessage(res.exit_code, res.final_text, harnessError, route.backend),

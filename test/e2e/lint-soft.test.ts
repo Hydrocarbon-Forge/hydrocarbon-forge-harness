@@ -212,8 +212,9 @@ describe("R12.3: lint warnings never refuse a plan", () => {
     const specPath = join(r.dir, ".substrate", "runs", id, "tasks", "T1.md");
     const good = readFileSync(specPath, "utf8");
 
-    // A blocker: T1 depends on a task the plan does not have. Refused with exit 2, nothing spawned.
-    writeFileSync(specPath, good.replace("depends_on: []", "depends_on: [T9]"), "utf8");
+    // A blocker: T1 depends on itself (a dependency cycle, L005). Refused with exit 2, nothing spawned.
+    // (2026-10-23: a dependency on a task the plan does not have is a warning, L004; the engine drops it.)
+    writeFileSync(specPath, good.replace("depends_on: []", "depends_on: [T1]"), "utf8");
     const refused = cli(r.dir, ["resume", id, "--work", WORKER], []);
     expect(refused.status).toBe(2);
     expect(refused.stderr).toContain("does not pass review");

@@ -151,20 +151,8 @@ export function parseTaskSpec(content: string, filePath?: string): ParsedTaskSpe
     sections.set(currentHeading, currentContentLines.join("\n").trim());
   }
 
-  const placeholderRegex = /\b(TODO|FIXME|TBD)\b|\.\.\.|<placeholder>/i;
-  for (const secName of ["Interface", "Behavior"]) {
-    const text = sections.get(secName);
-    if (text) {
-      const stripped = text
-        .replace(/```[\s\S]*?```/g, "")
-        .replace(/`[^`\n]*`/g, "");
-      if (placeholderRegex.test(stripped)) {
-        throw new Error(
-          `Placeholder token detected in ${secName} section outside code fences in ${filePath ?? "spec"}`
-        );
-      }
-    }
-  }
+  // Placeholder tokens (rule L013) are a warning, never a throw: the lint rule reports them through
+  // findPlaceholders, so a spec that loads is never refused for them (DECISIONS, R12.3).
 
   return {
     frontmatter,

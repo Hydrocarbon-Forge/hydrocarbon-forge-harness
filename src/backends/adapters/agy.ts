@@ -24,6 +24,8 @@ export interface AgyAdapterOptions {
   pricing: PricingTable;
   maxConcurrency?: number;
   versionPin?: string;
+  /** The no-output idle watchdog, in milliseconds, for every session this adapter starts (0 or unset: off). */
+  idleTimeoutMs?: number;
 }
 
 const execFileAsync = promisify(execFile);
@@ -158,7 +160,6 @@ export class AgyAdapter implements HarnessAdapter {
       version_pin: "1.4.2",
       effort: true,
       structured_output: false,
-      budget_flag: false,
       cost_reported: false,
       resume: true,
       // S3 (verified locally 2026-10-16): a headless agy run cannot prompt for a
@@ -262,7 +263,7 @@ export class AgyAdapter implements HarnessAdapter {
       args,
       cwd: req.cwd,
       env,
-      timeoutMs: req.budget.timeout_ms,
+      idleTimeoutMs: this.options.idleTimeoutMs,
     });
 
     const rawDir = join(req.cwd, "raw");
@@ -396,7 +397,7 @@ export class AgyAdapter implements HarnessAdapter {
     }
 
     const kill = async (
-      reason: "budget" | "timeout" | "cancel"
+      reason: "timeout" | "cancel"
     ): Promise<void> => {
       await proc.kill(reason);
     };

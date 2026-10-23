@@ -45,17 +45,16 @@ function calculateMedian(values: number[]): number {
 export const ESTIMATE_TASK_USD = 0.5;
 
 /**
- * The estimated cost of a plan. A task's spec budget (an advisory figure the planner wrote) is its base
- * cost when the spec has one; otherwise the median of the ledger's costs for the class, then for all
- * tasks, then ESTIMATE_TASK_USD. Each task gets a retry allowance. `requires_approval` is true only when
- * budgets.approval_threshold_usd is set and the estimate is above it.
+ * The estimated cost of a plan, reported with the plan (owner, 2026-10-23: advisory only, it gates nothing). A
+ * task's spec budget (an advisory figure the planner wrote) is its base cost when the spec has one; otherwise the
+ * median of the ledger's costs for the class, then for all tasks, then ESTIMATE_TASK_USD. Each task gets a retry
+ * allowance.
  */
 export function estimateRunCost(
   manifest: Manifest,
   ledger: LedgerEntry[],
-  settings: Settings,
   specs?: ReadonlyMap<TaskId, { frontmatter?: { budget?: { max_usd?: number } } }>
-): { estimated_usd: number; requires_approval: boolean } {
+): { estimated_usd: number } {
   const retryFactor = 0.2;
   const retryMultiplier = 1.0 + retryFactor;
 
@@ -82,13 +81,7 @@ export function estimateRunCost(
     totalCost += baseCost * retryMultiplier;
   }
 
-  const approvalThreshold = settings.budgets.approval_threshold_usd;
-  const requires_approval = approvalThreshold !== undefined && totalCost > approvalThreshold;
-
-  return {
-    estimated_usd: totalCost,
-    requires_approval,
-  };
+  return { estimated_usd: totalCost };
 }
 
 export function aggregateLedger(

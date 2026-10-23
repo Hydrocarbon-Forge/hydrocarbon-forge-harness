@@ -1,5 +1,13 @@
-import type { HarnessAdapter, SessionHandle, SpawnRequest } from "../contracts/index.js";
+import { IDLE_MINUTES_DEFAULT, type HarnessAdapter, type SessionHandle, type SpawnRequest } from "../contracts/index.js";
 import { HarnessSpawnError } from "./process.js";
+
+/**
+ * The no-output idle watchdog's limit in minutes for a settings object: `watchdog.idle_minutes`, or the default
+ * (owner, 2026-10-23). 0 means off. The registry turns it into the adapters' idle limit, so every session is covered.
+ */
+export function idleMinutesOf(settings: { watchdog?: { idle_minutes: number } }): number {
+  return settings.watchdog?.idle_minutes ?? IDLE_MINUTES_DEFAULT;
+}
 
 // A harness process that cannot start at all (no output exists yet) is retried inside the same attempt.
 // The waits before the second and third tries; after the last one the spawn fails for good.

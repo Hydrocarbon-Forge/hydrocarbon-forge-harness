@@ -124,37 +124,6 @@ describe("SUBSTRATE_SETTINGS selects the explicit settings file", () => {
   });
 });
 
-describe("SUBSTRATE_MAX_BUDGET_USD sets budgets.run.max_usd", () => {
-  it("applies a finite number", async () => {
-    const settings = await loadSettings({
-      projectDir: tmp(),
-      userConfigDir: tmp(),
-      env: { SUBSTRATE_MAX_BUDGET_USD: "12.5" },
-    });
-    expect(settings.budgets.run.max_usd).toBe(12.5);
-  });
-
-  it("rejects a non-numeric value", async () => {
-    await expect(
-      loadSettings({
-        projectDir: tmp(),
-        userConfigDir: tmp(),
-        env: { SUBSTRATE_MAX_BUDGET_USD: "abc" },
-      }),
-    ).rejects.toThrow("SUBSTRATE_MAX_BUDGET_USD must be a number");
-  });
-
-  it("rejects Infinity", async () => {
-    await expect(
-      loadSettings({
-        projectDir: tmp(),
-        userConfigDir: tmp(),
-        env: { SUBSTRATE_MAX_BUDGET_USD: "Infinity" },
-      }),
-    ).rejects.toThrow("SUBSTRATE_MAX_BUDGET_USD must be a number");
-  });
-});
-
 describe("model env vars set the role models", () => {
   it("SUBSTRATE_MODEL sets roles.planner.model", async () => {
     const settings = await loadSettings({
@@ -221,10 +190,6 @@ describe("empty strings are treated as unset", () => {
     expect(readEnvLayer({ SUBSTRATE_MODEL: "" }).settings.roles).toBeUndefined();
   });
 
-  it("SUBSTRATE_MAX_BUDGET_USD: empty does not throw or set budgets", () => {
-    expect(() => readEnvLayer({ SUBSTRATE_MAX_BUDGET_USD: "" })).not.toThrow();
-    expect(readEnvLayer({ SUBSTRATE_MAX_BUDGET_USD: "" }).settings.budgets).toBeUndefined();
-  });
 });
 
 describe("SUBSTRATE_LIVE is never read by readEnvLayer or loadSettings", () => {

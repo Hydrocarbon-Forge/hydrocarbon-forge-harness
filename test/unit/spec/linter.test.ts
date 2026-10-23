@@ -19,7 +19,7 @@ import {
 } from "./fixtures.js";
 
 describe("plan linter: lintPlan orchestration and aggregation", () => {
-  it("returns ok: true, hasErrors: false, hasGates: false on a fully valid plan", async () => {
+  it("returns ok: true, hasErrors: false on a fully valid plan", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -75,18 +75,17 @@ describe("plan linter: lintPlan orchestration and aggregation", () => {
 
     expect(result.ok).toBe(true);
     expect(result.hasErrors).toBe(false);
-    expect(result.hasGates).toBe(false);
   });
 
   it("sets ok: false and hasErrors: true whenever error diagnostics are present", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
-    // Spec with unknown depends_on (L004 error)
+    // Spec that depends on itself (L005 error; an unknown dependency is only a warning, L004)
     const t1 = sampleParsedTaskSpec({
       frontmatter: sampleTaskSpecFrontmatter({
         id: "T1",
-        depends_on: ["NON_EXISTENT"],
+        depends_on: ["T1"],
       }),
     });
     const plan = sampleParsedPlan({
@@ -106,7 +105,6 @@ describe("plan linter: lintPlan orchestration and aggregation", () => {
     const settings = sampleSettings({
       budgets: {
         ...sampleSettings().budgets,
-        run: { max_usd: 2.0 },
       },
     });
 
@@ -114,7 +112,6 @@ describe("plan linter: lintPlan orchestration and aggregation", () => {
     writeFileSync(join(repo, "src", "contracts", "index.ts"), "export type A = 1;", "utf8");
     writeFileSync(join(repo, "tasks", "T1.md"), "spec", "utf8");
 
-    // L025 warning: manifest budget exceeds run max_usd
     // L021 warning: empty integration_verify
     const t1 = sampleParsedTaskSpec({
       frontmatter: sampleTaskSpecFrontmatter({
@@ -126,7 +123,7 @@ describe("plan linter: lintPlan orchestration and aggregation", () => {
 
     const plan = sampleParsedPlan({
       manifest: sampleManifest({
-        budget: { max_usd: 5.0 }, // triggers L025 warn
+        budget: { max_usd: 5.0 }, // advisory: no rule compares it with a cap (owner, 2026-10-23)
         integration_verify: [], // triggers L021 warn
         contracts: {
           files: ["src/contracts/index.ts"],
@@ -146,31 +143,6 @@ describe("plan linter: lintPlan orchestration and aggregation", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("sets hasGates: true when gate diagnostic L022 is emitted", async () => {
-    const repo = createTempRepo();
-    const settings = sampleSettings({
-      budgets: {
-        ...sampleSettings().budgets,
-        approval_threshold_usd: 0.10, // low threshold to force gate
-      },
-    });
-
-    const t1 = sampleParsedTaskSpec({
-      frontmatter: sampleTaskSpecFrontmatter({
-        id: "T1",
-        budget: { max_usd: 0.25 },
-      }),
-    });
-    const plan = sampleParsedPlan({
-      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
-      specs: [t1],
-    });
-
-    const result = await lintPlan(plan, repo, settings);
-
-    expect(result.hasGates).toBe(true);
-    expect(result.diagnostics.some((d) => d.severity === "gate" && d.code === "L022")).toBe(true);
-  });
 });
 
 describe("plan linter: semantic check hook point (S001 - S004)", () => {

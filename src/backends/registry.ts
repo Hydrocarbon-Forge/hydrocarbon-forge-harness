@@ -7,6 +7,7 @@ import { ClaudeAdapter, CLAUDE_FAMILY_IDS } from "./adapters/claude.js";
 import { OpenCodeAdapter } from "./adapters/opencode.js";
 import { AgyAdapter } from "./adapters/agy.js";
 import { pricingTableFor } from "./pricing.js";
+import { idleMinutesOf } from "./spawn.js";
 
 export type AdapterMap = Partial<Record<BackendName, HarnessAdapter>>;
 
@@ -41,6 +42,9 @@ function knownModelIds(settings: Settings): string[] {
 export function createAdapters(
   settings: Settings
 ): Record<"claude" | "opencode" | "agy", HarnessAdapter> {
+  // The no-output idle watchdog (owner, 2026-10-23) reaches every session each adapter starts: worker, planner,
+  // planner chat, repair and replan all spawn through these three adapters.
+  const idleTimeoutMs = idleMinutesOf(settings) * 60_000;
   const claudeConf = settings.backends?.claude;
   const opencodeConf = settings.backends?.opencode;
   const agyConf = settings.backends?.agy;
@@ -54,6 +58,7 @@ export function createAdapters(
       versionPin: claudeConf?.["version_pin"],
       maxConcurrency: claudeConf?.["max_concurrency"],
       knownModels: knownModelIds(settings),
+      idleTimeoutMs,
     }),
     opencode: new OpenCodeAdapter({
       binPath: opencodeConf?.["bin"] ?? "opencode",
@@ -63,12 +68,14 @@ export function createAdapters(
         typeof opencodeExtra?.customBaseUrl === "string"
           ? opencodeExtra.customBaseUrl
           : undefined,
+      idleTimeoutMs,
     }),
     agy: new AgyAdapter({
       bin: agyConf?.["bin"] ?? "agy",
       versionPin: agyConf?.["version_pin"],
       pricing: pricingTableFor(settings),
       maxConcurrency: agyConf?.["max_concurrency"],
+      idleTimeoutMs,
     }),
   };
 }

@@ -10,6 +10,7 @@ import {
 } from "../contracts/index.js";
 import { isSafePath, matchGlob, redactSecrets } from "../util/index.js";
 import type { ParsedPlan, ParsedTaskSpec } from "./parser.js";
+import { findPlaceholders } from "./placeholders.js";
 import type { LintOptions } from "./linter.js";
 import { typecheckContracts } from "./typecheck.js";
 import { SHELL_BUILTINS, verifyBinaryOf } from "./verify-command.js";
@@ -311,9 +312,11 @@ export const ruleL004: LintRule = (ctx) => {
       if (!validTaskIds.has(dep)) {
         diags.push({
           code: "L004",
-          severity: "error",
+          // 2026-10-23 (owner): a dependency that names no task is a warning; the engine drops it when it
+          // reconciles the plan (plan.synced), so the plan can still run.
+          severity: "warn",
           task: taskId,
-          message: `Task ${taskId} depends on unknown task ID '${dep}'`,
+          message: `Task ${taskId} depends on unknown task ID '${dep}'; the engine drops the dependency`,
         });
       }
     }
@@ -688,25 +691,24 @@ export const ruleL012: LintRule = (ctx) => {
   return diags;
 };
 
-// L013: Placeholder tokens outside code fences in Interface or Behavior
+// L013: Placeholder tokens outside code fences in Interface or Behavior (warning only, R12.3)
 export const ruleL013: LintRule = (ctx) => {
   const diags: Diagnostic[] = [];
-  const placeholderRegex = /\b(TODO|FIXME|TBD)\b|\.\.\.|<placeholder>/i;
 
   for (const [id, spec] of ctx.plan.specs) {
     for (const secName of ["Interface", "Behavior"]) {
       const text = spec.sections.get(secName);
-      if (text) {
-        const stripped = text.replace(/```[\s\S]*?```/g, "");
-        if (placeholderRegex.test(stripped)) {
-          diags.push({
-            code: "L013",
-            severity: "warn",
-            task: id,
-            message: `Placeholder token found in ${secName} section outside code fences`,
-          });
-        }
-      }
+      if (!text) continue;
+      const findings = findPlaceholders(text);
+      if (findings.length === 0) continue;
+      const first = findings[0];
+      diags.push({
+        code: "L013",
+        severity: "warn",
+        task: id,
+        message: `Placeholder token '${first.token}' found in ${secName} section outside code fences: ${first.text}`
+          + (findings.length > 1 ? ` (and ${findings.length - 1} more)` : ""),
+      });
     }
   }
 
@@ -745,29 +747,6 @@ export const ruleL014: LintRule = (ctx) => {
 // L015 (a class must be routable) is retired (R7.7). Every class resolves: routing.<class>,
 // the worker profile slot, the request's named worker or the built-in fallback route
 // (roles/router.ts resolveTaskRoute never throws), so no class can be unrouted.
-
-// L016: Task budget above the per-task cap is a warning. It fires only when the caller set a per-task
-// cap (budgets.task.max_usd). The spec's budget is advisory: an estimate, never a limit, so this is a
-// warning and no task is ended by it. No cap set (the default): silent.
-export const ruleL016: LintRule = (ctx) => {
-  const diags: Diagnostic[] = [];
-  const taskCap = ctx.settings.budgets?.task?.max_usd;
-  if (taskCap === undefined) return diags;
-
-  for (const [id, spec] of ctx.plan.specs) {
-    const specUsd = spec.frontmatter?.budget?.max_usd;
-    if (specUsd !== undefined && specUsd > taskCap) {
-      diags.push({
-        code: "L016",
-        severity: "warn",
-        task: id,
-        message: `Task ${id} budget estimate ($${specUsd}) exceeds the per-task cap ($${taskCap}); the cap is what ends it`,
-      });
-    }
-  }
-
-  return diags;
-};
 
 // L017: Aggregate files matching spec.read exceed budget
 export const ruleL017: LintRule = (ctx) => {
@@ -905,28 +884,6 @@ export const ruleL021: LintRule = (ctx) => {
   return diags;
 };
 
-// L022: Estimated run cost exceeds approval threshold (gate)
-export const ruleL022: LintRule = (ctx) => {
-  const diags: Diagnostic[] = [];
-  const threshold = ctx.settings.budgets?.approval_threshold_usd;
-  if (threshold === undefined) return diags;
-
-  let totalUsd = 0;
-  for (const spec of ctx.plan.specs.values()) {
-    totalUsd += spec.frontmatter?.budget?.max_usd ?? 0;
-  }
-
-  if (totalUsd > threshold) {
-    diags.push({
-      code: "L022",
-      severity: "gate",
-      message: `Estimated total run cost ($${totalUsd.toFixed(2)}) exceeds approval threshold ($${threshold.toFixed(2)})`,
-    });
-  }
-
-  return diags;
-};
-
 // L023: Verify passes at base ref (red-check)
 // L023 is off unless `lint.red_check` is true (it runs every verify command at the base ref, which costs time).
 // When on, it is always a warning: a verify that passes before the change is a guess about the base, and the
@@ -981,23 +938,6 @@ export const ruleL024: LintRule = (ctx) => {
         });
       }
     }
-  }
-
-  return diags;
-};
-
-// L025: Manifest budget exceeds run cap (warn)
-export const ruleL025: LintRule = (ctx) => {
-  const diags: Diagnostic[] = [];
-  const runCap = ctx.settings.budgets?.run?.max_usd;
-  const manifestBudget = ctx.plan.manifest?.budget?.max_usd;
-
-  if (runCap !== undefined && manifestBudget !== undefined && manifestBudget > runCap) {
-    diags.push({
-      code: "L025",
-      severity: "warn",
-      message: `Manifest budget ($${manifestBudget}) exceeds settings.budgets.run.max_usd ($${runCap})`,
-    });
   }
 
   return diags;
@@ -1099,16 +1039,13 @@ export const ALL_RULES: LintRule[] = [
   ruleL012,
   ruleL013,
   ruleL014,
-  ruleL016,
   ruleL017,
   ruleL018,
   ruleL019,
   ruleL020,
   ruleL021,
-  ruleL022,
   ruleL023,
   ruleL024,
-  ruleL025,
   ruleL026,
   ruleL027,
   ruleL028,

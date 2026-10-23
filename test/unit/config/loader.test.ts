@@ -29,12 +29,9 @@ const MINIMAL_FILE_SETTINGS = {
   routing: { feature: { backend: "claude", model: "m" } },
   pricing: { asOf: "2026-10-16", sources: ["https://example.com"], models: {} },
   budgets: {
-    run: {},
-    task: {},
     l1_replans_per_task: 2,
     l2_per_run: 2,
     planner_format_retries: 2,
-    approval_threshold_usd: 2,
   },
   concurrency: { workers: 3 },
   permissions: { allow: [], deny: [] },

@@ -33,7 +33,6 @@ const baseReq: SpawnRequest = {
   prompt: "run task",
   model: "gemini-3.8-flash",
   permission: { allow: ["command"], deny: ["command"] },
-  budget: { timeout_ms: 10000 },
 };
 
 describe("Agy Argument Builder: buildAgyArgv", () => {

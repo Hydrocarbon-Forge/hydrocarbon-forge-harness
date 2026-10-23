@@ -17,7 +17,6 @@ import type {
   SpawnRequest,
   TaskClass,
   TaskId,
-  UsageRecord,
 } from "../contracts/index.js";
 import {
   parseEngineEvent,
@@ -34,13 +33,16 @@ import {
 } from "../spec/index.js";
 import { toDelta, type UsageTotals } from "../ledger/usage.js";
 import { bindAbort } from "../backends/process.js";
-import { startHarnessSession } from "../backends/spawn.js";
+import { idleMinutesOf, startHarnessSession } from "../backends/spawn.js";
 import { teeTranscript } from "../store/transcript.js";
 import { commitContractStubs, finishLine, REQUIRED_HEADINGS } from "../roles/planner.js";
 import { buildReplanL2Prompt, buildReplanPrompt } from "../roles/prompts/replan.js";
 import { evaluateEscalation, type EscalationAction } from "./ladder.js";
 import type { EngineState } from "./reducer.js";
 import type { TypedEmit } from "./emit.js";
+import { hasPlanSyncChanges, plannedDependencies, planSync } from "./plan-sync.js";
+import { applyOwnerRoute, decideOwnerRoute, type OwnerRoute } from "./owner-routing.js";
+import { resolveTaskRoute } from "../roles/router.js";
 
 /**
  * The finish lines the planner templates (assets/prompts/planner/replan-l1.md and
@@ -78,14 +80,10 @@ export interface ReplanExecutionOptions {
   /** Emitter from the effects loop. Without it events are validated and observed. */
   emit?: TypedEmit;
   onEvent?: (event: EngineEvent) => void;
-  /**
-   * Called with each per-session usage delta and returns true when the caller has
-   * stopped the run, so no further planner work is done. The run budget stays the
-   * caller's decision: it never triggers replanning itself.
-   */
-  onUsage?: (delta: UsageRecord) => boolean;
   /** Run cancellation: the planner session is killed when this signal aborts. */
   signal?: AbortSignal;
+  /** Owner routings this task already took in the run (item 88); the cap is in owner-routing.ts. */
+  ownerRoutings?: number;
 }
 
 export interface ReplanResult {
@@ -169,6 +167,11 @@ export async function executeReplan(
     );
   }
 
+  // 2026-10-23 (owner, item 88): a failure in files another task owns goes to that task, not up the ladder, because
+  // a replan of this task cannot change another task's files.
+  const routed = await routeToOwner(opts, emit);
+  if (routed) return routed;
+
   const action = evaluateEscalation(
     opts.state,
     opts.taskId,
@@ -193,6 +196,59 @@ export async function executeReplan(
   }
 
   return runL2(opts, emit, "", action, opts.packet.generation + 1);
+}
+
+/**
+ * Routes a failure that names another task's files (owner-routing.ts). `defer`: the owner has not merged, so this task
+ * waits for it. `fix`: the owner has merged, so a fix task owning the failing files runs after it and this task waits
+ * for the fix. In both cases the task is released again only when its new dependencies have merged (task.ready
+ * through promoteReadyTasks). Returns undefined when nothing was routed, and the ladder then runs as before.
+ */
+async function routeToOwner(
+  opts: ReplanExecutionOptions,
+  emit: TypedEmit,
+): Promise<ReplanResult | undefined> {
+  const route: OwnerRoute | undefined = decideOwnerRoute({
+    runDir: opts.runDir,
+    taskId: opts.taskId,
+    state: opts.state,
+    verify: opts.packet.verify_output,
+    routings: opts.ownerRoutings ?? 0,
+  });
+  if (!route) return undefined;
+
+  const applied = applyOwnerRoute(opts.runDir, opts.taskId, route, opts.state);
+  if (!applied) return undefined;
+
+  // The routed plan must lint like any replanned plan; if it does not, the files go back and the ladder runs.
+  if ((await lintRunPlan(opts)).length > 0) {
+    applied.restore();
+    return undefined;
+  }
+
+  const generation = opts.packet.generation + 1;
+  const sync = planSync(opts.runDir, opts.state, opts.taskId);
+  emit("plan.synced", {
+    ...sync,
+    replan_task_id: opts.taskId,
+    owner_route: {
+      kind: route.kind,
+      owner: route.owner,
+      files: route.files,
+      ...(applied.fixTaskId ? { fix_task: applied.fixTaskId } : {}),
+    },
+  });
+  // The task is queued again at the next generation, then held in PENDING until its dependencies have merged.
+  emit("replan.finished", { task_id: opts.taskId, generation });
+  emit("tasks.invalidated", { task_ids: [opts.taskId] });
+
+  const action: EscalationAction = {
+    level: "L1",
+    action: "replan",
+    route: resolveTaskRoute(opts.taskClass ?? "feature", generation, opts.settings),
+    generation,
+  };
+  return { level: "L1", status: "replan_ready", action, packet: opts.packet };
 }
 
 /**
@@ -229,8 +285,9 @@ async function runL1(
   if (outcome.unavailable) {
     return pause(opts, emit, "backend_unavailable", action);
   }
-  if (outcome.stopped) {
-    return pause(opts, emit, "budget_exhausted", action);
+  // A hung L1 session is a failed L1 (the escalation below), with the hang as its reason (owner, 2026-10-23).
+  if (outcome.hung) {
+    return escalateToL2(opts, emit, hangReason(opts), action.generation);
   }
 
   const line = finishLine(outcome.result.final_text);
@@ -238,6 +295,7 @@ async function runL1(
     const spec = readRevisedSpec(opts);
     const diagnostics = await lintRunPlan(opts);
     if (spec && diagnostics.length === 0) {
+      syncRunPlan(opts, emit);
       finishTask(opts, emit, action.generation);
       return {
         level: "L1",
@@ -360,8 +418,9 @@ async function runL2(
   if (outcome.unavailable) {
     return pause(opts, emit, "backend_unavailable", action);
   }
-  if (outcome.stopped) {
-    return pause(opts, emit, "budget_exhausted", action);
+  // A hung L2 session fails the task for good, with the hang as the failure detail (not the original check output).
+  if (outcome.hung) {
+    return giveUp(opts, emit, hangReason(opts), action, hangReason(opts));
   }
 
   const line = finishLine(outcome.result.final_text);
@@ -391,18 +450,8 @@ async function runL2(
   }
 
   if (plan) {
-    const typecheck = await typecheckContracts(opts.runDir, plan.manifest.contracts, {
-      cwd: opts.runDir,
-    });
-    if (!typecheck.ok) {
-      return giveUp(
-        opts,
-        emit,
-        `L2 contracts do not typecheck: ${typecheck.diagnostics.map((d) => d.message).join("; ")}`,
-        action,
-      );
-    }
-
+    // 2026-10-23: the contract typecheck is a warning (R12.3): a type error or a checker that cannot run does not
+    // refuse the amendment. The stubs are committed as written, and the typecheck result is not a reason to give up.
     const commitSha = await commitContractStubs(
       opts.repoRoot,
       opts.runId,
@@ -412,6 +461,10 @@ async function runL2(
     );
     emit("contracts.committed", { commit_sha: commitSha });
   }
+
+  // 2026-10-23: the amended manifest's tasks and dependencies reach the live state before anything is invalidated or
+  // released, so no task is registered only in the manifest and no task starts before its dependencies are done.
+  syncRunPlan(opts, emit);
 
   const invalidated = notMergedDependents(opts);
   if (invalidated.length > 0) {
@@ -430,6 +483,16 @@ async function runL2(
 }
 
 /**
+ * 2026-10-23 (owner): registers what a replan wrote to the manifest and the specs. Emits `plan.synced` only when the
+ * manifest and the live state differ, so an unchanged plan records nothing.
+ */
+function syncRunPlan(opts: ReplanExecutionOptions, emit: TypedEmit): void {
+  const sync = planSync(opts.runDir, opts.state, opts.taskId);
+  if (!hasPlanSyncChanges(sync)) return;
+  emit("plan.synced", { ...sync, replan_task_id: opts.taskId });
+}
+
+/**
  * The end of a replan: the task moves to the next generation, and `task.ready` is emitted
  * only when the tasks it depends on have merged, because a dependent worktree is built
  * from the run branch and can only see work that is already merged.
@@ -438,7 +501,7 @@ function finishTask(opts: ReplanExecutionOptions, emit: TypedEmit, generation: n
   emit("task.replanned", { task_id: opts.taskId, generation });
   emit("replan.finished", { task_id: opts.taskId, generation });
 
-  const deps = opts.state.tasks[opts.taskId]?.depends_on ?? [];
+  const deps = plannedDependencies(opts.runDir, opts.taskId) ?? opts.state.tasks[opts.taskId]?.depends_on ?? [];
   if (deps.every((dep) => opts.state.tasks[dep]?.state === "MERGED")) {
     emit("task.ready", { task_id: opts.taskId });
   }
@@ -530,9 +593,10 @@ async function lintRunPlan(opts: ReplanExecutionOptions): Promise<Diagnostic[]> 
     if (!spec) continue;
     for (const heading of REQUIRED_HEADINGS) {
       if (!spec.sections.has(heading)) {
+        // 2026-10-23: a missing heading does not stop the task from running; L014 reports it as a warning (R12.3).
         diagnostics.push({
           code: "REPLAN",
-          severity: "error",
+          severity: "warn",
           path: task.spec,
           message: `Task spec ${task.spec} missing required heading: ## ${heading}`,
         });
@@ -574,14 +638,14 @@ function readRevisedSpec(opts: ReplanExecutionOptions): ParsedTaskSpec | undefin
 
 interface SessionOutcome {
   result: SessionResult;
-  /** True when the caller stopped the session (run budget), so no output is read. */
-  stopped: boolean;
   /** True when no adapter answers for the backend the ladder routed to. */
   unavailable: boolean;
   /** True when the run was cancelled, so nothing is recorded for this replan. */
   cancelled: boolean;
   /** Set when the planner session could not start at all (after the spawn retries): the spawn error in plain words. */
   spawnFailure?: string;
+  /** Set when the no-output idle watchdog killed the session as hung (kill reason timeout). */
+  hung?: boolean;
 }
 
 async function runPlannerSession(
@@ -592,7 +656,7 @@ async function runPlannerSession(
 ): Promise<SessionOutcome> {
   const adapter = opts.resolveAdapter?.(route.backend) ?? opts.adapter;
   if (!adapter) {
-    return { result: emptyResult(), stopped: false, unavailable: true, cancelled: false };
+    return { result: emptyResult(), unavailable: true, cancelled: false };
   }
 
   // The engine's own id for this session: the transcript is named by it until the harness reports its id.
@@ -608,15 +672,6 @@ async function runPlannerSession(
       allow: [opts.runDir],
       deny: ["git commit", "git push", "git checkout", "git reset", "subagents"],
     },
-    budget: {
-      max_usd: opts.settings.budgets.task.max_usd,
-      ...(opts.settings.budgets.task.timeout_min !== undefined
-        ? { timeout_ms: opts.settings.budgets.task.timeout_min * 60 * 1000 }
-        : {}),
-      ...(opts.settings.budgets.task.max_tokens
-        ? { max_tokens: opts.settings.budgets.task.max_tokens }
-        : {}),
-    },
     raw_dir: opts.runDir,
     session: { id: replanSessionId },
   };
@@ -629,7 +684,6 @@ async function runPlannerSession(
   if ("error" in started) {
     return {
       result: emptyResult(),
-      stopped: false,
       unavailable: false,
       cancelled: false,
       spawnFailure: started.error,
@@ -661,10 +715,6 @@ async function runPlannerSession(
         task_id: opts.taskId,
         generation: opts.packet.generation,
       });
-      if (opts.onUsage?.(delta)) {
-        await handle.kill("budget");
-        return { result: emptyResult(), stopped: true, unavailable: false, cancelled: false };
-      }
     }
 
     const result = await handle.result();
@@ -677,19 +727,25 @@ async function runPlannerSession(
         task_id: opts.taskId,
         generation: opts.packet.generation,
       });
-      if (opts.onUsage?.(result.usage)) {
-        return { result, stopped: true, unavailable: false, cancelled: false };
-      }
     }
 
     if (opts.signal?.aborted || result.killed_for === "cancel") {
-      return { result, stopped: true, unavailable: false, cancelled: true };
+      return { result, unavailable: false, cancelled: true };
     }
 
-    return { result, stopped: false, unavailable: false, cancelled: false };
+    if (result.killed_for === "timeout") {
+      return { result, unavailable: false, cancelled: false, hung: true };
+    }
+
+    return { result, unavailable: false, cancelled: false };
   } finally {
     unbind();
   }
+}
+
+/** The failure text for a planner session the idle watchdog killed (the same words the planning round uses). */
+function hangReason(opts: ReplanExecutionOptions): string {
+  return `Planner session killed: no output for ${idleMinutesOf(opts.settings)} min; the session was killed as hung`;
 }
 
 function emptyResult(): SessionResult {

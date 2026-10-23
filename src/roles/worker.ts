@@ -20,6 +20,7 @@ import type {
   WorkerReport,
 } from "../contracts/index.js";
 import type { EventData, EventType } from "../contracts/events.js";
+import { idleMinutesOf } from "../backends/spawn.js";
 import { toDelta, type UsageTotals } from "../ledger/usage.js";
 import { assembleSystem, loadTemplate } from "../prompts/index.js";
 import { render } from "../prompts/render.js";
@@ -47,7 +48,7 @@ export type WorkerEmit = <T extends EventType>(
   data: EventData<T>
 ) => EngineEvent | void;
 
-export type WorkerKillReason = "budget" | "timeout" | "cancel";
+export type WorkerKillReason = "timeout" | "cancel";
 
 /** Per-task totals of cost, tokens and turns for one generation (R3.4). */
 export interface TaskTotals {
@@ -229,14 +230,6 @@ async function runAttempt(
   usage: UsageRecord,
   taskTotals: TaskTotals
 ): Promise<AttemptOutcome> {
-  // Per-attempt timeout (R3.4): the timer is armed for every attempt, not only the
-  // first, and it kills this attempt's session, never the run. Unset (the default) means no
-  // per-attempt timeout; the spec's budget.timeout_min is an estimate and never a kill.
-  const timeoutMs =
-    opts.settings.budgets.task.timeout_min !== undefined
-      ? opts.settings.budgets.task.timeout_min * 60 * 1000
-      : undefined;
-
   const spawnReq: SpawnRequest = {
     role: "worker",
     cwd: baseline.worktreePath,
@@ -257,14 +250,6 @@ async function runAttempt(
         "git clean",
         "subagents",
       ],
-    },
-    // Only the project settings cap a worker (none by default); the spec's budget is advisory.
-    budget: {
-      ...(opts.settings.budgets.task.max_usd !== undefined ? { max_usd: opts.settings.budgets.task.max_usd } : {}),
-      ...(timeoutMs !== undefined ? { timeout_ms: timeoutMs } : {}),
-      ...(opts.settings.budgets.task.max_tokens !== undefined
-        ? { max_tokens: opts.settings.budgets.task.max_tokens }
-        : {}),
     },
   };
 
@@ -306,15 +291,6 @@ async function runAttempt(
   // R8.2: the session is recorded in the run directory until it ends (see endStaleWorkers).
   const pidRecord = { task_id: opts.taskId, generation: opts.generation, attempt, pid: handle.pid, backend: route.backend };
   recordWorkerPid(opts.rawDir, pidRecord);
-
-  let timedOut = false;
-  const timeoutTimer =
-    timeoutMs === undefined
-      ? undefined
-      : setTimeout(() => {
-          timedOut = true;
-          void handle.kill("timeout");
-        }, timeoutMs);
 
   let sessionId = session.resume ?? session.id ?? "";
   let sawUsage = false;
@@ -483,8 +459,10 @@ async function runAttempt(
     if (crashDetail !== undefined) return fail("worker_crashed", crashDetail);
     if (!sessionId) return fail("worker_crashed", "adapter reported no session id");
 
-    if (timedOut || res.killed_for === "timeout") {
-      return fail("timeout", "session killed for timeout");
+    // A session the harness reports as killed for a timeout (only a kill by substrate stop or the adapter sets it now).
+    // The no-output idle watchdog (owner, 2026-10-23): a hang, classified like any task failure.
+    if (res.killed_for === "timeout") {
+      return fail("timeout", `no output for ${idleMinutesOf(opts.settings)} min; the session was killed as hung`);
     }
 
     // Rule 6: HEAD and branch must still be what step 3 recorded. Nothing is reverted.
@@ -615,7 +593,6 @@ async function runAttempt(
     }
     throw err;
   } finally {
-    clearTimeout(timeoutTimer);
     unbind();
     clearWorkerPid(opts.rawDir, pidRecord);
   }

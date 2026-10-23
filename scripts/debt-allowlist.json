@@ -49,6 +49,18 @@
     {
       "key": "roles.reviewer.model",
       "until": "DEFERRED"
+    },
+    {
+      "key": "routing.*.budget.max_tokens",
+      "until": "DEFERRED"
+    },
+    {
+      "key": "routing.*.budget.max_turns",
+      "until": "DEFERRED"
+    },
+    {
+      "key": "routing.*.budget.timeout_min",
+      "until": "DEFERRED"
     }
   ],
   "dead": [

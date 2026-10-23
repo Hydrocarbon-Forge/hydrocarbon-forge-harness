@@ -8,8 +8,7 @@ import { parseManifest, parseTaskSpec, type ParsedPlan, type ParsedTaskSpec } fr
  * Loads a planned run's manifest and task specs for linting, the way the approval lint
  * sees them. Each contract file missing from the repository root gets a placeholder
  * (`export {};`), and each write target a stub, so the lint can see the stubs as they
- * will be. The returned cleanup removes what was created. A task without a budget keeps
- * none: budgets are advisory and no cap is applied to it.
+ * will be. The returned cleanup removes what was created. Budgets in the specs are advisory only.
  */
 export async function safeLoadPlan(
   manifestPath: string,

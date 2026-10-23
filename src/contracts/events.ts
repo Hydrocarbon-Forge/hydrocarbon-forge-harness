@@ -284,6 +284,8 @@ export const PlanLintEvent = member(
       valid: z.boolean().optional(),
       errors: z.number().optional(),
       diagnostics: z.array(z.unknown()).optional(),
+      // The advisory cost estimate of the plan (ledger estimateRunCost). It never pauses or refuses a run.
+      estimated_usd: z.number().optional(),
     })
     .strict()
 );
@@ -701,6 +703,42 @@ export const RateLimitBackoffEvent = member(
   z.object({ task_id: z.string(), concurrency: z.number() }).strict()
 );
 
+/**
+ * 2026-10-23 (owner): a replan or an amendment rewrites the manifest, and the engine registers what it wrote. The
+ * manifest and the live task state are reconciled by this event: the tasks the manifest has and the state lacks
+ * (`added`), the pending tasks whose dependencies, write or create sets changed (`changed`, with the sets they now
+ * have in `tasks`), and the pending tasks the manifest no longer names (`dropped`). `repaired_dependencies` names
+ * each dependency that names no task of the plan and was dropped; `warnings` says why in plain words. The reducer
+ * applies only what the live state allows (a started task is never changed), so a replay gives the same state.
+ */
+export const PlanSyncedEvent = member(
+  "plan.synced",
+  z
+    .object({
+      added: z.array(z.string()),
+      changed: z.array(z.string()),
+      dropped: z.array(z.string()),
+      tasks: z.array(AmendedTaskEntry),
+      repaired_dependencies: z.array(z.object({ task: z.string(), dependency: z.string() }).strict()),
+      warnings: z.array(z.string().max(300)).max(20),
+      // The task a replan is working on: its state stays as the replan left it, and only its sets are updated.
+      replan_task_id: z.string().optional(),
+      // 2026-10-23 (owner, item 88): set when the replan routed a failure to the task that owns the failing files.
+      // `defer`: the replanned task now depends on `owner`. `fix`: a new task `fix_task` owns `files` and depends on
+      // `owner` (merged), and the replanned task depends on it. The count of these per task caps the routings.
+      owner_route: z
+        .object({
+          kind: z.enum(["defer", "fix"]),
+          owner: z.string(),
+          files: z.array(z.string()),
+          fix_task: z.string().optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+);
+
 export const EngineEventV1 = z.discriminatedUnion("type", [
   RunCreatedEvent,
   RunRoutedEvent,
@@ -709,6 +747,7 @@ export const EngineEventV1 = z.discriminatedUnion("type", [
   RunReopenedEvent,
   RunMessageEvent,
   RunAmendedEvent,
+  PlanSyncedEvent,
   RunFinishedEvent,
   RunBudgetWarningEvent,
   RunBudgetExceededEvent,
@@ -767,6 +806,7 @@ export const EVENT_TYPES = [
   "run.reopened",
   "run.message",
   "run.amended",
+  "plan.synced",
   "run.finished",
   "run.budget.warning",
   "run.budget.exceeded",

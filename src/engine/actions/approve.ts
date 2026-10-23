@@ -11,7 +11,8 @@ import { log } from "../../util/log.js";
 
 /**
  * The `lint` action: re-parses the plan the planner wrote, reports every
- * diagnostic without filtering, and applies the permission-mode approval rules.
+ * diagnostic without filtering, and then hands the plan on. There is no approval
+ * pause (owner, 2026-10-23): only the plan permission mode stops at a planned plan.
  */
 export async function runLintAction(
   action: EngineAction,
@@ -36,7 +37,9 @@ export async function runLintAction(
 
   try {
     const lintRes = await lintPlan(parsedPlan, ctx.repoRoot, ctx.settings);
-    emit("plan.lint", { valid: !lintRes.hasErrors, diagnostics: lintRes.diagnostics });
+    // The estimate is reported with the lint result. It is advisory and never pauses or refuses the plan.
+    const { estimated_usd } = estimateRunCost(parsedPlan.manifest, [], parsedPlan.specs);
+    emit("plan.lint", { valid: !lintRes.hasErrors, diagnostics: lintRes.diagnostics, estimated_usd });
 
     if (lintRes.hasErrors) {
       emit(
@@ -49,27 +52,6 @@ export async function runLintAction(
     parsedPlan.cleanup?.();
   }
 
-  // The estimate pauses the run only when the caller set budgets.approval_threshold_usd (off by default).
-  const { estimated_usd } = estimateRunCost(parsedPlan.manifest, [], ctx.settings, parsedPlan.specs);
-  const approvalThreshold = ctx.settings.budgets?.approval_threshold_usd;
-  const requiresApproval =
-    ctx.permission_mode === "default" ||
-    (approvalThreshold !== undefined && estimated_usd > approvalThreshold);
-
-  if (requiresApproval) {
-    if (ctx.permission_mode === "bypassPermissions") {
-      emit("plan.approved", {});
-      return;
-    }
-    if (ctx.permission_mode === "plan") {
-      emit("plan.ready", {});
-      emit("run.finished", { exit_code: 0, status: "planned", reason: "planned" });
-      return;
-    }
-    emit("run.paused", { reason: "needs_approval" });
-    return;
-  }
-
   if (ctx.permission_mode === "plan") {
     emit("plan.ready", {});
     emit("run.finished", { exit_code: 0, status: "planned", reason: "planned" });
@@ -77,13 +59,4 @@ export async function runLintAction(
   }
 
   emit("plan.approved", {});
-}
-
-export function runApproveAction(
-  action: EngineAction,
-  ctx: EffectContext,
-  state: EngineState,
-  emit: Emit
-): void {
-  emit("run.paused", { reason: action.reason ?? "needs_approval" });
 }

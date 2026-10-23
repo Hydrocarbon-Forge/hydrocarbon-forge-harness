@@ -25,7 +25,7 @@ export interface MockSessionConfig {
   result?: Partial<SessionResult>;
   events?: BackendEvent[];
   onSpawn?: (req: SpawnRequest) => void;
-  onKill?: (reason: "budget" | "timeout" | "cancel") => void;
+  onKill?: (reason: "timeout" | "cancel") => void;
 }
 
 export interface MockAdapterOptions {
@@ -47,7 +47,6 @@ export function createMockAdapter(options: MockAdapterOptions = {}): HarnessAdap
     version_pin: "1.0.0",
     effort: true,
     structured_output: true,
-    budget_flag: true,
     cost_reported: true,
     resume: true,
     permission_denial_signal: "event",
@@ -137,7 +136,7 @@ export function createMockAdapter(options: MockAdapterOptions = {}): HarnessAdap
         async result(): Promise<SessionResult> {
           return sessionResult;
         },
-        async kill(reason: "budget" | "timeout" | "cancel"): Promise<void> {
+        async kill(reason: "timeout" | "cancel"): Promise<void> {
           killCalls.push({ sessionId, reason });
           if (config.onKill) {
             config.onKill(reason);

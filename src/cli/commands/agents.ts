@@ -19,7 +19,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
   settings?: string;

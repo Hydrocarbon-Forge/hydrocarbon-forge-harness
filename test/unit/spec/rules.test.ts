@@ -82,7 +82,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     expect(resultOrphan.diagnostics.some((d) => d.code === "L003" && d.severity === "warn")).toBe(true);
   });
 
-  it("L004: emits error when depends_on references an unknown task ID", async () => {
+  it("L004: emits a warning when depends_on references an unknown task ID", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
 
@@ -98,7 +98,7 @@ describe("plan linter rules: L001 - L010 (schema and DAG integrity)", () => {
     });
 
     const result = await lintPlan(plan, repo, settings);
-    expect(result.diagnostics.some((d) => d.code === "L004" && d.severity === "error")).toBe(true);
+    expect(result.diagnostics.some((d) => d.code === "L004" && d.severity === "warn")).toBe(true);
   });
 
   it("L005: emits error when task dependency graph has cycles", async () => {
@@ -398,59 +398,8 @@ describe("plan linter rules: L011 - L020 (environment, sections, budgets, types)
     expect(result.diagnostics.some((d) => d.code === "L015")).toBe(false);
   });
 
-  // Changed (2026-10-21, owner): budgets are advisory and no cap is the default. The old tests pinned a
-  // missing-budget warning and an error for an over-budget spec; both now depend on a per-task cap being set.
-  it("L016 is silent with no per-task cap: no missing-budget warning and no over-budget diagnostic", async () => {
-    const repo = createTempRepo();
-    const settings = sampleSettings();
-    const specNoBudget = sampleParsedTaskSpec({
-      frontmatter: sampleTaskSpecFrontmatter({ id: "T1", budget: undefined }),
-    });
-    const specOverBudget = sampleParsedTaskSpec({
-      frontmatter: sampleTaskSpecFrontmatter({ id: "T2", budget: { max_usd: 1.5 } }),
-    });
-    const plan = sampleParsedPlan({
-      manifest: sampleManifest({
-        tasks: [
-          { id: "T1", spec: "tasks/T1.md" },
-          { id: "T2", spec: "tasks/T2.md" },
-        ],
-      }),
-      specs: [specNoBudget, specOverBudget],
-    });
-
-    const result = await lintPlan(plan, repo, settings);
-    expect(result.diagnostics.filter((d) => d.code === "L016")).toEqual([]);
-  });
-
-  it("L016 warns (not an error) when a spec's budget estimate exceeds the per-task cap that is set", async () => {
-    const repo = createTempRepo();
-    const settings = sampleSettings({
-      budgets: {
-        ...sampleSettings().budgets,
-        task: { max_usd: 0.5 },
-      },
-    });
-
-    const specOverBudget = sampleParsedTaskSpec({
-      frontmatter: sampleTaskSpecFrontmatter({
-        id: "T1",
-        budget: { max_usd: 1.5 }, // Exceeds 0.5
-      }),
-    });
-    const plan = sampleParsedPlan({
-      manifest: sampleManifest({ tasks: [{ id: "T1", spec: "tasks/T1.md" }] }),
-      specs: [specOverBudget],
-    });
-
-    const result = await lintPlan(plan, repo, settings);
-    const diag = result.diagnostics.find((d) => d.code === "L016");
-    expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("warn");
-    expect(diag?.message).toContain("exceeds the per-task cap");
-    expect(result.diagnostics.filter((d) => d.code === "L016" && d.severity === "error")).toEqual([]);
-  });
-
+  // Removed (2026-10-23, owner): L016, L022 and L025 were the spend-cap and approval-threshold rules. Their tests went
+  // with them. Budgets in specs are advisory and no rule compares them with a cap.
   it("L017: emits warning when task read set exceeds context budget cap", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings();
@@ -573,45 +522,6 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     expect(diag?.severity).toBe("warn");
   });
 
-  it("L022: emits gate diagnostic when estimated cost exceeds approval threshold", async () => {
-    const repo = createTempRepo();
-    const settings = sampleSettings({
-      budgets: {
-        ...sampleSettings().budgets,
-        approval_threshold_usd: 1.0,
-      },
-    });
-
-    const t1 = sampleParsedTaskSpec({
-      frontmatter: sampleTaskSpecFrontmatter({
-        id: "T1",
-        budget: { max_usd: 0.8 },
-      }),
-    });
-    const t2 = sampleParsedTaskSpec({
-      frontmatter: sampleTaskSpecFrontmatter({
-        id: "T2",
-        budget: { max_usd: 0.8 },
-      }),
-    });
-    // Total = 1.6 > 1.0
-    const plan = sampleParsedPlan({
-      manifest: sampleManifest({
-        tasks: [
-          { id: "T1", spec: "tasks/T1.md" },
-          { id: "T2", spec: "tasks/T2.md" },
-        ],
-      }),
-      specs: [t1, t2],
-    });
-
-    const result = await lintPlan(plan, repo, settings);
-    expect(result.hasGates).toBe(true);
-    const diag = result.diagnostics.find((d) => d.code === "L022");
-    expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("gate");
-  });
-
   it("L023: emits a warning when lint.red_check is on and verify passes at base ref; silent by default", async () => {
     const repo = createTempRepo();
     const settings = sampleSettings({ lint: { red_check: true } });
@@ -674,27 +584,6 @@ describe("plan linter rules: L021 - L027 (integration, cost gates, red-check, li
     });
     const res2 = await lintPlan(plan2, repo, settings);
     expect(res2.diagnostics.some((d) => d.code === "L024" && d.severity === "warn")).toBe(true);
-  });
-
-  it("L025: emits warning when manifest budget exceeds run cap", async () => {
-    const repo = createTempRepo();
-    const settings = sampleSettings({
-      budgets: {
-        ...sampleSettings().budgets,
-        run: { max_usd: 5.0 },
-      },
-    });
-
-    const plan = sampleParsedPlan({
-      manifest: sampleManifest({
-        budget: { max_usd: 25.0 }, // Exceeds run max_usd 5.0
-      }),
-    });
-
-    const result = await lintPlan(plan, repo, settings);
-    const diag = result.diagnostics.find((d) => d.code === "L025");
-    expect(diag).toBeDefined();
-    expect(diag?.severity).toBe("warn");
   });
 
   it("L026: emits warning when total task count exceeds max_tasks limit", async () => {

@@ -201,12 +201,6 @@ export async function loadRequest(
   if (flags.effort !== undefined) {
     rawObj.planner = { ...(rawObj.planner ?? {}), effort: flags.effort };
   }
-  if (flags.maxBudgetUsd !== undefined || flags.timeout !== undefined) {
-    rawObj.budget = rawObj.budget ?? {};
-    if (flags.maxBudgetUsd !== undefined) rawObj.budget.max_usd = flags.maxBudgetUsd;
-    if (flags.timeout !== undefined) rawObj.budget.max_wall_min = flags.timeout / 60;
-  }
-
   // Validate RunRequest schema
   const parseResult = RunRequest.safeParse(rawObj);
   if (!parseResult.success) {
@@ -404,19 +398,6 @@ export async function loadRequest(
       model: workerRole.model,
       ...(workerRole.effort ? { effort: workerRole.effort } : {}),
     };
-  }
-  if (validRequest.budget) {
-    overrides.budgets = overrides.budgets || {};
-    overrides.budgets.run = overrides.budgets.run || {};
-    if (validRequest.budget.max_usd !== undefined) {
-      overrides.budgets.run.max_usd = validRequest.budget.max_usd;
-    }
-    if (validRequest.budget.max_tokens !== undefined) {
-      overrides.budgets.run.max_tokens = validRequest.budget.max_tokens;
-    }
-    if (validRequest.budget.max_wall_min !== undefined) {
-      overrides.budgets.run.max_wall_min = validRequest.budget.max_wall_min;
-    }
   }
   if (validRequest.verify) {
     overrides.verify = validRequest.verify;

@@ -22,7 +22,6 @@ describe("claude adapter: the prompt travels on stdin", () => {
         model: "claude-haiku-5-5",
         prompt: "PROMPT-ON-STDIN",
         permission: { allow: [], deny: [] },
-        budget: {},
         session: { id: randomUUID() },
         env: { FAKE_ARGV_LOG: log },
       });

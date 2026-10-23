@@ -127,10 +127,6 @@ export function liveSettings(
       [harness]: { plan: { model }, work: { model } },
     },
     defaults: { planner_provider: harness, worker_provider: harness },
-    budgets: {
-      run: { max_usd: RUN_CAP_USD },
-      task: { max_usd: TASK_CAP_USD },
-    } as Settings["budgets"],
   };
 }
 

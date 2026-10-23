@@ -8,7 +8,7 @@ import { runSubstrate, type RunSubstrateResult } from "./helpers/run-substrate.j
 const CONTRACT_STUB = "export {};\n";
 const PLAN_ARGS = ["run", "--mode", "plan", "--permission-mode", "plan"];
 
-/** claude stops the planner at its --max-budget-usd cap, after 0.55 USD of spend. */
+/** claude's planner session ends with an error result after 0.55 USD of spend (no spend cap is passed since 2026-10-23). */
 const BUDGET_STOPPED_PLANNER = { failure: "budget", cost_usd: 0.55, reply: "" };
 
 /** claude ends the planner's turn with an error result and no reply text. */
@@ -21,34 +21,6 @@ function failedEvents(res: RunSubstrateResult): Array<{ failure_class?: string; 
 }
 
 describe("R7.9: planner failures name their cause", () => {
-  it(
-    "a planner stopped at its budget cap is a budget_exceeded failure that names both caps",
-    () => {
-      const res = runSubstrate({
-        files: { "src/a.txt": "seed\n", "contracts/types.ts": CONTRACT_STUB },
-        scenario: { calls: [BUDGET_STOPPED_PLANNER] },
-        // The run cap is off by default; this test sets it explicitly.
-        settings: { budgets: { run: { max_usd: 5 } } },
-        args: [...PLAN_ARGS, "Run the budget-stopped planner case"],
-      });
-      try {
-        expect(res.exitCode).toBe(1);
-        const failed = failedEvents(res);
-        expect(failed).toHaveLength(1);
-        expect(failed[0].failure_class).toBe("budget_exceeded");
-        expect(failed[0].message).toBe(
-          "planner stopped at its budget cap of $5.00 (spent $0.55); the run budget is $5.00",
-        );
-        expect(res.stdout).toContain("[plan] failed: budget_exceeded: planner stopped at its budget cap of $5.00");
-        expect(res.stdout).not.toContain("[task ]");
-        expect(res.stdout).not.toContain("Planner session failed with exit code 1");
-      } finally {
-        res.cleanup();
-      }
-    },
-    60000,
-  );
-
   it(
     "a planning failure prints no branch and says resume re-runs planning",
     () => {
@@ -77,15 +49,14 @@ describe("R7.9: planner failures name their cause", () => {
       const res = runSubstrate({
         files: { "src/a.txt": "seed\n", "contracts/types.ts": CONTRACT_STUB },
         scenario: { calls: [BUDGET_STOPPED_PLANNER] },
-        // The run cap is off by default; this test sets it explicitly.
-        settings: { budgets: { run: { max_usd: 5 } } },
         args: [...PLAN_ARGS, "--output-format", "json", "Run the planning failure json case"],
       });
       try {
         expect(res.exitCode).toBe(1);
         const summary = JSON.parse(res.stdout) as { branch?: string; failure_class?: string };
         expect(summary).not.toHaveProperty("branch");
-        expect(summary.failure_class).toBe("budget_exceeded");
+        // The planner's error result is an ordinary failed session now: no spend cap ends it (owner, 2026-10-23).
+        expect(summary.failure_class).toBe("worker_crashed");
       } finally {
         res.cleanup();
       }

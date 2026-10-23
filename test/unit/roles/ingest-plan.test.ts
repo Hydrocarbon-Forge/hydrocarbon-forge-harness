@@ -89,15 +89,27 @@ describe("R10.5: ingestPlanDraft accepts a complete draft exactly as the planner
     }
   });
 
-  it("a format lint error (a dependency on a task the plan does not have) is rejected", async () => {
+  it("a format lint error (a dependency cycle, L005) is rejected", async () => {
+    writeDraft({
+      "manifest.yaml": manifestWith(),
+      "tasks/T1.md": sampleValidTaskSpecMarkdown({ frontmatter: { depends_on: ["T1"] } }),
+      "contracts/types.ts": sampleValidContractStub(),
+    });
+    const res = await ingest();
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.diagnostics.length).toBeGreaterThan(0);
+  });
+
+  it("a dependency on a task the plan does not have is a warning (L004): accepted, the engine drops it", async () => {
+    // 2026-10-23 (owner): an unknown dependency is repaired by the engine (plan.synced), so it never refuses a plan.
     writeDraft({
       "manifest.yaml": manifestWith(),
       "tasks/T1.md": sampleValidTaskSpecMarkdown({ frontmatter: { depends_on: ["T9"] } }),
       "contracts/types.ts": sampleValidContractStub(),
     });
     const res = await ingest();
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.diagnostics.length).toBeGreaterThan(0);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.warnings.map((d) => d.code)).toContain("L004");
   });
 
   it("a contract typecheck error is a warning: the plan is accepted and the typecheck diagnostic is returned", async () => {

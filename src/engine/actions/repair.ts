@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { REPAIR_ATTEMPTS_DEFAULT } from "../../contracts/index.js";
 import type { Command, Manifest, Settings, TaskId, WorkerReport } from "../../contracts/index.js";
 import type { EffectContext } from "../effects.js";
-import { checkRunBudget, interruptOf } from "../effects.js";
+import { interruptOf } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor, integrationFailureDetail } from "./shared.js";
@@ -115,12 +115,9 @@ function headOf(worktreePath: string): string {
   return execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim();
 }
 
-/** The worker's run policy during a repair: the run's budget, a denied permission, a rate limit, a budget stop. */
-function repairPolicy(ctx: EffectContext, emit: Emit, runSpend: () => number, runTokens: () => number): WorkerRunPolicy {
+/** The worker's run policy during a repair: a denied permission and a rate limit. No cap applies (owner, 2026-10-23). */
+function repairPolicy(ctx: EffectContext, emit: Emit): WorkerRunPolicy {
   return (obs) => {
-    if (checkRunBudget(ctx, emit, runSpend(), runTokens())) {
-      return { stop: true, kill: "budget" };
-    }
     if (obs.event?.type === "permission.denied") {
       emit("run.paused", { reason: "permission_denied" });
       return { stop: true, kill: "cancel" };
@@ -131,11 +128,6 @@ function repairPolicy(ctx: EffectContext, emit: Emit, runSpend: () => number, ru
     }
     const res = obs.result;
     if (res) {
-      if (res.killed_for === "budget") {
-        emit("run.budget.exceeded", { cost_usd: runSpend(), max_usd: ctx.settings.budgets.run.max_usd ?? 0 });
-        emit("run.paused", { reason: "budget_exhausted" });
-        return { stop: true };
-      }
       if (res.denials && res.denials.length > 0) {
         emit("run.paused", { reason: "permission_denied" });
         return { stop: true };
@@ -209,8 +201,6 @@ async function runOneAttempt(args: {
     previous: args.previous,
   });
 
-  const runSpend = (): number => ctx.journal?.state.usage.total_usd ?? args.state.usage.total_usd;
-  const runTokens = (): number => ctx.journal?.tokens ?? 0;
   const repaired = await runRepairWorker({
     runId: ctx.runId,
     repoRoot: ctx.repoRoot,
@@ -225,7 +215,7 @@ async function runOneAttempt(args: {
     rawDir: ctx.runDir,
     promptText,
     signal: interruptOf(ctx),
-    runPolicy: repairPolicy(ctx, emit, runSpend, runTokens),
+    runPolicy: repairPolicy(ctx, emit),
     // Only the usage of the repair session is the run's; the task events of the worker stay out of the log,
     // so the reducer keeps the repair rows apart from the plan's tasks. The return value is never read.
     onEvent: (type, data) => {

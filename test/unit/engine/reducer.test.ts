@@ -78,7 +78,7 @@ describe("engine: reducer run lifecycle transitions", () => {
     expect(state.checkpoints).toEqual([]);
   });
 
-  it("progresses run states: CREATED -> ROUTING/PLANNING -> LINTING -> AWAITING_APPROVAL -> SETUP -> EXECUTING", () => {
+  it("progresses run states: CREATED -> ROUTING/PLANNING -> LINTING -> SETUP -> EXECUTING", () => {
     const runId = createRunId();
     let state = createBlankState(runId);
 
@@ -90,11 +90,9 @@ describe("engine: reducer run lifecycle transitions", () => {
     state = reduce(state, makeEvent(runId, 2, "plan.produced", { manifest: { run_id: runId } }));
     expect(state.state).toBe("LINTING");
 
-    // LINTING -> AWAITING_APPROVAL (when lint passes and approval is needed)
-    state = reduce(state, makeEvent(runId, 3, "plan.lint", { ok: true, requires_approval: true }));
-    expect(state.state).toBe("AWAITING_APPROVAL");
-
-    // plan.approved transitions to SETUP
+    // LINTING -> SETUP: a plan that passes lint goes on to setup (no approval pause, owner 2026-10-23).
+    state = reduce(state, makeEvent(runId, 3, "plan.lint", { ok: true }));
+    expect(state.state).toBe("LINTING");
     state = reduce(state, makeEvent(runId, 4, "plan.approved", {}));
     expect(state.state).toBe("SETUP");
 
@@ -106,7 +104,7 @@ describe("engine: reducer run lifecycle transitions", () => {
   it("transitions to CANCELLED when plan is rejected", () => {
     const runId = createRunId();
     let state = createBlankState(runId);
-    state.state = "AWAITING_APPROVAL";
+    state.state = "LINTING";
 
     state = reduce(state, makeEvent(runId, 1, "plan.rejected", { reason: "User declined" }));
     expect(state.state).toBe("CANCELLED");

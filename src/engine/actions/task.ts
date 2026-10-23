@@ -4,7 +4,6 @@ import crypto from "node:crypto";
 
 import type { BackendEvent, Manifest, UsageRecord, WorkerReport } from "../../contracts/index.js";
 import type { EffectContext, EngineAction } from "../effects.js";
-import { checkRunBudget } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { safeParseManifest, adapterFor } from "./shared.js";
@@ -14,7 +13,6 @@ import { resolveTaskRoute } from "../../roles/router.js";
 import { getRunBranch } from "../../git/index.js";
 import {
   runWorker,
-  type TaskTotals,
   type WorkerObservation,
   type WorkerRunPolicy,
   type WorkerStopDecision,
@@ -98,25 +96,15 @@ export async function runTaskAction(
       }
 
       // Run-level policy is decided here, not by the role (R1.4, R1.5). The worker
-      // reports what it observed and this answers whether the attempt must stop.
-      // R8.3: the run totals are the live journal's. Every worker of the run commits its usage
-      // there as it happens, so a budget check sees the spend of the workers running beside this one.
-      const runSpend = (): number => ctx.journal?.state.usage.total_usd ?? state.usage.total_usd;
-      const runTokens = (): number => ctx.journal?.tokens ?? 0;
+      // reports what it observed and this answers whether the attempt must stop. No spend,
+      // token, turn or time cap applies (owner, 2026-10-23): only the interrupt, rate limits,
+      // permission denials and the worker's own result decide it.
       // The signal that stops this worker: the user's interrupt, or a stop of the whole run.
       const workerSignal =
         ctx.signal && ctx.runStop
           ? AbortSignal.any([ctx.signal, ctx.runStop.signal])
           : (ctx.signal ?? ctx.runStop?.signal);
       let rateLimits = 0;
-
-      // The per-task caps come only from the project settings (none by default). The spec's budget is
-      // the planner's estimate and never ends a task (owner, 2026-10-21).
-      const taskBudget = {
-        max_usd: ctx.settings.budgets.task.max_usd,
-        max_tokens: ctx.settings.budgets.task.max_tokens,
-        max_turns: ctx.settings.budgets.task.max_turns,
-      };
 
       const rateLimitDecision = (): WorkerStopDecision => {
         rateLimits += 1;
@@ -146,41 +134,7 @@ export async function runTaskAction(
         return { stop: true, kill: "cancel", backoff_ms: BACKOFF_MS[rateLimits - 1] };
       };
 
-      const taskBudgetDecision = (totals: TaskTotals): WorkerStopDecision | undefined => {
-        const crossed = (limit: number | undefined, value: number, label: string) =>
-          limit !== undefined && value >= limit ? label : undefined;
-
-        const which =
-          crossed(taskBudget.max_usd, totals.cost_usd, "cost") ??
-          crossed(taskBudget.max_tokens, totals.tokens, "tokens") ??
-          crossed(taskBudget.max_turns, totals.turns, "turns");
-
-        // A per-task budget ends only the task; it never pauses the run (R3.4).
-        if (!which) return undefined;
-        return {
-          stop: true,
-          kill: "budget",
-          failure_class: "budget_exceeded",
-          detail: `task ${which} budget`,
-        };
-      };
-
       const runPolicy: WorkerRunPolicy = (obs: WorkerObservation) => {
-        const delta = obs.usageDelta;
-        const contributed =
-          (delta?.cost_usd ?? 0) + (delta?.input_tokens ?? 0) + (delta?.output_tokens ?? 0);
-
-        // The delta is already in the journal (recordUsage committed it), so the check reads the total.
-        if (checkRunBudget(ctx, emit, runSpend(), runTokens())) {
-          return { stop: true, kill: "budget" };
-        }
-
-        // A discarded usage record (a duplicate cumulative event) is not checked.
-        if (obs.totals && (contributed > 0 || obs.totals.turns > 0)) {
-          const decision = taskBudgetDecision(obs.totals);
-          if (decision) return decision;
-        }
-
         if (obs.event?.type === "permission.denied") {
           emit("run.paused", { reason: "permission_denied" });
           return { stop: true, kill: "cancel" };
@@ -193,12 +147,6 @@ export async function runTaskAction(
         const res = obs.result;
         if (res) {
           if (workerSignal?.aborted || res.killed_for === "cancel") {
-            return { stop: true };
-          }
-          if (res.killed_for === "budget") {
-            // R11.2 (known issue 62): the spend the run has recorded, as the other budget stops do.
-            emit("run.budget.exceeded", { cost_usd: runSpend(), max_usd: ctx.settings.budgets.run.max_usd });
-            emit("run.paused", { reason: "budget_exhausted" });
             return { stop: true };
           }
           if (res.denials && res.denials.length > 0) {

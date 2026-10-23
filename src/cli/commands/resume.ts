@@ -41,7 +41,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
   settings?: string;
@@ -75,7 +74,7 @@ const { reportOfRun, writeRunReportFile } = await import(`../run-report-io.js`);
 const { renderReportMarkdown, renderReportText } = await import(`../../engine/run-report.js`);
 const { runProcessOf } = await import(`../../store/run-lock.js`);
 const { registry } = await import(`../registry.js`);
-const { buildSettingsOverrides, concurrencyFlagProblem, landRun, mergeChoiceOf, mergeFlagsConflict, timeoutFlagProblem } = await import(`./run.js`);
+const { buildSettingsOverrides, concurrencyFlagProblem, landRun, mergeChoiceOf, mergeFlagsConflict, ignoredLimitFlagWarning } = await import(`./run.js`);
 const { withRequestedRoles } = await import(`../../config/index.js`);
 
 /**
@@ -140,11 +139,8 @@ export const resumeCommand: CliCommand = {
       ctx.stderr.write(concurrencyProblem);
       return 2;
     }
-    const timeoutProblem = timeoutFlagProblem(ctx.flags);
-    if (timeoutProblem !== undefined) {
-      ctx.stderr.write(timeoutProblem);
-      return 2;
-    }
+    const limitWarning = ignoredLimitFlagWarning(ctx.flags);
+    if (limitWarning !== undefined) ctx.stderr.write(limitWarning);
     // R10.3: the resume runs in a detached child; its own arguments minus --detach start it.
     if (ctx.flags.detach === true) {
       const { detachFrom } = await import(`../detach.js`);

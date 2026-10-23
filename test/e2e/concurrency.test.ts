@@ -393,37 +393,6 @@ describe("R8.3: interrupts and budgets stop every in-flight worker", () => {
     }
   }, 120000);
 
-  it("a run budget smaller than the combined cost stops every in-flight worker", () => {
-    const dir = mkdtempSync(join(tmpdir(), "substrate-conc-budget-"));
-    const startedBudget = Date.now();
-    const res = runPlan(
-      ["T1", "T2", "T3"],
-      [
-        traced("T1", dir, { edit: "src/t1.txt", delay: 0, cost: 0.1 }),
-        traced("T2", dir, { edit: "src/t2.txt", delay: 300, cost: 0.25 }),
-        traced("T3", dir, { edit: "src/t3.txt", delay: 4000, cost: 0.1 }),
-      ],
-      { concurrency: { workers: 3 }, budgets: { run: { max_usd: 0.3 } } }
-    );
-    const elapsedBudget = Date.now() - startedBudget;
-    try {
-      expect(res.exitCode, diagnostics(res)).not.toBe(0);
-      expect(res.events.some((e) => e.type === "run.budget.exceeded")).toBe(true);
-      // The long worker was stopped when the budget was exceeded, long before its 4 s delay: its
-      // process is gone when the run has ended, and the run took well under that delay.
-      for (const name of ["T3"]) {
-        const pid = readJson(join(dir, `start-${name}.json`)).pid as number;
-        expect(pidAlive(pid), `${name} worker gone`).toBe(false);
-      }
-      expect(elapsedBudget, `elapsed ${elapsedBudget} ms`).toBeLessThan(3500);
-      expect(res.events.filter((e) => e.type === "task.merged").map((e) => (e.data as any).task_id)).not.toContain("T2");
-      expect(res.stdout).toContain("budget");
-    } finally {
-      res.cleanup();
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, 120000);
-
   it("two tasks finishing at the same moment both merge, with no index.lock error", () => {
     const dir = mkdtempSync(join(tmpdir(), "substrate-conc-merge-"));
     const res = runPlan(

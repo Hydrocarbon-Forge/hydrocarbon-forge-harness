@@ -36,6 +36,8 @@ import { DEFAULT_PRICING } from "../default-pricing.js";
 const execFileAsync = promisify(execFile);
 
 export interface OpenCodeAdapterOptions {
+  /** The no-output idle watchdog, in milliseconds, for every session this adapter starts (0 or unset: off). */
+  idleTimeoutMs?: number;
   binPath?: string;
   versionPin?: string;
   customBaseUrl?: string;
@@ -374,7 +376,6 @@ const OPENCODE_CAPABILITIES: Capabilities = Object.assign(
     version_pin: "2.0.21",
     effort: true,
     structured_output: false,
-    budget_flag: false,
     cost_reported: true,
     resume: true,
     permission_denial_signal: "none" as const,
@@ -694,10 +695,10 @@ export class OpenCodeAdapter implements HarnessAdapter {
       args,
       cwd: req.cwd,
       env: req.env,
-      timeoutMs: req.budget.timeout_ms,
+      idleTimeoutMs: this.options.idleTimeoutMs,
     });
 
-    let killedFor: "budget" | "timeout" | "cancel" | undefined;
+    let killedFor: "timeout" | "cancel" | undefined;
     let cleanupDone = false;
 
     const doCleanup = async () => {
@@ -708,7 +709,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     };
 
     const kill = async (
-      reason: "budget" | "timeout" | "cancel"
+      reason: "timeout" | "cancel"
     ): Promise<void> => {
       killedFor = reason;
       await proc.kill(reason);

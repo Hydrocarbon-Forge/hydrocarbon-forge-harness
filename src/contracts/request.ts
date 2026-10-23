@@ -10,13 +10,9 @@ export const RoleRequest = z
   .strict();
 export type RoleRequest = z.infer<typeof RoleRequest>;
 
-export const RunBudget = z
-  .object({
-    max_usd: z.number().optional(),
-    max_tokens: z.number().optional(),
-    max_wall_min: z.number().optional(),
-  })
-  .strict();
+// Spend, token and time caps were removed (owner, 2026-10-23). A request's `budget` object is still accepted so an
+// older caller is not refused, and it is ignored: no run, task or harness reads it.
+export const RunBudget = z.record(z.string(), z.unknown());
 export type RunBudget = z.infer<typeof RunBudget>;
 
 export const RunRequest = z

@@ -154,7 +154,8 @@ describe("R10.5: plan ends planned, for review", () => {
     const id = runIdFrom(r.dir);
     const specPath = join(r.dir, ".substrate", "runs", id, "tasks", "T1.md");
     const good = readFileSync(specPath, "utf8");
-    writeFileSync(specPath, good.replace("depends_on: []", "depends_on: [T9]"), "utf8");
+    // A self-dependency is still a blocking L005 error (an unknown dependency is only a warning since 2026-10-23).
+    writeFileSync(specPath, good.replace("depends_on: []", "depends_on: [T1]"), "utf8");
 
     const refused = cli(r.dir, ["resume", id, "--work", WORKER], []);
     expect(refused.status).toBe(2);

@@ -20,7 +20,7 @@ These items are still open. Each one has its detail in the numbered section belo
 - Item 14: test gaps and test-helper masking (the open parts).
 - Item 15: the live opencode smoke needs the local base URL in the environment.
 - Item 24a: L003 scans every `.md` under `tasks/` recursively (plan-lint audit).
-- Item 24c: L013 can trip on `...` in ordinary prose.
+- Item 24c: L013 can trip on `...` in ordinary prose. (FIXED 2026-10-23, see item 88 below.)
 - Item 24d: L017 can trip when a glob in `read` matches more than 50 files.
 - Item 24e: the L018 example in `assets/prompts/planner/format.md` needs TypeScript, which a fresh repository may not have at plan time.
 - Item 24f: L023 (red-check, when enabled) runs verify commands in the repository root during lint.
@@ -505,3 +505,36 @@ Tests: `test/e2e/integration-base.test.ts`, `test/unit/spec/hello-java-plan.test
 - 85. OPEN: service install is not supported on Windows or macOS.
 - 86. OPEN: starting a job from the browser is not built (design doc phase 2).
 - 87. OPEN: the Ctrl+K palette and the Ctrl+O toggle are not built.
+
+## 88. FIXED (2026-10-23): a placeholder in prose refused a plan, the parser threw where lint only warned, and a failure in another task's files was not routed to its owner
+
+- FIXED: `src/spec/parser.ts` threw for a bare `...` or TODO in Interface or Behavior, so `planner.ts` refused the plan and cost a retry, though L013 was already a warning. The parser no longer throws; the detector is `src/spec/placeholders.ts` (a bare ellipsis is a placeholder only as a whole line or bullet, or as `etc...`), and L013 reports it as a warning. Tests: `test/unit/spec/placeholders.test.ts`, `test/unit/spec/parser.test.ts` (the placeholder cases now expect a load, not a throw).
+- FIXED (2026-10-23, the second part of item 88): a failure that names another task's files is routed to that task before the ladder runs. `src/engine/owner-routing.ts` finds the owner from the manifest's write and create sets. An owner that has not merged makes the failed task wait for it (`defer`). A merged owner gets a fix task `<owner>-FIX<n>` that owns exactly the failing files and depends on the owner, and the failed task waits for the fix (`fix`). Both use `plan.synced` (with an `owner_route` field). Ownership that cannot be decided (no owner, two owners, an owner that failed, a cycle, a routing that does not lint, or the cap of 2 routings per task) falls back to the ladder as before. Tests: `test/unit/engine/owner-routing.test.ts`, `test/e2e/owner-routing.test.ts` (the `defer` path). The `fix` path is covered by unit tests only, not by an e2e run.
+
+## 89. FIXED (2026-10-23): the manifest and the live task state could disagree after a replan
+
+- FIXED: an L2 replan (`src/engine/replan.ts`, `runL2`) rewrote `manifest.yaml` and the specs, but no event registered the new tasks or refreshed a task's `depends_on`, `write` or `create`. The new tasks were in the manifest and absent from the state (ghosts), and a task kept the dependencies it had at setup. `run.amended` also dropped a "changed" id the state did not have. Now `plan.synced` (`src/engine/plan-sync.ts`) reconciles both at every replan, amendment, setup and resume. A dependency naming no task is dropped with a plan warning (L004 is a warning). Tests: `test/unit/engine/plan-sync.test.ts`, `test/unit/engine/events.test.ts`.
+- FIXED (item 80): the crash between the manifest write and `run.amended` is repaired on the next loop start, because the reconcile runs when the manifest text changed.
+
+## 90. FIXED (2026-10-23): an exception inside one task ended the whole run as internal_error
+
+- FIXED: `src/engine/effects.ts` sent any action exception to the loop's `fatal` path, which halted every flight and ended the run as `internal_error`. An exception in a worker, heal or replan action is now that task's failure (`taskExceptionData`: BLOCKED, `can_replan: false`, the error text in `detail`), so the other tasks keep running and the dependents are skipped. Tests: `test/unit/engine/plan-sync.test.ts` (the `taskExceptionData` group).
+
+## 91. OPEN (2026-10-23): the run's partial status needs the owner's confirmation
+
+- A run that ends with some tasks merged and others failed or skipped reports status `partial` (`src/engine/engine.ts` `buildSummary`, `src/contracts/index.ts` RunSummary). Its exit code stays 1 and its internal state stays FAILED. The owner should confirm the exit code and the status name (DECISIONS, note 2026-10-23).
+
+## 92. RESOLVED BY OWNER DECISION (2026-10-23): spend, time, turn and approval limits removed
+
+- Decision (owner, 2026-10-23: caps/approval/turn limits removed): see the note of 2026-10-23 in `docs/plan/DECISIONS.md`. A task was killed at about $0.71 under a `task: 0.5 / run: 5` cap left in an old settings file, and lint L022 re-paused every resume with no way to clear it from the CLI.
+- This closes the cap and approval parts of items 25, 43, 59 to 62, 69 and 70 as open work: the caps, the time limit, the budget stop, the approval threshold and L022 are gone. Their tests were removed or corrected (see the commit).
+- Open for the owner: `budgets.l1_replans_per_task`, `budgets.l2_per_run` and `budgets.planner_format_retries` are the retry ladder's counts. They are kept. If the owner means them as turn limits too, they need a separate decision (an unlimited ladder could loop).
+- Also open: the `--max-budget-usd` and `--timeout` flags and the request's `budget` object are accepted and ignored with a warning, not rejected. The owner may prefer them rejected.
+
+
+## 93. FIXED (2026-10-23): a hung harness session waited forever once the wall-clock timeout was removed
+- Cause: the owner removed every spend, time and turn limit on 2026-10-23, including the per-attempt wall-clock timeout (`budgets.task.timeout_min`, `--timeout`). A harness process that stops writing then waits forever, and the test matrix's hang rows sat until their own timers ran out.
+- Fix: a no-output idle watchdog, the replacement for the removed timeout and a hang detector, not a work limit. A session (worker, planner, planner chat, repair or replan) that writes no stdout or stderr for `watchdog.idle_minutes` (default 30, `0` off, fractional minutes allowed) is killed with reason `timeout`. The failure is `task.failed` with failure class `timeout` and the message `no output for <N> min`, and it goes through the normal ladder. A session that keeps writing is never killed, however long it runs. The watchdog lives in `spawnSupervisedProcess` (`src/backends/process.ts`) and reaches every spawn through the three adapters, which `createAdapters` (`src/backends/registry.ts`) builds from settings.
+- Decision: `docs/plan/DECISIONS.md`, note of 2026-10-23 (idle watchdog). Reference: `docs/reference/config.md`, `### watchdog`.
+- Tests: `test/unit/backends/process-idle.test.ts`, `test/e2e/matrix.test.ts` (S08, all three harnesses), `test/e2e/idle-watchdog.test.ts` (busy session not killed, 0 disables).
+- Known limit (not fixed): one silent step inside a session (a long shell command that prints nothing) longer than `idle_minutes` is killed as hung. The owner may want a larger default or a different signal.

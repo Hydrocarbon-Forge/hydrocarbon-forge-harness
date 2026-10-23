@@ -14,9 +14,7 @@ import {
   planTasksForEvent,
   planWarningsEventData,
   planWarningsOf,
-  plannerBudgetMessage,
   plannerFailureMessage,
-  plannerSpawnBudgetUsd,
   runPlanner,
   sessionFailureMessage,
   writePlanWarnings,
@@ -30,7 +28,7 @@ import { loadTemplate } from "../../prompts/index.js";
 import { render } from "../../prompts/render.js";
 import { buildCorrectionPrompt } from "../../roles/prompts/planner.js";
 import type { EffectContext, EngineAction } from "../effects.js";
-import { checkRunBudget, interruptOf } from "../effects.js";
+import { interruptOf } from "../effects.js";
 import type { EngineState } from "../reducer.js";
 import type { Emit } from "./shared.js";
 import { adapterFor } from "./shared.js";
@@ -107,9 +105,6 @@ export async function runPlanAction(
     (lastResumed?.seq ?? 0) > (lastPaused?.seq ?? 0) &&
     (lastResumed?.data as any)?.answers !== undefined;
 
-  let totalUsd = state.usage.total_usd;
-  let stoppedForBudget = false;
-
   // Re-entry with answers: resume the planner session using planner/answers.md
   if (hasAnswers) {
     const pausedData = (lastPaused?.data ?? {}) as {
@@ -175,15 +170,6 @@ export async function runPlanAction(
             "tsconfig.json",
           ],
         },
-        budget: {
-          // The planner is bounded by the run budget not yet spent, as in runPlanner (R7.9); no cap when the run has none.
-          max_usd: plannerSpawnBudgetUsd(ctx.settings.budgets?.run?.max_usd, totalUsd),
-          ...(ctx.settings.budgets?.task?.timeout_min
-            ? { timeout_ms: ctx.settings.budgets.task.timeout_min * 60 * 1000 }
-            : {}),
-          ...(ctx.settings.budgets?.task?.max_tokens ? { max_tokens: ctx.settings.budgets.task.max_tokens } : {}),
-          ...(ctx.settings.budgets?.task?.timeout_min ? { timeout_min: ctx.settings.budgets.task.timeout_min } : {}),
-        },
         session: { resume: currentSessionId },
       };
 
@@ -218,11 +204,7 @@ export async function runPlanAction(
               sawUsageEvent = true;
               const { delta, next } = toDelta(sessionTotals, evt.record, Boolean(evt.cumulative));
               sessionTotals = next;
-              totalUsd += delta.cost_usd;
               emit("usage.recorded", { record: delta, role: "planner" });
-              if (checkRunBudget(ctx, emit, totalUsd)) {
-                stoppedForBudget = true;
-              }
             }
           }
           return await handle.result();
@@ -233,31 +215,14 @@ export async function runPlanAction(
       })();
       if (res.session_id) currentSessionId = res.session_id;
       if (!sawUsageEvent && res.usage) {
-        totalUsd += res.usage.cost_usd;
         emit("usage.recorded", { record: res.usage, role: "planner" });
-        if (checkRunBudget(ctx, emit, totalUsd)) {
-          stoppedForBudget = true;
-        }
       }
 
-      if (stoppedForBudget) return;
       // An abort ends the run as user_cancel (the engine loop emits it); the
       // killed planner session is not a task or run failure.
       if (interruptOf(ctx)?.aborted) return;
 
       if (!res.ok || (res.exit_code !== null && res.exit_code !== 0)) {
-        const runCapUsd = ctx.settings.budgets?.run?.max_usd;
-        if (res.killed_for === "budget" && runCapUsd !== undefined) {
-          const capUsd = plannerSpawnBudgetUsd(runCapUsd, totalUsd) ?? runCapUsd;
-          emit("task.failed", {
-            failure_class: "budget_exceeded",
-            message: boundedMessage(
-              plannerBudgetMessage(capUsd, sessionTotals?.cost_usd ?? res.usage.cost_usd, runCapUsd),
-            ),
-          });
-          emit("run.finished", { exit_code: 1, status: "failed" });
-          return;
-        }
         emit("task.failed", {
           failure_class: "worker_crashed",
           message: boundedMessage(sessionFailureMessage(res.exit_code, res.final_text, harnessError, route.backend)),
@@ -351,11 +316,7 @@ export async function runPlanAction(
     const evt = emit(type, data);
     if (type === "usage.recorded") {
       const record = (data as { record?: { cost_usd?: number } })?.record;
-      totalUsd += record?.cost_usd ?? 0;
-      log.debug(`[DEBUG] plan action: planner usage ${totalUsd.toFixed(2)}`);
-      if (checkRunBudget(ctx, emit, totalUsd)) {
-        stoppedForBudget = true;
-      }
+      log.debug(`[DEBUG] plan action: planner usage ${record?.cost_usd ?? 0}`);
     }
     return evt;
   };
@@ -383,16 +344,13 @@ export async function runPlanAction(
       charter,
       history,
       signal: interruptOf(ctx),
-      runBudgetExceeded: () => stoppedForBudget,
-      runSpentUsd: () => totalUsd,
     });
   } catch (err) {
-    if (stoppedForBudget) return;
     if (interruptOf(ctx)?.aborted) return;
 
     if (err instanceof PlannerFailure) {
       const failureClass =
-        err.reason === "budget" ? "budget_exceeded" : err.reason === "session" ? "worker_crashed" : "spec_invalid";
+        err.reason === "session" ? "worker_crashed" : "spec_invalid";
       emit("task.failed", { failure_class: failureClass, message: plannerFailureMessage(err) });
       emit("run.finished", { exit_code: 1, status: "failed" });
       return;
@@ -406,8 +364,7 @@ export async function runPlanAction(
     throw err;
   }
 
-  if (stoppedForBudget) return;
-  // R11.2: a planner stopped by the run's time limit has no plan to record; the run is already paused.
+  // An aborted planner (the user's interrupt or a stop) has no plan to record; the run is already paused.
   if (interruptOf(ctx)?.aborted) return;
 
   if (outcome.kind === "needs_input") {

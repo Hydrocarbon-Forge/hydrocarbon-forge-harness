@@ -306,6 +306,13 @@ export class RunProgress {
         this.mergingTasks.delete(tid);
         this.taskPhase(at);
         return [`${taskLabel} merged, ${formatCost(this.taskCostUsd.get(tid) ?? 0)}`];
+      case "plan.synced": {
+        // 2026-10-23 (owner, b): the plan's dependencies are reconciled; each dropped one is a warning, shown here.
+        const repaired = Array.isArray(data.repaired_dependencies) ? data.repaired_dependencies : [];
+        const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+        if (warnings.length === 0 && repaired.length === 0) return [];
+        return warnings.map((w: unknown) => `plan warning: ${oneLine(String(w), 300)}`);
+      }
       case "task.setup.failed":
         // R13.1: a warning, not a failure: the worker still runs in the same worktree.
         return [`${taskLabel} warning: setup failed (${String(data.command ?? "?").slice(0, 160)}: ${String(data.reason ?? "no reason recorded")}); the worker runs anyway`];

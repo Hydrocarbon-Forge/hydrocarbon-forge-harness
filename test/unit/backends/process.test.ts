@@ -180,7 +180,7 @@ describe("Process Supervisor: timeout and staged escalation", () => {
     }
   });
 
-  it("handles explicit kill with reason 'budget'", async () => {
+  it("handles explicit kill with reason 'timeout'", async () => {
     const cwd = makeTmpDir();
     try {
       const proc = spawnSupervisedProcess({
@@ -190,11 +190,11 @@ describe("Process Supervisor: timeout and staged escalation", () => {
       });
 
       await new Promise((r) => setTimeout(r, 50));
-      await proc.kill("budget");
+      await proc.kill("timeout");
 
       const result = await proc.wait();
       expect(result.killed).toBe(true);
-      expect(result.killReason).toBe("budget");
+      expect(result.killReason).toBe("timeout");
       expect(result.timedOut).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });

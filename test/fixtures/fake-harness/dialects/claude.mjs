@@ -160,6 +160,15 @@ export async function runDialect(argv, env) {
     await new Promise((resolve) => setTimeout(resolve, call.delay_ms));
   }
 
+  // A busy session: `count` stream lines, one every `interval_ms`, before the normal reply. Its total time may exceed
+  // the idle watchdog's limit, but no gap between lines does, so the watchdog must not kill it.
+  if (call.trickle && call.trickle.count > 0) {
+    for (let i = 0; i < call.trickle.count; i++) {
+      process.stdout.write(JSON.stringify({ type: "keepalive", n: i }) + "\n");
+      await new Promise((resolve) => setTimeout(resolve, call.trickle.interval_ms));
+    }
+  }
+
   if (call.failure === "crash") {
     process.stderr.write("fake-harness: simulated crash\n");
     return 1;

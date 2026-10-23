@@ -250,7 +250,7 @@ describe("E2E scheduler: dependency order, terminal states, resume (R3.2)", () =
         workerCall("B-done", "src/b.txt"),
         workerCall("C-done", "src/c.txt"),
       ],
-      { budgets: { run: { max_usd: 5 } } }
+      {}
     );
 
     try {
@@ -297,68 +297,6 @@ describe("E2E scheduler: dependency order, terminal states, resume (R3.2)", () =
     }
   });
 
-  it("(b) a budget pause exits 4 and resume finishes the run", () => {
-    // The planner is cheap; the first worker call exceeds the run budget, so the
-    // run pauses with the task still in flight. The resume gets a larger budget
-    // and completes the chain.
-    const h = makeHarness(
-      [
-        { ...PLAN_CALL, cost_usd: 0.00001 },
-        { ...workerCall("A-done", "src/a.txt"), cost_usd: 0.0001 },
-        workerCall("A-done-again", "src/a.txt"),
-        { ...workerCall("B-done", "src/b.txt"), cost_usd: 0.0001 },
-        { ...workerCall("C-done", "src/c.txt"), cost_usd: 0.0001 },
-      ],
-      { budgets: { run: { max_usd: 0.00002 } } }
-    );
-
-    try {
-      const paused = h.run(["run", "--plan", "claude:claude-sonnet-5-5", "--work", "claude:haiku", "--permission-mode", "bypassPermissions", "Run the marker chain"]);
-      expect(paused.exitCode).toBe(4);
-
-      const pauseEvents = h.events();
-      const pauseEvent = eventsOfType(pauseEvents, "run.paused").pop();
-      expect(dataOf(pauseEvent)?.reason).toBe("budget_exhausted");
-      expect(dataOf(pauseEvents.find((e) => e.type === "task.session.started"))?.task_id).toBe("A");
-
-      const runId = dataOf(eventsOfType(pauseEvents, "run.created")[0])?.run_id;
-      expect(runId).toBeTruthy();
-
-      const resumed = h.run([
-        "resume",
-        runId,
-        "--permission-mode",
-        "bypassPermissions",
-        "--max-budget-usd",
-        "5",
-      ]);
-      expect(resumed.exitCode).toBe(0);
-
-      const events = h.events();
-      expect(eventsOfType(events, "run.resumed").length).toBe(1);
-
-      // The task that was in flight when the run paused was put back in the queue.
-      const readyA = eventsOfType(events, "task.ready").filter((e) => dataOf(e).resumed === true);
-      expect(readyA.length).toBe(1);
-      expect(dataOf(readyA[0]).task_id).toBe("A");
-
-      const finished = eventsOfType(events, "run.finished").pop();
-      expect(dataOf(finished)?.exit_code).toBe(0);
-
-      for (const id of ["A", "B", "C"]) {
-        expect(eventsOfType(events, "task.merged").some((e) => dataOf(e).task_id === id)).toBe(
-          true
-        );
-      }
-
-      for (const file of ["src/a.txt", "src/b.txt", "src/c.txt"]) {
-        expect(readFileSync(join(h.repo.dir, file), "utf8")).toContain("seed");
-      }
-    } finally {
-      h.cleanup();
-    }
-  });
-
   it("(c) SIGKILL while a task is RUNNING, then resume, finishes with all three merged", async () => {
     const h = makeHarness(
       [
@@ -370,7 +308,7 @@ describe("E2E scheduler: dependency order, terminal states, resume (R3.2)", () =
         workerCall("B-done", "src/b.txt"),
         workerCall("C-done", "src/c.txt"),
       ],
-      { budgets: { run: { max_usd: 5 } } }
+      {}
     );
 
     try {

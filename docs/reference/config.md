@@ -26,10 +26,10 @@ The loader starts from the built-in defaults (`DEFAULT_SETTINGS` in `src/config/
 3. **Project file.**
 4. **Local file.**
 5. **Explicit file.** `--settings` wins over `SUBSTRATE_SETTINGS`; only one of the two is read.
-6. **Environment variables that set settings:** `SUBSTRATE_MAX_BUDGET_USD`, `SUBSTRATE_MODEL` and `SUBSTRATE_WORKER_MODEL`.
-7. **Command flags.** Each command builds these from its flags. For example, `run` maps `--model` to the planner (or to the worker in solo mode), `--worker-model` to the worker, `--effort` to the planner effort and `--max-budget-usd` to `budgets.run.max_usd`.
+6. **Environment variables that set settings:** `SUBSTRATE_MODEL` and `SUBSTRATE_WORKER_MODEL`.
+7. **Command flags.** Each command builds these from its flags. For example, `run` maps `--model` to the planner (or to the worker in solo mode), `--worker-model` to the worker, `--effort` to the planner effort and and `--max-budget-usd` and `--timeout`, which are accepted and ignored (owner, 2026-10-23: spend and time limits were removed).
 
-`SUBSTRATE_PERMISSION_MODE` and `SUBSTRATE_OUTPUT_FORMAT` are not settings. They supply the default permission mode and output format for `run` and `plan` when the matching flag is absent. The permission mode is Substrate's approval gate. It does not change how harnesses are launched, which is always with permissions bypassed.
+`SUBSTRATE_PERMISSION_MODE` and `SUBSTRATE_OUTPUT_FORMAT` are not settings. They supply the default permission mode and output format for `run` and `plan` when the matching flag is absent. The permission mode no longer pauses a run for approval (owner, 2026-10-23). It does not change how harnesses are launched, which is always with permissions bypassed.
 
 ### Merge rules
 
@@ -49,6 +49,7 @@ The loader starts from the built-in defaults (`DEFAULT_SETTINGS` in `src/config/
 - `substrate config get <key>` prints one value by dotted path. A key that is not in the settings schema exits 2 with `unknown settings key: <key>`. A known key that is unset prints `undefined` and exits 0. With `--output-format json` the value is always a valid JSON value: a string is quoted (`"claude"`), and an unset key prints `null`.
 - If the settings files fail to load, `list` and `get` exit 2. In text mode the error goes to stderr. In json mode it is one `{"error":...}` object on stdout.
 - `substrate config set <key> <value>` writes the project file. With `--local` it writes the local file. It validates the merged result before writing.
+- `substrate config unset <key>` removes a key from the project file, or from the local file with `--local`, so the key takes its default again. A key that is not set in that file exits 0 and says so. It validates the merged result before writing, so an unset that would leave the configuration invalid exits 2 and writes nothing. A key the owner removed (`budgets.run`, `budgets.task`, `budgets.approval_threshold_usd`) can still be unset, which cleans an old file.
 
 `config set` applies the same provider rule as the loader. Without `--local`, `backends.opencode.provider` is refused with exit 2 and nothing is written, so later loads are not broken. Pass `--local` for the provider key. The endpoint setup is described in [local-model.md](local-model.md).
 
@@ -63,7 +64,6 @@ Only the variables below are read by the code.
 | `SUBSTRATE_CONFIG_DIR` | Directory | Replaces `~/.config/substrate` as the user settings directory. The user prompt directory is taken from it too. |
 | `SUBSTRATE_PROJECT_DIR` | Directory | Replaces the project directory for the `.substrate/` settings files. The OpenCode adapter also reads it to find `settings.local.json`. |
 | `SUBSTRATE_SETTINGS` | File path | Explicit settings file (layer 5). The `--settings` flag takes precedence over it. |
-| `SUBSTRATE_MAX_BUDGET_USD` | Number | Sets `budgets.run.max_usd` (layer 6). A value that is not a number makes every command that loads settings exit 2. |
 | `SUBSTRATE_MODEL` | String | Sets `roles.planner.model` (layer 6). |
 | `SUBSTRATE_WORKER_MODEL` | String | Sets `roles.worker.model` (layer 6). |
 | `SUBSTRATE_PERMISSION_MODE` | String | Default permission mode for `run` and `plan` when `--permission-mode` is absent. Allowed values: `default`, `plan`, `acceptEdits`, `dontAsk`, `bypassPermissions`. Any other value makes every command that loads settings exit 2. It is Substrate's approval gate and does not change harness launch. |
@@ -79,17 +79,9 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 
 | Key | Type | Meaning |
 |---|---|---|
-| `budgets.run.max_usd` | number | Spend cap for a whole run in USD. Default unset: no cap, and the run is never ended for its cost. When set, it also bounds the planner: each planner session is capped at the run budget not yet spent, at least 0.5 and never above this cap. |
-| `budgets.run.max_tokens` | number | Token cap for a whole run. Unset by default. |
-| `budgets.run.max_wall_min` | number | Wall-clock limit for one `run` or `resume` process, in minutes, planning included. Unset by default; zero or less means no limit. `--timeout` (seconds) replaces it. When reached the run pauses with reason `timeout` and exits `4` (see the time limit stop in `cli.md`). |
-| `budgets.task.max_usd` | number | Spend cap for one task in USD. Default unset: no cap. When set, a task that reaches it is ended (`budget_exceeded`). It binds workers only; the spec's `budget.max_usd` is an advisory estimate and never a cap (see below). |
-| `budgets.task.max_tokens` | number | Token cap for one task. Unset by default. |
-| `budgets.task.timeout_min` | number | Timeout for one task, in minutes. Default unset: no per-task timeout. When set, a worker session that runs past it is killed. The spec's `budget.timeout_min` is advisory and is not a timeout. |
-| `budgets.task.max_turns` | number | Turn cap for one task. Unset by default. |
 | `budgets.l1_replans_per_task` | integer | Maximum L1 replans (heal and retry attempts) for one task. Default 2. |
 | `budgets.l2_per_run` | integer | Maximum L2 full re-plans for one run. Default 2. |
 | `budgets.planner_format_retries` | integer | Planner retries after an invalid plan: a format, contract typecheck or approval lint refusal (see the events in `cli.md`). Default 2. |
-| `budgets.approval_threshold_usd` | number | Estimated cost above which the run pauses for approval (`needs_approval`). Default unset: the estimate never pauses a run. The permission mode `default` always asks, whatever the estimate. |
 | `concurrency.workers` | integer | Maximum number of worker tasks running at once, each in its own worktree. Default 3. |
 | `defaults.planner_provider` | string | Provider whose `plan` profile slot routes the planner. |
 | `defaults.worker_provider` | string | Provider whose profile routes worker tasks and the escalation chain. |
@@ -101,6 +93,7 @@ Each row is one dotted key the engine reads. A `*` segment stands for any name, 
 | `pricing.asOf` | string | Date the price table was last refreshed. |
 | `pricing.sources` | array of strings | URLs that document the rates. |
 | `sandbox.enabled` | boolean | When `true`, verify commands run inside `bwrap` where it is available. `run`, `plan` and `resume` refuse to start when it is `true` and `bwrap` is missing. Default `false`. |
+| `watchdog.idle_minutes` | number | The no-output idle watchdog: a harness session that writes nothing for this many minutes is killed as hung. Default 30. `0` turns it off. Fractional minutes are allowed. See `### watchdog`. |
 | `usage.global` | boolean | When `true`, usage records are also appended to the global usage ledger. Default `true`. |
 | `roles.planner.backend` | string | Backend of the planner route. Default `claude`. |
 | `roles.planner.model` | string | Model of the planner route. Default `claude-sonnet-5-5`. |
@@ -222,22 +215,18 @@ The built-in price table (`src/backends/default-pricing.ts`) is merged with this
 
 ### `budgets`
 
-Spend, token and time limits, and retry counts.
+Retry counts. There are no spend, token, turn or time caps and no approval threshold (owner, 2026-10-23): nothing stops a run, a task or a harness session for its cost, its length or its turns. The keys that set them are removed. A settings file that still has `budgets.run`, `budgets.task` or `budgets.approval_threshold_usd` loads, and those keys are ignored. `substrate config unset budgets.run` removes them from a file.
 
-Default: `run.max_usd`, `task.max_usd`, `task.timeout_min` and `approval_threshold_usd` unset (no limit); `l1_replans_per_task` 2, `l2_per_run` 2, `planner_format_retries` 2.
+Default: `l1_replans_per_task` 2, `l2_per_run` 2, `planner_format_retries` 2.
 
-Limits are opt-in (owner, 2026-10-21). With none set, a run's cost is still shown live in `status` and `watch`, and `substrate stop <id>` is the way to end a run. `--timeout`, `--max-budget-usd` and the settings above are the brakes you turn on. The example below sets caps for illustration; it is not the default.
-
-- `run`: `max_usd`, `max_tokens` and `max_wall_min` are read. `max_wall_min` is the wall-clock limit of one run process (R11.2); `--timeout` (seconds) sets it. `--max-budget-usd` and `SUBSTRATE_MAX_BUDGET_USD` set `run.max_usd`.
-- `task`: `max_usd`, `max_tokens`, `timeout_min` and `max_turns` are read. Each is enforced only when it is set here.
-- Planner budgets (`budget` in the manifest, and `budget` in each task spec, with `max_usd`, `max_tokens`, `timeout_min`, `max_turns`) are advisory: they feed the cost estimate in the plan summary and the approval threshold, and they never end a task or the planner.
-- `l1_replans_per_task`, `l2_per_run`, `planner_format_retries` and `approval_threshold_usd` are read as described in the index.
+- `l1_replans_per_task`, `l2_per_run` and `planner_format_retries` are the retry ladder's counts (see `docs/plan/DECISIONS.md`). They are not turn limits.
+- The planner's `budget` fields (`max_usd`, `max_tokens`, `timeout_min`, `max_turns` in a task spec and in the manifest) are advisory estimates. They feed the cost estimate that `plan.lint` reports, and nothing else.
+- The cost of a run is still shown live in `status` and `watch`, and `substrate stop <id>` ends a run.
 
 ```json
 {
   "budgets": {
-    "run": { "max_usd": 5 },
-    "task": { "max_usd": 0.5, "timeout_min": 30 }
+    "planner_format_retries": 1
   }
 }
 ```
@@ -245,6 +234,23 @@ Limits are opt-in (owner, 2026-10-21). With none set, a run's cost is still show
 ### `concurrency`
 
 - `workers`: the maximum number of worker tasks running at once, each in its own git worktree. Default 3. A task waits when the limit is reached, and a task that depends on another starts only after that task is merged. `backends.<name>.max_concurrency` also caps the processes of the worker backend (`roles.worker.backend`). A rate limit halves the number running (floor 1).
+
+### `watchdog`
+
+The no-output idle watchdog (owner, 2026-10-23). It is a hang detector, not a work limit: it replaces the wall-clock task timeout that the owner removed on the same day. A harness session (worker, planner, planner chat, repair or replan) that writes no output for `idle_minutes` is killed. Its stdout and stderr both count as output, so a session that keeps writing, however long it runs, is never killed.
+
+- `idle_minutes`: the quiet period in minutes. Default 30. `0` turns the watchdog off. Unset (`substrate config unset watchdog.idle_minutes`) returns it to the default of 30.
+- A killed session is a task failure with failure class `timeout`, and its message reads `no output for <N> min`. It goes through the normal retry and heal ladder, like any other task failure. A planner session killed this way fails the planning attempt with the same message. It is never a run-level crash.
+- The limit applies to every session each harness starts. It is not a total time: a slow session that keeps writing is never killed.
+- Known limit: a harness that runs one silent step (for example one long shell command inside the session that prints nothing) for longer than `idle_minutes` is killed as hung. Raise the value or set it to `0` for such work.
+
+```json
+{
+  "watchdog": {
+    "idle_minutes": 30
+  }
+}
+```
 
 ### `permissions`
 

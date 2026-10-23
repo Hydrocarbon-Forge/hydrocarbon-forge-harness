@@ -2,8 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { Effort, Engine, PermissionMode, Question, Settings } from "../../contracts/index.js";
-import { recordedRunOptions } from "../../engine/recorded-run.js";
-import { timeLimitSecondsOf } from "../../engine/time-limit.js";
 import type { SessionStore } from "../../store/sessions.js";
 
 export interface CliGlobalFlags {
@@ -24,7 +22,6 @@ export interface CliGovernanceFlags {
   allowedTools?: string[];
   disallowedTools?: string[];
   worktree?: boolean;
-  maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
   settings?: string;
@@ -84,20 +81,16 @@ function liveHeader(
     next: string[];
     now: number;
     elapsedS: number;
-    /** The wall-clock limit in seconds and the time the current clock has run, when the run has a limit (R11.2). */
-    timeLimit?: { limitS: number; elapsedS: number };
   },
   progress: RunProgress | undefined,
 ): string[] {
   const id = record.runId;
-  const { settings, rows, next, now, elapsedS, timeLimit } = view;
+  const { settings, rows, next, now, elapsedS } = view;
   const request = requestOf(record.events);
   const counts = countsOf(rows);
   const planner = settings !== undefined ? progressModelsFor(settings).planner : undefined;
   const worker = settings !== undefined ? progressModelsFor(settings).worker : undefined;
   const merge = settings?.git?.auto_merge === true ? "on" : "off";
-  // R11.1: the budget the run records (its run.created, or a resume that replaced it), else the setting.
-  const budget = recordedRunOptions(record.events).max_budget_usd ?? settings?.budgets?.run?.max_usd;
   const lastActivity = record.lastEventAt !== undefined ? Math.max(0, Math.floor((now - record.lastEventAt) / 1000)) : undefined;
   // R11.1: a paused or planned run is not over; its process line names the next step, not "ended".
   const paused = record.state.state === "PAUSED";
@@ -114,9 +107,6 @@ function liveHeader(
           ? "Process: none (planned)"
           : "Process: not running (stopped)";
   const cost = formatCost(record.state.usage.total_usd);
-  // No run cap is set unless the caller set one (the default): the text says so.
-  const budgetText = budget !== undefined && budget !== null ? ` (budget $${Number(budget).toFixed(2)})` : " (budget: none)";
-  const limitText = timeLimit !== undefined ? `     Time limit: ${timeLimit.limitS}s (elapsed ${timeLimit.elapsedS}s)` : "";
   const countText = [
     `${counts.passed} passed`,
     `${counts.running} running`,
@@ -127,7 +117,7 @@ function liveHeader(
   const lines = [
     `Run ${id}  ${statusWordOf(record)}   elapsed ${formatElapsed(elapsedS * 1000)}   request: ${requestPreview(request)}`,
     `Planner ${planner ?? "-"}   Worker ${worker ?? "-"}   merge: ${merge}`,
-    `Phase:  ${paused ? "paused" : planned ? "planned" : record.terminal ? "ended" : (progress?.phase ?? "-")}     last activity ${lastActivity !== undefined ? `${lastActivity}s ago` : "never"}     Cost ${cost}${budgetText}${limitText}`,
+    `Phase:  ${paused ? "paused" : planned ? "planned" : record.terminal ? "ended" : (progress?.phase ?? "-")}     last activity ${lastActivity !== undefined ? `${lastActivity}s ago` : "never"}     Cost ${cost}`,
     processLine,
     `Tasks: ${countText}`,
   ];
@@ -230,18 +220,9 @@ export const statusCommand: CliCommand = {
     for (const ev of events) progress.feed(ev);
     const next = await nextOf(ctx.cwd, record, rows);
     const outcome = outcomeOf(runDir, record.lastEventAt);
-    // R11.1: the budget the run records, else the project setting (old logs).
-    const budget = recordedRunOptions(events).max_budget_usd ?? settings?.budgets?.run?.max_usd ?? null;
     // Elapsed runs to the run's last event once it has ended, else to now.
     const endAt = record.terminal && record.lastEventAt !== undefined ? record.lastEventAt : now;
     const elapsedS = Math.max(0, Math.floor((endAt - (record.createdAt ?? endAt)) / 1000));
-    // R11.2: the limit the run records (null when none), else the project setting for an older log. The clock
-    // starts with the run and with each resume, so the elapsed time counts from the latest of those events.
-    const recordedLimit = recordedRunOptions(events).time_limit_s;
-    const timeLimitS = recordedLimit !== undefined ? recordedLimit : (settings ? (timeLimitSecondsOf(settings) ?? null) : null);
-    const clockStart = [...events].reverse().find((e) => e.type === "run.created" || e.type === "run.resumed" || e.type === "run.reopened");
-    const clockStartMs = clockStart !== undefined ? Date.parse(clockStart.ts) : (record.createdAt ?? endAt);
-    const limitElapsedS = Math.max(0, Math.floor((endAt - clockStartMs) / 1000));
     const request = requestOf(events);
     const planner = settings !== undefined ? progressModelsFor(settings).planner : undefined;
     const worker = settings !== undefined ? progressModelsFor(settings).worker : undefined;
@@ -272,10 +253,6 @@ export const statusCommand: CliCommand = {
         elapsed_s: elapsedS,
         last_event_ts: record.lastEventAt !== undefined ? new Date(record.lastEventAt).toISOString() : null,
         cost_usd: state.usage.total_usd,
-        // null: no run cap is set (the default).
-        budget_usd: typeof budget === "number" ? budget : null,
-        // R11.2: the wall-clock limit in seconds, null when none is set.
-        time_limit_s: timeLimitS,
         process: record.process ? { pid: record.process.pid, alive: record.process.alive } : null,
         request: requestPreview(request),
         planner: planner ?? null,
@@ -306,13 +283,12 @@ export const statusCommand: CliCommand = {
       return 0;
     }
 
-    const timeLimit = typeof timeLimitS === "number" ? { limitS: timeLimitS, elapsedS: limitElapsedS } : undefined;
     // P2.2: a run that is not running and did not finish says what happened: the report replaces the Next line,
     // so the resume command is named once.
     const report = record.status !== "running" && record.status !== "finished" && record.status !== "planned"
       ? reportOfRun(ctx.cwd, record.runId)
       : undefined;
-    for (const line of liveHeader(record, { settings, rows, next: report !== undefined ? [] : next, now, elapsedS, timeLimit }, progress.progress)) {
+    for (const line of liveHeader(record, { settings, rows, next: report !== undefined ? [] : next, now, elapsedS }, progress.progress)) {
       ctx.stdout.write(`${line}\n`);
     }
     if (report !== undefined) {

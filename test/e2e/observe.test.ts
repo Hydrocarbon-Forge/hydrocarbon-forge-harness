@@ -351,7 +351,6 @@ describe("R10.2: a run's progress is visible from another process", () => {
       expect(typeof json.elapsed_s).toBe("number");
       expect(typeof json.last_event_ts).toBe("string");
       expect(typeof json.cost_usd).toBe("number");
-      expect(json.budget_usd === null || typeof json.budget_usd === "number").toBe(true);
       expect(json.request).toBe("Observe two workers");
       expect(json.planner).toMatch(/^claude:/);
       expect(json.worker).toMatch(/^claude:/);
@@ -497,9 +496,11 @@ describe("R10.2: a run's progress is visible from another process", () => {
 
   it("(g) an internal-error run ends failed, and its summary.txt and result.json name the internal error", () => {
     const repo = makeRepo(PLAN_SEED);
-    const broken = "Work on {{spec_path}} and {{unknown_variable}}.\n";
-    mkdirSync(join(repo.dir, ".substrate", "prompts", "worker"), { recursive: true });
-    writeFileSync(join(repo.dir, ".substrate", "prompts", "worker", "task.md"), broken, "utf8");
+    const broken = "Plan {{request}} and {{unknown_variable}}.\n";
+    // The planner request is rendered by the plan action, which works on no single task, so its failure is run-level.
+    // (A broken worker template is now a task failure, 2026-10-23 decision d.)
+    mkdirSync(join(repo.dir, ".substrate", "prompts", "planner"), { recursive: true });
+    writeFileSync(join(repo.dir, ".substrate", "prompts", "planner", "request.md"), broken, "utf8");
     try {
       const specs = { "tasks/T1.md": taskSpec({ id: "T1", title: "Create the file", write: [], create: ["src/t1.txt"], verify: "test -f src/t1.txt" }) };
       const scenario = scenarioFile([planCall(contractFiles(manifestFor("Internal error", ["T1"], "echo verify all"), specs))]);

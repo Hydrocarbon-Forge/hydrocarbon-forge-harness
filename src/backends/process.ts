@@ -12,7 +12,13 @@ export interface SupervisedProcessOptions {
   input?: string;
   cwd: string;
   env?: Record<string, string>;
+  /** A short run-only limit for a probe (version checks). Session work has no wall-clock limit. */
   timeoutMs?: number;
+  /**
+   * The no-output idle watchdog, in milliseconds. A session that writes no stdout or stderr chunk for this long is
+   * killed with reason "timeout" (a hang, not a work limit). Undefined or 0 turns it off.
+   */
+  idleTimeoutMs?: number;
   gracePeriodMs?: number;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
@@ -37,7 +43,7 @@ export interface ProcessExitResult {
   signal: NodeJS.Signals | null;
   timedOut: boolean;
   killed: boolean;
-  killReason?: "budget" | "timeout" | "cancel";
+  killReason?: "timeout" | "cancel";
   stdoutTail: string;
   stderrTail: string;
   stdoutTruncated: boolean;
@@ -51,7 +57,7 @@ export interface SupervisedProcess {
   readonly stdout: NodeJS.ReadableStream;
   readonly stderr: NodeJS.ReadableStream;
   kill(
-    reason?: "budget" | "timeout" | "cancel",
+    reason?: "timeout" | "cancel",
     gracePeriodMs?: number
   ): Promise<void>;
   wait(): Promise<ProcessExitResult>;
@@ -284,8 +290,11 @@ export function spawnSupervisedProcess(
 
   const startTime = Date.now();
   let timedOut = false;
+  // Any chunk on either stream counts as output for the idle watchdog (a harness's events arrive on stdout).
+  let lastOutputAt = startTime;
+  let idleTimer: NodeJS.Timeout | null = null;
   let killed = false;
-  let killReason: "budget" | "timeout" | "cancel" | undefined;
+  let killReason: "timeout" | "cancel" | undefined;
   let timeoutTimer: NodeJS.Timeout | null = null;
   let killPromise: Promise<void> | null = null;
   let exitCode: number | null = null;
@@ -298,12 +307,23 @@ export function spawnSupervisedProcess(
   const stdoutStream = createStreamBridge(child.stdout, stdoutBuffer);
   const stderrStream = createStreamBridge(child.stderr, stderrBuffer);
 
+  child.stdout?.on("data", () => {
+    lastOutputAt = Date.now();
+  });
+  child.stderr?.on("data", () => {
+    lastOutputAt = Date.now();
+  });
+
   const exitPromise = new Promise<void>((resolve) => {
     child.on("close", (code, sig) => {
       exited = true;
       if (timeoutTimer) {
         clearTimeout(timeoutTimer);
         timeoutTimer = null;
+      }
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
       }
       exitCode = code;
       signal = sig as NodeJS.Signals | null;
@@ -319,12 +339,16 @@ export function spawnSupervisedProcess(
         clearTimeout(timeoutTimer);
         timeoutTimer = null;
       }
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
       resolve();
     });
   });
 
   const kill = async (
-    reason: "budget" | "timeout" | "cancel" = "cancel",
+    reason: "timeout" | "cancel" = "cancel",
     gracePeriodMsOverride?: number
   ): Promise<void> => {
     if (exited) {
@@ -371,6 +395,24 @@ export function spawnSupervisedProcess(
         kill("timeout", options.gracePeriodMs);
       }
     }, options.timeoutMs);
+  }
+
+  // The idle watchdog re-arms itself for the time left until the quiet period ends, so a session that keeps
+  // writing is checked only when its last write is old enough. It kills the session once that period has passed.
+  const idleMs = options.idleTimeoutMs;
+  const checkIdle = () => {
+    idleTimer = null;
+    if (exited || killPromise) return;
+    const quietMs = Date.now() - lastOutputAt;
+    if (quietMs >= (idleMs as number)) {
+      timedOut = true;
+      kill("timeout", options.gracePeriodMs);
+      return;
+    }
+    idleTimer = setTimeout(checkIdle, (idleMs as number) - quietMs);
+  };
+  if (idleMs !== undefined && idleMs > 0) {
+    idleTimer = setTimeout(checkIdle, idleMs);
   }
 
   const wait = async (): Promise<ProcessExitResult> => {

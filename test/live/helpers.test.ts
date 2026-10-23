@@ -23,7 +23,6 @@ import {
   recordPath,
   requirePricedOverride,
   RUN_CAP_USD,
-  TASK_CAP_USD,
   type LiveRecord,
 } from "./helpers.js";
 
@@ -147,8 +146,6 @@ describe("liveSettings", () => {
     const merged = deepMerge(DEFAULT_SETTINGS, overlay as never);
     expect(() => Settings.parse(merged)).not.toThrow();
     expect(() => validateProfiles(merged)).not.toThrow();
-    expect(merged.budgets.run.max_usd).toBe(RUN_CAP_USD);
-    expect(merged.budgets.task.max_usd).toBe(TASK_CAP_USD);
     expect(merged.profiles?.[harness]).toEqual({ plan: { model: "some-model" }, work: { model: "some-model" } });
     expect(merged.defaults).toEqual({ planner_provider: harness, worker_provider: harness });
     expect(merged.roles.planner).toMatchObject({ backend: harness, model: "some-model" });

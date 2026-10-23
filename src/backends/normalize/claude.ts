@@ -132,7 +132,7 @@ export function extractClaudeUsage(
 export function extractClaudeSessionResult(
   events: BackendEvent[],
   exitCode: number | null,
-  killedFor?: "budget" | "timeout" | "cancel"
+  killedFor?: "timeout" | "cancel"
 ): SessionResult {
   let sessionId = "";
   let resultEvent: Extract<BackendEvent, { type: "session.result" }> | undefined;
@@ -172,8 +172,7 @@ export function extractClaudeSessionResult(
 
   if (resultEvent) {
     const ok = killedFor ? false : resultEvent.ok;
-    const finalKilled =
-      killedFor ?? (resultEvent.stop_reason === "budget" ? "budget" : undefined);
+    const finalKilled = killedFor;
     const res: SessionResult = {
       ok,
       session_id: sessionId,
@@ -408,7 +407,7 @@ export function normalizeClaudeEvent(
           kind: "auth",
           message: finalText || "Authentication failed",
         });
-      } else if (subtype !== "error_max_budget_usd") {
+      } else {
         // The result's subtype and error lines name a failure the exit code alone does not (R7.9).
         const errorLines = Array.isArray(eventObj.errors)
           ? eventObj.errors.filter((line: unknown): line is string => typeof line === "string" && line.trim() !== "")
@@ -426,15 +425,6 @@ export function normalizeClaudeEvent(
         final_text: finalText,
         usage,
         exit_code: 0,
-      });
-    } else if (subtype === "error_max_budget_usd") {
-      events.push({
-        type: "session.result",
-        ok: false,
-        stop_reason: "budget",
-        final_text: finalText,
-        usage,
-        exit_code: 1,
       });
     } else {
       events.push({

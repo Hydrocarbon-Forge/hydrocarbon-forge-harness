@@ -6,7 +6,9 @@ import type { Effort, Engine, PermissionMode } from "../../contracts/index.js";
 import type { SessionStore } from "../../store/sessions.js";
 import {
   assertNoProviderOutsideLocal,
+  dropRemovedKeys,
   foldLayers,
+  isRemovedSettingsKey,
   loadSettings,
   parseJsonc,
   settingsLayers,
@@ -32,7 +34,6 @@ export interface CliGovernanceFlags {
   allowedTools?: string[];
   disallowedTools?: string[];
   worktree?: boolean;
-  maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
   settings?: string;
@@ -81,6 +82,31 @@ function setNested(obj: any, keyPath: string, value: any): void {
     cur = cur[part];
   }
   cur[parts[parts.length - 1]] = value;
+}
+
+// Removes the value at a dotted path, then the parent objects the removal left empty. Returns false when the path
+// holds nothing, so the caller can say the key was not set.
+function deleteNested(obj: any, keyPath: string): boolean {
+  const parts = keyPath.split(".");
+  const chain: any[] = [obj];
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (typeof cur !== "object" || cur === null || !(parts[i] in cur)) return false;
+    cur = cur[parts[i]];
+    chain.push(cur);
+  }
+  const last = parts[parts.length - 1];
+  if (typeof cur !== "object" || cur === null || !(last in cur)) return false;
+  delete cur[last];
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const child = chain[i + 1];
+    if (typeof child === "object" && child !== null && Object.keys(child).length === 0) {
+      delete chain[i][parts[i]];
+    } else {
+      break;
+    }
+  }
+  return true;
 }
 
 // Strips the Zod wrappers that do not change the shape of a value.
@@ -183,7 +209,7 @@ export const configCommand: CliCommand = {
       // Read only the target file's own content (missing file starts from empty).
       let target: Record<string, any> = {};
       if (fs.existsSync(targetPath)) {
-        target = parseJsonc(fs.readFileSync(targetPath, "utf8"), targetPath) as Record<string, any>;
+        target = dropRemovedKeys(parseJsonc(fs.readFileSync(targetPath, "utf8"), targetPath) as Record<string, any>);
       }
       setNested(target, key, val);
 
@@ -230,6 +256,53 @@ export const configCommand: CliCommand = {
       }
       fs.writeFileSync(targetPath, JSON.stringify(target, null, 2), "utf8");
       ctx.stdout.write(`Set ${key} = ${JSON.stringify(val)}\n`);
+      return 0;
+    }
+
+    if (sub === "unset") {
+      const key = ctx.rawArgs[1];
+      if (!key) {
+        ctx.stderr.write("Usage: substrate config unset <key> [--local]\n");
+        return 2;
+      }
+      // A key the owner removed can still be unset, so an old file can be cleaned up.
+      if (!isKnownSettingsKey(key) && !isRemovedSettingsKey(key)) {
+        reportUnknownKey(ctx, key);
+        return 2;
+      }
+      const targetPath = path.join(ctx.cwd, ".substrate", ctx.flags.local ? "settings.local.json" : "settings.json");
+      const layerName = ctx.flags.local ? "the local settings file" : "the project settings file";
+      if (!fs.existsSync(targetPath)) {
+        ctx.stdout.write(`Unset ${key}: not set in ${layerName}\n`);
+        return 0;
+      }
+      const target = parseJsonc(fs.readFileSync(targetPath, "utf8"), targetPath) as Record<string, any>;
+      if (!deleteNested(target, key)) {
+        ctx.stdout.write(`Unset ${key}: not set in ${layerName}\n`);
+        return 0;
+      }
+
+      // The file without the key must still give a valid merged configuration (the key then takes its default).
+      let layers;
+      try {
+        layers = await settingsLayers({ projectDir: ctx.cwd, settingsFile: ctx.flags.settings });
+      } catch (err) {
+        ctx.stderr.write(`Error: ${(err as Error).message}\n`);
+        return 2;
+      }
+      // The validated copy drops the removed keys the file may still carry, as the loader does.
+      if (ctx.flags.local) {
+        layers.local = { path: targetPath, value: dropRemovedKeys(target) };
+      } else {
+        layers.project = { path: targetPath, value: dropRemovedKeys(target) };
+      }
+      const result = Contracts.Settings.safeParse(foldLayers(layers));
+      if (!result.success) {
+        ctx.stderr.write(`Cannot unset ${key}: ${result.error.issues[0]?.message ?? "invalid"}\n`);
+        return 2;
+      }
+      fs.writeFileSync(targetPath, JSON.stringify(target, null, 2), "utf8");
+      ctx.stdout.write(`Unset ${key}\n`);
       return 0;
     }
 

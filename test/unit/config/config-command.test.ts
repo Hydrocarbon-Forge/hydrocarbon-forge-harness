@@ -80,21 +80,21 @@ describe("config command", () => {
 
   it("get prints an object as indented JSON", async () => {
     const cwd = tmp();
-    // The run cap is off by default; this test sets one explicitly so there is an object to print.
+    // A settings object with several keys, so there is an object to print.
     mkdirSync(join(cwd, ".substrate"), { recursive: true });
-    writeFileSync(join(cwd, ".substrate", "settings.json"), JSON.stringify({ budgets: { run: { max_usd: 5 } } }));
+    writeFileSync(join(cwd, ".substrate", "settings.json"), JSON.stringify({ budgets: { planner_format_retries: 5 } }));
     const stdout = createMockWritable();
     const stderr = createMockWritable();
     const exitCode = await configCommand.execute({
       cwd,
       flags: {},
-      rawArgs: ["get", "budgets.run"],
+      rawArgs: ["get", "budgets"],
       stdout,
       stderr,
     });
     expect(exitCode).toBe(0);
     const out = stdout.getOutput();
-    expect(JSON.parse(out.slice(0, -1))).toEqual({ max_usd: 5 });
+    expect(JSON.parse(out.slice(0, -1))).toMatchObject({ planner_format_retries: 5 });
     expect(out).toContain("\n  ");
   });
 
@@ -355,7 +355,7 @@ describe("config command", () => {
       join(cwd, ".substrate", "settings.json"),
       JSON.stringify({
         concurrency: { workers: 9 },
-        budgets: { run: { max_usd: 1 } },
+        budgets: { planner_format_retries: 1 },
       }),
     );
     const stdout = createMockWritable();
@@ -372,7 +372,7 @@ describe("config command", () => {
       readFileSync(join(cwd, ".substrate", "settings.json"), "utf8"),
     ) as Record<string, any>;
     expect(file["concurrency"]["workers"]).toBe(9);
-    expect(file["budgets"]["run"]["max_usd"]).toBe(1);
+    expect(file["budgets"]["planner_format_retries"]).toBe(1);
     expect(file["sandbox"]["enabled"]).toBe(true);
   });
 

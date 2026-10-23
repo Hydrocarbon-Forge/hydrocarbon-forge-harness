@@ -247,7 +247,6 @@ export const Capabilities = z.object({
   version_pin: z.string(),
   effort: z.boolean(),
   structured_output: z.boolean(),
-  budget_flag: z.boolean(),
   cost_reported: z.boolean(),
   resume: z.boolean(),
   permission_denial_signal: z.enum(["event", "stderr", "none"]),
@@ -269,14 +268,6 @@ export const SpawnRequest = z.object({
     deny: z.array(z.string()),
   }).strict(),
   json_schema: z.record(z.string(), z.unknown()).optional(),
-  budget: z.object({
-    max_usd: z.number().optional(),
-    max_tokens: z.number().optional(),
-    timeout_min: z.number().optional(),
-    max_turns: z.number().optional(),
-    // Unset: no per-session timeout (the run's --timeout and substrate stop still end it).
-    timeout_ms: z.number().optional(),
-  }).strict(),
   env: z.record(z.string(), z.string()).optional(),
   raw_dir: z.string().optional(),
   add_dirs: z.array(z.string()).optional(),
@@ -298,7 +289,7 @@ export const SessionResult = z.object({
     tool: z.string(),
     reason: z.string().optional(),
   }).strict()),
-  killed_for: z.enum(["budget", "timeout", "cancel"]).optional(),
+  killed_for: z.enum(["timeout", "cancel"]).optional(),
 }).strict();
 export type SessionResult = z.infer<typeof SessionResult>;
 
@@ -306,13 +297,13 @@ export const SessionHandle = z.object({
   pid: z.number(),
   events: z.custom<AsyncIterable<BackendEvent>>((v) => v != null && typeof (v as any)[Symbol.asyncIterator] === "function"),
   result: z.custom<() => Promise<SessionResult>>((v) => typeof v === "function"),
-  kill: z.custom<(reason: "budget" | "timeout" | "cancel") => Promise<void>>((v) => typeof v === "function"),
+  kill: z.custom<(reason: "timeout" | "cancel") => Promise<void>>((v) => typeof v === "function"),
 });
 export type SessionHandle = {
   pid: number;
   events: AsyncIterable<BackendEvent>;
   result(): Promise<SessionResult>;
-  kill(reason: "budget" | "timeout" | "cancel"): Promise<void>;
+  kill(reason: "timeout" | "cancel"): Promise<void>;
 };
 
 export const EnvReport = z.object({
@@ -447,18 +438,12 @@ export const Settings = z.object({
       cache_write_per_mtok: z.number().optional(),
     }).strict()).optional(),
   }).strict(),
+  // Spend, token, turn and time caps and the approval threshold were removed (owner, 2026-10-23). Those keys are
+  // dropped when a settings file is loaded (src/config/index.ts, dropRemovedKeys), so an old file still loads.
   budgets: z.object({
-    run: z.object({
-      max_usd: z.number().optional(),
-      max_tokens: z.number().optional(),
-      max_wall_min: z.number().optional(),
-    }).strict(),
-    task: Budget,
     l1_replans_per_task: z.number(),
     l2_per_run: z.number(),
     planner_format_retries: z.number(),
-    // Unset: no approval pause on the estimated cost.
-    approval_threshold_usd: z.number().optional(),
   }).strict(),
   concurrency: z.object({
     workers: z.number(),
@@ -474,6 +459,13 @@ export const Settings = z.object({
     on_scope_violation: z.enum(["revert", "fail"]),
     auto_merge: z.boolean(),
   }).strict(),
+  // The no-output idle watchdog (owner, 2026-10-23): a harness session that writes nothing for idle_minutes is killed
+  // as a hang. It is not a work limit: a session that keeps producing output is never killed. 0 turns it off.
+  // Fractional minutes are allowed (tests use them). Optional so an older settings object still parses; the loaded
+  // defaults (src/config) always set it.
+  watchdog: z.object({
+    idle_minutes: z.number().min(0),
+  }).strict().optional(),
   // R12.4: how many code repairs a failed final integration check gets (0 turns them off). Optional so a
   // settings object written before R12.4 still parses; the loaded defaults (src/config) always set it.
   integration: z.object({
@@ -497,6 +489,9 @@ export type Settings = z.infer<typeof Settings>;
 
 /** The repair attempts a failed final check gets when the settings do not set `integration.repair_attempts` (R12.4). */
 export const REPAIR_ATTEMPTS_DEFAULT = 2;
+
+/** The no-output idle watchdog's default, in minutes, when the settings do not set `watchdog.idle_minutes` (owner, 2026-10-23). */
+export const IDLE_MINUTES_DEFAULT = 30;
 
 // ===== engine API =====
 const QuestionSchema = z.object({
@@ -532,7 +527,8 @@ export type RunOptions = {
 
 export const RunSummary = z.object({
   run_id: RunId,
-  status: z.enum(["finished", "planned", "failed", "paused", "cancelled"]),
+  // 2026-10-23 (owner, d): "partial" is a failed run in which some tasks merged and others failed or were skipped.
+  status: z.enum(["finished", "planned", "failed", "partial", "paused", "cancelled"]),
   pause_reason: PauseReason.optional(),
   questions: z.array(QuestionSchema).optional(),
   tasks: z.record(TaskId, z.object({

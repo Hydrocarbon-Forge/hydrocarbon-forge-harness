@@ -26,7 +26,6 @@ export interface CliGovernanceFlags {
   allowedTools?: string[];
   disallowedTools?: string[];
   worktree?: boolean;
-  maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
   settings?: string;

@@ -7,6 +7,7 @@ import {
   parseManifest,
   parseTaskSpec,
 } from "../../../src/spec/parser.js";
+import { findPlaceholders } from "../../../src/spec/placeholders.js";
 import {
   createTempRepo,
   sampleManifest,
@@ -188,7 +189,8 @@ Remote services.
     expect(parsed.codeBlocks[1].code).toContain("npm run build");
   });
 
-  it("detects placeholder tokens outside code fences in Interface or Behavior", () => {
+  it("never throws for placeholder tokens in Interface or Behavior (L013 reports them as a warning)", () => {
+    // Decided 2026-10-23 (owner): placeholder text is a lint warning, so the parser must load the spec.
     const placeholders = ["TODO", "FIXME", "TBD", "...", "<placeholder>"];
 
     for (const token of placeholders) {
@@ -197,8 +199,8 @@ Remote services.
           Behavior: `This is a work in progress with ${token} token here.`,
         },
       });
-      // Should throw or flag L013 diagnostic
-      expect(() => parseTaskSpec(specWithPlaceholder)).toThrow();
+      const parsed = parseTaskSpec(specWithPlaceholder);
+      expect(parsed.frontmatter.id).toBe("T1");
     }
   });
 
@@ -212,13 +214,15 @@ Remote services.
     expect(parsed.frontmatter.id).toBe("T1");
   });
 
-  it("still throws for a bare TODO marker outside code spans in Interface", () => {
+  it("loads a spec with a bare TODO marker outside code spans in Interface (warning, not a throw)", () => {
     const specWithBareTodo = sampleTaskSpecMarkdown({
       sections: {
         Interface: "The return type is still open, so TODO decide it before the run.",
       },
     });
-    expect(() => parseTaskSpec(specWithBareTodo)).toThrow(/Placeholder token detected/);
+    const parsed = parseTaskSpec(specWithBareTodo);
+    expect(parsed.frontmatter.id).toBe("T1");
+    expect(findPlaceholders(parsed.sections.get("Interface") ?? "")).toHaveLength(1);
   });
 
   it("allows placeholder tokens when enclosed inside code fences", () => {

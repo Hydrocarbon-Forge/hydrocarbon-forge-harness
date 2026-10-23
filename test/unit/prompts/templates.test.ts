@@ -12,12 +12,13 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."
 // Copied from assets/prompts/README.md, the "Variables" table.
 const TABLE: Record<string, string[]> = {
   "planner/request.md": [
-    "request", "run_id", "base_ref", "repo_root", "classes", "task_budget",
-    "run_budget", "max_tasks", "charter", "history", "instruction_files",
+    "request", "run_id", "base_ref", "repo_root", "classes", "max_tasks",
+    "charter", "history", "instruction_files",
     "skills", "repo_map",
   ],
   "planner/correction.md": ["attempt", "max_attempts", "diagnostics"],
   "planner/answers.md": ["answers"],
+  "planner/owner-fix-spec.md": ["owner_id", "files", "failure_excerpt"],
   "planner/replan-l1.md": [
     "task_id", "generation", "failure_class", "spec_path", "failure_details",
     "diff_summary", "worker_summary", "task_spec", "related_contracts",

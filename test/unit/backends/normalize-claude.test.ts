@@ -209,7 +209,9 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     expect(sessionResult.denials.some((d) => d.tool === "Bash")).toBe(true);
   });
 
-  it("normalizes budget-exceeded.ndjson fixture marking ok: false with budget stop reason", async () => {
+  // The claude result subtype error_max_budget_usd is no longer a budget stop: no spend cap is passed to claude (owner,
+  // 2026-10-23), so the fixture is an ordinary failed result that keeps its subtype as the stop reason.
+  it("normalizes budget-exceeded.ndjson fixture as a failed result keeping its subtype", async () => {
     const rawEvents = loadFixtureEvents("budget-exceeded.ndjson");
     const events: BackendEvent[] = [];
 
@@ -222,7 +224,7 @@ describe("Claude Normalizer: S1 Golden Fixture Tests", () => {
     expect(resultEvent).toBeDefined();
     if (resultEvent && resultEvent.type === "session.result") {
       expect(resultEvent.ok).toBe(false);
-      expect(resultEvent.stop_reason).toBe("budget");
+      expect(resultEvent.stop_reason).toBe("error_max_budget_usd");
       expect(resultEvent.exit_code).toBe(1);
     }
 
@@ -321,9 +323,9 @@ describe("Claude Normalizer: Edge Cases and Stream Robustness", () => {
       { type: "assistant.text", text: "Starting task..." },
     ];
 
-    const resultBudget = extractClaudeSessionResult(events, 137, "budget");
+    const resultBudget = extractClaudeSessionResult(events, 137, "timeout");
     expect(resultBudget.ok).toBe(false);
-    expect(resultBudget.killed_for).toBe("budget");
+    expect(resultBudget.killed_for).toBe("timeout");
     expect(resultBudget.exit_code).toBe(137);
 
     const resultCancel = extractClaudeSessionResult(events, 137, "cancel");
@@ -376,7 +378,6 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
       model: "claude-haiku-5-5",
       session: { id: "12345678-1234-1234-1234-123456789abc" },
       permission: { allow: [], deny: [] },
-      budget: { timeout_ms: 10000 },
     };
 
     const args = buildClaudeArgs(req);
@@ -419,7 +420,7 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     expect(args).not.toContain("--max-budget-usd");
   });
 
-  it("buildClaudeArgs handles effort, tool allow/deny, resume, and budget cap", () => {
+  it("buildClaudeArgs handles effort, tool allow/deny, and resume (no spend cap is passed)", () => {
     const req: SpawnRequest = {
       role: "worker",
       cwd: "/tmp/test",
@@ -429,10 +430,6 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
       permission: {
         allow: ["Bash", "Edit"],
         deny: ["WebFetch"],
-      },
-      budget: {
-        max_usd: 2.5,
-        timeout_ms: 30000,
       },
       session: {
         resume: "12345678-1234-1234-1234-123456789abc",
@@ -457,8 +454,6 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     expect(disallowed).toContain("Agent");
     expect(disallowed).toContain("WebFetch");
 
-    expect(args).toContain("--max-budget-usd");
-    expect(args[args.indexOf("--max-budget-usd") + 1]).toBe("2.5");
   });
 
   it("scrubClaudeEnv preserves allowlisted variables and excludes parent secrets", () => {
@@ -492,7 +487,7 @@ describe("Claude Adapter: Argument Synthesis & Environment Scrubbing", () => {
     expect(CLAUDE_CAPABILITIES.version_pin).toBe("2.1.304");
     expect(CLAUDE_CAPABILITIES.effort).toBe(true);
     expect(CLAUDE_CAPABILITIES.structured_output).toBe(false);
-    expect(CLAUDE_CAPABILITIES.budget_flag).toBe(true);
+    expect(CLAUDE_CAPABILITIES).not.toHaveProperty('budget_flag');
     expect(CLAUDE_CAPABILITIES.cost_reported).toBe(true);
     expect(CLAUDE_CAPABILITIES.resume).toBe(true);
     expect(CLAUDE_CAPABILITIES.permission_denial_signal).toBe("event");

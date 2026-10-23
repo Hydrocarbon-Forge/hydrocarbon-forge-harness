@@ -5,8 +5,6 @@ describe("deepMerge", () => {
   it("merges plain objects recursively while keeping nested keys", () => {
     const base = {
       budgets: {
-        run: { max_usd: 5 },
-        task: { max_usd: 0.5 },
       },
       roles: {
         planner: { backend: "claude", model: "sonnet" },
@@ -14,7 +12,6 @@ describe("deepMerge", () => {
     };
     const overlay = {
       budgets: {
-        run: { max_usd: 10 },
       },
       roles: {
         worker: { backend: "claude", model: "haiku" },
@@ -25,8 +22,6 @@ describe("deepMerge", () => {
 
     expect(result).toEqual({
       budgets: {
-        run: { max_usd: 10 },
-        task: { max_usd: 0.5 },
       },
       roles: {
         planner: { backend: "claude", model: "sonnet" },

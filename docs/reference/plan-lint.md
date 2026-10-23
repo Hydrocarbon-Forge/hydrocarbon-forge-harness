@@ -11,13 +11,14 @@ A plan is refused, and the planner is asked again, only when scheduling cannot s
 - the manifest is missing, unreadable, does not parse, or fails its schema (L001);
 - a task spec the manifest names is missing, lies outside the run directory, cannot be read, does not parse, or fails its frontmatter schema (L001, L003);
 - a duplicate task id, or a task id that is not a valid id (L002);
-- `depends_on` names a task the manifest does not have (L004);
 - the dependency graph has a cycle, including a self-dependency (L005);
 - a contract file lies outside the repository, so the stub commit cannot add it to the run branch (L006).
 
 A task class needs no rule: any class name routes. An unknown class takes the `work` slot, or the built-in fallback route (`src/roles/router.ts`, `resolveTaskRoute`), and never blocks.
 
-The contract typecheck, the required sections, the verify commands and the scope rules are not blockers.
+The contract typecheck, the required sections, the verify commands, the scope rules and a `depends_on` that names no task are not blockers. A dependency that names no task is a warning (L004, 2026-10-23): the engine drops it when it reconciles the plan and says so in a `plan.synced` warning.
+
+Placeholder text (L013) is a warning. The spec parser never refuses a spec for it (2026-10-23). A bare `...` in a sentence, or call shorthand in backticks, is not a placeholder; a bare ellipsis counts only as the whole content of a line or bullet, or as `etc...`.
 
 ## Warnings
 
@@ -40,7 +41,7 @@ Severity is what the rule reports. "Retry" is whether a finding of that severity
 | L002 | Task id format and uniqueness | error | error (blocker) | yes | yes |
 | L003 | A declared spec file missing on disk | error | error (blocker) | yes | yes |
 | L003 | An orphan `.md` file under `tasks/` that no task names | error | warn | yes | no |
-| L004 | `depends_on` names an unknown task | error | error (blocker) | yes | yes |
+| L004 | `depends_on` names an unknown task (dropped by the engine, 2026-10-23) | error | warn | yes | no |
 | L005 | Dependency cycle, including self-dependency | error | error (blocker) | yes | yes |
 | L006 | A contract file outside the repository | error | error (blocker) | yes | yes |
 | L006 | Any other unsafe path: read, write, create, protected, or a cwd | error | warn | yes | no |
@@ -50,23 +51,20 @@ Severity is what the rule reports. "Retry" is whether a finding of that severity
 | L010 | An empty verify list (L001 also refuses it: the schema needs one command) | error | warn | yes | no (L001 still refuses) |
 | L011 | A verify binary that cannot be resolved, or a verify cwd that does not exist | error | warn | yes | no |
 | L012 | A verify that names a test path nothing provides | error | warn | yes | no |
-| L013 | A placeholder token outside code fences in Interface or Behavior | error | warn | yes | no |
+| L013 | A placeholder token (TODO, FIXME, TBD, `<placeholder>`, a bare `...` line, `etc...`) outside code fences in Interface or Behavior | error | warn | yes | no |
 | L014 | A required section missing or empty (the ingest heading check is removed; L014 covers it) | error | warn | yes | no |
-| L016 | A task budget estimate above a per-task cap the caller set | warn | warn | no | no |
 | L017 | The read set exceeds the context budget | error | warn | yes | no |
 | L018 | The contract typecheck fails, or cannot run | error | warn | yes | no |
 | L019 | A contract file missing on disk, or an Interface that names an undeclared contract file | error | warn | yes | no |
 | L020 | A code fence that holds implementation bodies | warn | warn | no | no |
 | L021 | `integration_verify` is empty | warn | warn | no | no |
-| L022 | The estimated cost is above the approval threshold | gate | gate | no | no |
 | L023 | A verify that passes at the base ref (red-check), only when `lint.red_check` is `true` (default `false`: not run) | warn | warn | no | no |
 | L024 | Class `tests` writes a non-test path, or another class writes a test path | warn | warn | no | no |
-| L025 | Manifest budget above the run cap | warn | warn | no | no |
 | L026 | More tasks than the maximum | warn | warn | no | no |
 | L027 | A protected path that does not exist at base and is not created by a dependency | error | warn | yes | no |
 | L028 | A tests task with more than about 10 test targets | warn | warn | no | no |
 
-L015 is retired (R7.7): a class with no routing entry routes through the fallback. L022 stays a `gate`: it is not an error, so it never blocks or retries. The approval pause is decided by the run's estimate, not by this severity.
+L015 is retired (R7.7): a class with no routing entry routes through the fallback. L016, L022 and L025 (per-task and run budget caps, and the approval threshold) were removed on 2026-10-23 with those caps. The plan's cost estimate is reported on `plan.lint` as `estimated_usd` and gates nothing. There is no approval pause (owner, 2026-10-23).
 
 L023 runs every verify command at the base ref, so it is off by default. Set `lint.red_check` to `true` in settings to turn it on; it is always a warning and never blocks a plan.
 

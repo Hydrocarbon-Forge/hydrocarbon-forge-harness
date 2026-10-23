@@ -111,7 +111,7 @@ describe("Solo mode E2E", () => {
     try {
       expect(res.exitCode).toBe(0);
       expect(res.stderr).toContain(
-        "warning: no verify commands; only scope and budget checks apply"
+        "warning: no verify commands; only scope checks apply"
       );
       const finishEv = [...res.events].reverse().find((e) => e.type === "run.finished");
       expect(finishEv).toBeDefined();
@@ -150,7 +150,7 @@ describe("Solo mode E2E", () => {
       const routed = res.events.find((e) => e.type === "run.routed");
       expect(routed?.data).toMatchObject({ mode: "solo" });
       expect(res.stderr).toContain(
-        "warning: no verify commands; only scope and budget checks apply"
+        "warning: no verify commands; only scope checks apply"
       );
     } finally {
       res.cleanup();

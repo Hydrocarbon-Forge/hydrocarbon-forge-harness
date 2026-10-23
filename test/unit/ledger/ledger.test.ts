@@ -25,12 +25,9 @@ function makeSettings(approvalThreshold = 2.0, defaultTaskBudget = 0.5): Contrac
       models: {},
     },
     budgets: {
-      run: { max_usd: 10 },
-      task: { max_usd: defaultTaskBudget },
       l1_replans_per_task: 2,
       l2_per_run: 2,
       planner_format_retries: 2,
-      approval_threshold_usd: approvalThreshold,
     },
     concurrency: { workers: 3 },
     permissions: { allow: [], deny: [] },
@@ -74,24 +71,22 @@ describe("ledger: estimateRunCost pre-flight cost estimation", () => {
       { id: "TaskB", spec: "tasks/B.md" },
     ]);
 
-    const result = estimateRunCost(manifest, [], settings);
+    const result = estimateRunCost(manifest, []);
 
     // 2 tasks * ~0.50 * retry multiplier (>= 1.0)
     expect(result.estimated_usd).toBeGreaterThanOrEqual(1.0);
-    expect(result.requires_approval).toBe(false);
   });
 
-  it("sets requires_approval = true when estimate exceeds approval_threshold_usd", () => {
-    const settings = makeSettings(1.0, 0.8); // approval threshold $1.00, task budget $0.80
+  it("reports the estimate as advisory: no approval flag, whatever the estimate", () => {
     const manifest = makeManifest([
       { id: "TaskA", spec: "tasks/A.md" },
       { id: "TaskB", spec: "tasks/B.md" },
     ]);
 
-    const result = estimateRunCost(manifest, [], settings);
+    const result = estimateRunCost(manifest, []);
 
-    expect(result.estimated_usd).toBeGreaterThan(1.0);
-    expect(result.requires_approval).toBe(true);
+    expect(result.estimated_usd).toBeGreaterThan(0);
+    expect(result).not.toHaveProperty("requires_approval");
   });
 
   it("uses historical median cost per class from historical ledger entries", () => {
@@ -136,11 +131,10 @@ describe("ledger: estimateRunCost pre-flight cost estimation", () => {
       },
     ];
 
-    const result = estimateRunCost(manifest, ledger, settings);
+    const result = estimateRunCost(manifest, ledger);
 
     // Estimated cost based on historical median ~0.30 * retry factor (approx 0.30-0.45)
     expect(result.estimated_usd).toBeCloseTo(0.36, 1);
-    expect(result.requires_approval).toBe(false);
   });
 });
 

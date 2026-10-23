@@ -100,9 +100,8 @@ describe("Unit: Run request schema and validation (R4.1)", () => {
     expect(res.request.mode).toBe("solo");
     expect(res.request.permission_mode).toBe("acceptEdits");
     expect(res.overrides.roles?.worker?.model).toBe("claude-haiku-5-5");
-    expect(res.overrides.budgets?.run?.max_usd).toBe(2.5);
-    expect(res.overrides.budgets?.run?.max_tokens).toBe(50000);
-    expect(res.overrides.budgets?.run?.max_wall_min).toBe(15);
+    // The request's budget object is accepted and ignored (owner, 2026-10-23): no override carries it.
+    expect(res.overrides.budgets).toBeUndefined();
     expect(res.overrides.verify).toEqual(["npm test"]);
     expect(res.overrides.context).toEqual(["context.txt"]);
 

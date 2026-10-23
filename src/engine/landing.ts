@@ -132,57 +132,6 @@ export function verificationOf(events: readonly EventLike[]): Verification | und
   return undefined;
 }
 
-/** The suggested run budget for a resume after a budget stop: twice the spend or the cap plus the spend, to the cent. */
-export function suggestedBudgetUsd(spent: number, cap: number): number {
-  const raw = Math.max(2 * cap, spent + cap);
-  return Math.ceil(raw * 100 - 1e-9) / 100;
-}
-
-/**
- * The command that continues a run stopped by its run budget (R8.2): the resume names a higher
- * budget, because the spend already recorded counts against the same cap.
- */
-export function budgetResumeCommand(runId: string, spent: number, cap: number): string {
-  return `substrate resume ${runId} --max-budget-usd ${suggestedBudgetUsd(spent, cap).toFixed(2)}`;
-}
-
-/**
- * The reason line of a run stopped by its budget (R8.2): how much was spent, and what each task
- * was doing when the stop came. `tasks` are the summary's task states.
- */
-export function budgetStopMessage(spent: number, cap: number, tasks: Record<string, { state: string }>): string {
-  return `spent $${spent.toFixed(4)} of the $${cap.toFixed(2)} run budget${taskStopTail(tasks)}`;
-}
-
-/**
- * The task list at the end of a stop's reason line (R8.2, R11.2): `; <task> passed, <task> interrupted, ...`,
- * or nothing when the run has no task yet.
- */
-function taskStopTail(tasks: Record<string, { state: string }>): string {
-  const label = (state: string): string => {
-    if (state === "PASSED" || state === "MERGING" || state === "MERGED") return "passed";
-    if (state === "FAILED") return "failed";
-    if (state === "SKIPPED") return "skipped";
-    if (state === "PENDING" || state === "READY") return "not started";
-    return "interrupted";
-  };
-  const parts = Object.entries(tasks).map(([id, t]) => `${id} ${label(t.state)}`);
-  return parts.length > 0 ? `; ${parts.join(", ")}` : "";
-}
-
-/** The reason line of a run stopped by its wall-clock limit (R11.2): the limit, and what each task was doing. */
-export function timeoutStopMessage(limitS: number, tasks: Record<string, { state: string }>): string {
-  return `the run reached its ${limitS}s time limit${taskStopTail(tasks)}`;
-}
-
-/**
- * The command that continues a run stopped by its time limit (R11.2): the resume names a longer limit, because
- * a resume starts a fresh clock. Twice the limit, in whole seconds, as `--timeout` requires.
- */
-export function timeoutResumeCommand(runId: string, limitS: number): string {
-  return `substrate resume ${runId} --timeout ${Math.ceil(2 * limitS)}`;
-}
-
 interface EventLike {
   type: string;
   data?: unknown;
@@ -223,7 +172,7 @@ export function withLanding(summary: RunSummary, facts: LandingFacts): RunSummar
   }
   if (facts.runFailed && !facts.needsInput) {
     // R10.4: a failed run is resumed; its next commands are the resume, the partial landing and a new request.
-    if (summary.status === "failed") {
+    if (summary.status === "failed" || summary.status === "partial") {
       // Every task merged and the final check failed: `merge --partial` would rerun that check, so it is not offered.
       const verifyOnly = summary.failure_class === "integration_failed" && Object.values(summary.tasks ?? {}).every((t) => t.state === "PASSED");
       next.push(

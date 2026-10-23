@@ -24,7 +24,6 @@ export class FakeAdapter implements HarnessAdapter {
     version_pin: "1.0.0",
     effort: true,
     structured_output: true,
-    budget_flag: true,
     cost_reported: true,
     resume: true,
     permission_denial_signal: "event",
@@ -86,7 +85,6 @@ export class FakeAdapter implements HarnessAdapter {
       args,
       cwd: req.cwd,
       env: req.env,
-      timeoutMs: req.budget.timeout_ms,
     });
 
     const denials: Array<{ tool: string; reason?: string }> = [];
@@ -259,7 +257,7 @@ export class FakeAdapter implements HarnessAdapter {
     }
 
     const kill = async (
-      reason: "budget" | "timeout" | "cancel"
+      reason: "timeout" | "cancel"
     ): Promise<void> => {
       await proc.kill(reason);
     };

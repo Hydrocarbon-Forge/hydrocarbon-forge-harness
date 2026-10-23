@@ -20,7 +20,6 @@ export interface CliGovernanceFlags {
   permissionMode?: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
-  maxBudgetUsd?: number;
   timeout?: number;
   sandbox?: boolean;
   settings?: string;
@@ -90,7 +89,6 @@ export const backendsCommand: CliCommand = {
       const features: string[] = [];
       if (caps.effort) features.push("effort");
       if (caps.structured_output) features.push("structured_output");
-      if (caps.budget_flag) features.push("budget_flag");
       if (caps.resume) features.push("resume");
       if (caps.sandbox_flag) features.push("sandbox");
       capabilities[name] = features;

@@ -35,8 +35,7 @@ import { RunLockImpl, RunLockError } from "../store/run-lock.js";
 import { ensureGitExclude, getRunBranch, restoreTaskBranch } from "../git/index.js";
 import { runBranchExists } from "../git/workspace.js";
 import { deepMerge } from "../util/merge.js";
-import { type RecordedRun, budgetRecord, recordedRunLists, recordedRunOptions, recordedSettingsOverrides, runInputsRecord } from "./recorded-run.js";
-import { type TimeLimit, startTimeLimit, timeLimitSecondsOf } from "./time-limit.js";
+import { type RecordedRun, recordedRunLists, recordedRunOptions, recordedSettingsOverrides, runInputsRecord } from "./recorded-run.js";
 import { currentBranchName } from "../git/landing.js";
 import { createRunId } from "../util/index.js";
 import { log } from "../util/log.js";
@@ -81,9 +80,9 @@ function findExistingUnstartedRun(runsDir: string): RunId | undefined {
   return candidates[0].id;
 }
 
-type RunSummaryStatus = "finished" | "planned" | "paused" | "failed" | "cancelled";
+type RunSummaryStatus = "finished" | "planned" | "paused" | "failed" | "partial" | "cancelled";
 
-function statusForState(runState: RunState): RunSummaryStatus {
+function statusForState(runState: RunState, partial = false): RunSummaryStatus {
   switch (runState) {
     case "FINISHED":
       return "finished";
@@ -92,7 +91,8 @@ function statusForState(runState: RunState): RunSummaryStatus {
     case "PAUSED":
       return "paused";
     case "FAILED":
-      return "failed";
+      // 2026-10-23 (owner, d): some tasks merged and others failed or were skipped: a partial result. Exit 1 as before.
+      return partial ? "partial" : "failed";
     case "CANCELLED":
       return "cancelled";
     default:
@@ -114,7 +114,7 @@ export function exitCodeForState(runState: RunState, pauseReason?: PauseReason):
     case "CANCELLED":
       return 1;
     case "PAUSED":
-      // R11.2: a run stopped by its time limit is a limit reached, like a budget stop.
+      // Pause reasons written by older logs (a run budget or a time limit) still map to the limit exit code.
       if (pauseReason === "budget_exhausted" || pauseReason === "timeout") return 4;
       if (pauseReason === "user_cancel") return 130;
       return 3;
@@ -145,7 +145,9 @@ export function buildSummary(runId: RunId, state: EngineState, repoRoot: string)
     };
   }
 
-  const status = statusForState(state.state);
+  const merged = Object.values(state.tasks).filter((t) => t.state === "MERGED").length;
+  const partial = merged > 0 && merged < Object.keys(state.tasks).length;
+  const status = statusForState(state.state, partial);
   const exitCode = exitCodeForState(state.state, state.pause_reason);
 
   return {
@@ -290,8 +292,6 @@ export class EngineImpl implements Engine {
 
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
-    // R11.2: the run's wall-clock limit starts with this process; the timer is cleared when the run returns.
-    const timeLimit = startTimeLimit(timeLimitSecondsOf(settings));
     const ctx: EffectContext = {
       runId,
       repoRoot,
@@ -300,7 +300,6 @@ export class EngineImpl implements Engine {
       adapters,
       concurrency: settings.concurrency.workers,
       signal: opts.signal,
-      timeout: timeLimit?.signal,
       onEvent: opts.onEvent,
       prompt: opts.prompt,
       mode: opts.mode,
@@ -337,7 +336,7 @@ export class EngineImpl implements Engine {
             // R10.3: the landing and the worker count in effect, so a resume keeps them.
             merge: opts.merge ?? settings.git?.auto_merge === true,
             concurrency: settings.concurrency.workers,
-            // R11.1: the run budget and the run-level lists in effect, so a resume keeps them.
+            // R11.1: the run-level lists in effect, so a resume keeps them.
             ...runInputsRecord(settings, opts.overrides),
           },
         };
@@ -357,7 +356,6 @@ export class EngineImpl implements Engine {
 
       return buildSummary(runId, state, repoRoot);
     } finally {
-      timeLimit?.clear();
       clearInterval(heartbeatTimer);
       await lock.release();
     }
@@ -385,7 +383,6 @@ export class EngineImpl implements Engine {
     const store = new EventStoreImpl(runId, { baseDir: repoRoot });
 
     let state: EngineState | undefined;
-    let timeLimit: TimeLimit | undefined;
     try {
       // R11.1: the inputs the run was created with come from its own run.created event, so a resume does
       // not rebuild the request, the budget or the lists from its options. An unreadable log is reported
@@ -419,8 +416,6 @@ export class EngineImpl implements Engine {
         ...this.options.adapters,
       };
 
-      // R11.2: a resume starts a fresh clock with the limit it has (the recorded one, or --timeout given again).
-      timeLimit = startTimeLimit(timeLimitSecondsOf(settings));
       const ctx: EffectContext = {
         runId,
         repoRoot,
@@ -429,8 +424,7 @@ export class EngineImpl implements Engine {
         adapters,
         concurrency: settings.concurrency.workers,
         signal: opts?.signal,
-        timeout: timeLimit?.signal,
-        onEvent: opts?.onEvent,
+          onEvent: opts?.onEvent,
         // W5a: inbox amendments that wait for this resume are applied, and reported as applied on resume.
         resumed: true,
         prompt: opts?.prompt ?? recorded.prompt,
@@ -463,8 +457,7 @@ export class EngineImpl implements Engine {
             ts: new Date().toISOString(),
             run_id: runId,
             type: "run.resumed",
-            // R11.1: the budget this resume uses, recorded again so a later resume keeps it.
-            data: { ...budgetRecord(settings) },
+            data: {},
           };
           await store.append(resumedEvt);
           lastSeq = resumedEvt.seq;
@@ -520,7 +513,6 @@ export class EngineImpl implements Engine {
                 reason: "planning",
                 ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
                 ...(planningCutShort(existingEvents) ? { planning_cut_short: true } : {}),
-                ...budgetRecord(settings),
               });
             }
           }
@@ -532,7 +524,6 @@ export class EngineImpl implements Engine {
           await emit("run.reopened", {
             ...reopenData([...existingEvents, ...appended], state),
             ...(keptDraft !== undefined ? { draft_dir: keptDraft } : {}),
-            ...budgetRecord(settings),
           });
         }
 
@@ -544,7 +535,7 @@ export class EngineImpl implements Engine {
           if (!reviewed.ok) {
             throw new Error(`the reviewed plan does not pass: ${reviewed.diagnostics.join("; ")}`);
           }
-          await emit("run.reopened", { reason: "plan_review", ...budgetRecord(settings) });
+          await emit("run.reopened", { reason: "plan_review" });
           const base = resolveBaseRef(repoRoot, reviewed.manifest.base_ref);
           const commitSha = await commitContractStubs(repoRoot, runId, base.sha, reviewed.manifest.contracts, runDir);
           await emit("contracts.committed", { commit_sha: commitSha, ...(base.note ? { note: base.note } : {}) });
@@ -621,7 +612,6 @@ export class EngineImpl implements Engine {
 
       return buildSummary(runId, state, repoRoot);
     } finally {
-      timeLimit?.clear();
       clearInterval(heartbeatTimer);
       await lock.release();
     }

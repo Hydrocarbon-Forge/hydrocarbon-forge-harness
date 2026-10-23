@@ -30,7 +30,6 @@ export const CLAUDE_CAPABILITIES: Capabilities = {
   version_pin: CLAUDE_VERSION_PIN,
   effort: true,
   structured_output: false,
-  budget_flag: true,
   cost_reported: true,
   resume: true,
   permission_denial_signal: "event",
@@ -48,6 +47,8 @@ export interface ClaudeAdapterOptions {
    * report besides its documented aliases.
    */
   knownModels?: string[];
+  /** The no-output idle watchdog, in milliseconds, for every session this adapter starts (0 or unset: off). */
+  idleTimeoutMs?: number;
 }
 
 /** Documented Claude aliases (S1): the only ids the adapter reports on its own. */
@@ -130,10 +131,6 @@ export function buildClaudeArgs(req: SpawnRequest): string[] {
   }
   const disallowed = Array.from(disallowedSet);
   args.push("--disallowedTools", disallowed.join(","));
-
-  if (req.budget.max_usd !== undefined && req.budget.max_usd > 0) {
-    args.push("--max-budget-usd", req.budget.max_usd.toString());
-  }
 
   return args;
 }
@@ -280,14 +277,14 @@ export class ClaudeAdapter implements HarnessAdapter {
       input: req.prompt,
       cwd: req.cwd,
       env: envRecord,
-      timeoutMs: req.budget.timeout_ms,
+      idleTimeoutMs: this.options.idleTimeoutMs,
     });
 
     const allEvents: BackendEvent[] = [];
     const seenDenials = new Set<string>();
     let done = false;
     let waitingConsumers: Array<() => void> = [];
-    let killedFor: "budget" | "timeout" | "cancel" | undefined;
+    let killedFor: "timeout" | "cancel" | undefined;
 
     const notifyConsumers = () => {
       const callbacks = waitingConsumers;
@@ -407,7 +404,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       pid: proc.pid,
       events: eventsIterable,
       result: () => lifecyclePromise,
-      kill: async (reason: "budget" | "timeout" | "cancel") => {
+      kill: async (reason: "timeout" | "cancel") => {
         killedFor = killedFor ?? reason;
         await proc.kill(reason);
       },

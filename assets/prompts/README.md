@@ -20,6 +20,7 @@ assets/
       replan-l1.md       user turn: rewrite ONE failed task's spec (fresh planner session)
       replan-l2.md       user turn: amend contracts/manifest/specs (fresh planner session)
       chat.md            user turn of a chat message to the planner (web UI; the planner may write an amendment)
+      owner-fix-spec.md  body of the fix task the engine writes when a failure belongs to a merged task (item 88); not a planner turn
     worker/
       task.md            user turn for a worker (spec path)
       setup-failed.md    appended to the worker's user turn when the plan's setup failed in its worktree (R13.1)
@@ -52,12 +53,13 @@ Syntax is `{{name}}` only: no logic, no loops, no conditionals. Code builds ever
 
 | Template | Variables |
 |---|---|
-| `planner/request.md` | `request`, `run_id`, `base_ref`, `repo_root`, `classes`, `task_budget`, `run_budget`, `max_tasks`, `charter`, `history`, `instruction_files`, `skills`, `repo_map` |
+| `planner/request.md` | `request`, `run_id`, `base_ref`, `repo_root`, `classes`, `max_tasks`, `charter`, `history`, `instruction_files`, `skills`, `repo_map` |
 | `planner/correction.md` | `attempt`, `max_attempts`, `diagnostics` |
 | `planner/answers.md` | `answers` |
 | `planner/replan-l1.md` | `task_id`, `generation`, `failure_class`, `spec_path`, `failure_details`, `diff_summary`, `worker_summary`, `task_spec`, `related_contracts`, `dependents`, `decisions` |
 | `planner/replan-l2.md` | `task_id`, `failure_class`, `escalation_reason`, `failure_details`, `worker_summary`, `manifest`, `task_states`, `contracts`, `decisions` |
 | `planner/chat.md` | `charter`, `request`, `run_state`, `amendment_dir`, `manifest`, `task_states`, `failures`, `report`, `events`, `history`, `message` |
+| `planner/owner-fix-spec.md` | `owner_id`, `files`, `failure_excerpt` |
 | `worker/task.md`, `test-writer/task.md` | `spec_path` (absolute) |
 | `worker/setup-failed.md` | `command` (the failed setup command), `output_tail` (the last ~1 KB of its output) |
 | `worker/heal.md` | `failures` (failing command, exit code, stdout/stderr tails, capped at 8 KB total) |

@@ -30,12 +30,9 @@ function makeSettings(
       models: {},
     },
     budgets: {
-      run: { max_usd: maxUsd },
-      task: { max_usd: 1.0 },
       l1_replans_per_task: 2,
       l2_per_run: 2,
       planner_format_retries: 2,
-      approval_threshold_usd: 2,
     },
     concurrency: { workers },
     permissions: { allow: [], deny: [] },

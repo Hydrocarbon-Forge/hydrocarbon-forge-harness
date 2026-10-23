@@ -101,17 +101,15 @@ export const DEFAULT_SETTINGS: Contracts.Settings & { pricing: Contracts.Pricing
   pricing: {
     models: {},
   } as unknown as Contracts.PricingTable,
-  // Spend and time limits are off by default (owner, 2026-10-21): a run, a task and the approval
-  // threshold have no cap until the caller sets one (settings, SUBSTRATE_MAX_BUDGET_USD, --max-budget-usd,
-  // --timeout or the request's budget object).
+  // No spend, token, turn or time cap and no approval threshold exist (owner, 2026-10-23).
   budgets: {
-    run: {},
-    task: {},
     l1_replans_per_task: 2,
     l2_per_run: 2,
     planner_format_retries: 2,
   },
   concurrency: { workers: 3 },
+  // The no-output idle watchdog (owner, 2026-10-23): a hang detector, not a work limit. 0 turns it off.
+  watchdog: { idle_minutes: Contracts.IDLE_MINUTES_DEFAULT },
   permissions: { allow: [], deny: [] },
   sandbox: { enabled: false },
   git: { on_scope_violation: "revert", auto_merge: true },
@@ -159,15 +157,6 @@ export function readEnvLayer(env: NodeJS.ProcessEnv): {
     outputFormat?: "text" | "json" | "stream-json";
   } = {};
 
-  const maxBudget = envValue(env, "SUBSTRATE_MAX_BUDGET_USD");
-  if (maxBudget !== undefined) {
-    const n = Number(maxBudget);
-    if (!Number.isFinite(n)) {
-      throw new Error("SUBSTRATE_MAX_BUDGET_USD must be a number");
-    }
-    settings.budgets = { run: { max_usd: n } };
-  }
-
   const model = envValue(env, "SUBSTRATE_MODEL");
   const workerModel = envValue(env, "SUBSTRATE_WORKER_MODEL");
   if (model !== undefined || workerModel !== undefined) {
@@ -206,12 +195,31 @@ export interface SettingsLayers {
   flags?: Record<string, unknown>;
 }
 
+// Keys for spend, token, turn and time caps and the approval threshold, removed by the owner on 2026-10-23. A settings
+// file written before the removal still carries them: they are dropped here, before validation, so the file loads and
+// the value has no effect. Nothing else is touched.
+const REMOVED_BUDGET_KEYS = ["run", "task", "approval_threshold_usd"] as const;
+
+export function dropRemovedKeys(value: Record<string, unknown>): Record<string, unknown> {
+  const budgets = value.budgets;
+  if (!isPlainObject(budgets)) return value;
+  const kept = Object.fromEntries(
+    Object.entries(budgets).filter(([key]) => !(REMOVED_BUDGET_KEYS as readonly string[]).includes(key)),
+  );
+  return { ...value, budgets: kept };
+}
+
+/** True for a key the owner removed (2026-10-23) that an old settings file may still carry. */
+export function isRemovedSettingsKey(key: string): boolean {
+  return key === "budgets.run" || key.startsWith("budgets.run.") || key === "budgets.task" || key.startsWith("budgets.task.") || key === "budgets.approval_threshold_usd";
+}
+
 function readLayerFile(file: string): Record<string, unknown> {
   const parsed = parseJsonc(fs.readFileSync(file, "utf8"), file);
   if (!isPlainObject(parsed)) {
     throw new Error(`Invalid settings in ${file}: expected a JSON object`);
   }
-  return parsed;
+  return dropRemovedKeys(parsed);
 }
 
 export async function settingsLayers(options: LoadSettingsOptions = {}): Promise<SettingsLayers> {

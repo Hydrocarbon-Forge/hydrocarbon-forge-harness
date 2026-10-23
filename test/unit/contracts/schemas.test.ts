@@ -428,7 +428,6 @@ describe("backend layer", () => {
       version_pin: "2.1.304",
       effort: true,
       structured_output: true,
-      budget_flag: true,
       cost_reported: true,
       resume: true,
       permission_denial_signal: "event",
@@ -441,25 +440,22 @@ describe("backend layer", () => {
     expectReject("Capabilities", { ...valid, name: "unknown" });
   });
 
-  it("SpawnRequest requires role/cwd/prompt/model/permission and a budget object; timeout and caps are optional", () => {
+  it("SpawnRequest requires role/cwd/prompt/model/permission; there is no budget or cap field (owner, 2026-10-23)", () => {
     const valid = {
       role: "worker",
       cwd: "/tmp/w",
       prompt: "do it",
       model: "m",
       permission: { allow: [], deny: ["Agent"] },
-      budget: { timeout_ms: 1000 },
     };
     expectAccept("SpawnRequest", valid);
     expectReject("SpawnRequest", { ...valid, role: "admin" });
     expectReject("SpawnRequest", { ...valid, permission: { allow: [] } });
-    // Changed (2026-10-21, owner): no timeout and no cap are the default, so an empty budget is a valid
-    // request; the old assertion (an empty budget is rejected because timeout_ms was required) no longer holds.
-    expectAccept("SpawnRequest", { ...valid, budget: {} });
+    expectReject("SpawnRequest", { ...valid, budget: { max_usd: 1 } });
     expectReject("SpawnRequest", { ...valid, budget: { max_usd: "x" } });
   });
 
-  it("SessionResult kill reasons are budget/timeout/cancel only", () => {
+  it("SessionResult kill reasons are timeout/cancel only", () => {
     const valid = {
       ok: true,
       session_id: "s",
@@ -469,9 +465,10 @@ describe("backend layer", () => {
       denials: [],
     };
     expectAccept("SessionResult", valid);
-    for (const reason of ["budget", "timeout", "cancel"])
+    for (const reason of ["timeout", "cancel"])
       expectAccept("SessionResult", { ...valid, killed_for: reason });
     expectReject("SessionResult", { ...valid, killed_for: "user" });
+    expectReject("SessionResult", { ...valid, killed_for: "budget" });
     expectReject("SessionResult", { ...valid, ok: "yes" });
   });
 
@@ -513,12 +510,9 @@ describe("settings", () => {
       },
       pricing: { asOf: "2026-10-16", sources: ["https://example.com"], models: {} },
       budgets: {
-        run: { max_usd: 5 },
-        task: { max_usd: 0.5 },
         l1_replans_per_task: 2,
         l2_per_run: 2,
         planner_format_retries: 2,
-        approval_threshold_usd: 2,
       },
       concurrency: { workers: 3 },
       permissions: { allow: [], deny: ["Agent"] },

@@ -45,9 +45,6 @@ describe("Scenario 03: Double fail -> Packet -> L1 Replan on higher tier -> Pass
           l1_replans_per_task: 2,
           l2_per_run: 2,
           planner_format_retries: 2,
-          approval_threshold_usd: 5.0,
-          run: { max_usd: 10.0, max_tokens: 100000 },
-          task: { max_usd: 2.0 },
         },
       },
     });

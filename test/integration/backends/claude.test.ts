@@ -171,7 +171,6 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
       prompt: "scenario:resume",
       model: "claude-haiku-5-5",
       permission: { allow: [], deny: [] },
-      budget: { timeout_ms: 30000 },
       session: { resume: targetSessionId },
     };
 
@@ -206,7 +205,6 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
       prompt: "echo hello",
       model: "claude-haiku-5-5",
       permission: { allow: [], deny: [] },
-      budget: { timeout_ms: 20000 },
       session: { id: targetSessionId },
     };
 
@@ -243,7 +241,6 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
       prompt: "echo hello",
       model: "claude-haiku-5-5",
       permission: { allow: [], deny: [] },
-      budget: { timeout_ms: 20000 },
       session: { id: targetSessionId },
     };
 
@@ -272,7 +269,6 @@ describe("ClaudeAdapter: Environment Validation & Process Isolation", () => {
       model: "claude-haiku-5-5",
       session: { id: crypto.randomUUID() },
       permission: { allow: [], deny: ["Bash"] },
-      budget: { timeout_ms: 20000 },
     };
 
     const handle = adapter.spawn(req);

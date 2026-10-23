@@ -29,13 +29,14 @@ import { runTaskAction } from "./actions/task.js";
 import { runReplanAction } from "./actions/replan.js";
 import { runMergeAction } from "./actions/merge.js";
 import { runIntegrateAction } from "./actions/integrate.js";
-import { runApproveAction } from "./actions/approve.js";
-import { runFinishAction, finishAction } from "./actions/finish.js";
+import { finishAction } from "./actions/finish.js";
 import { getTaskBranch, sweepRunWorkspaces } from "../git/index.js";
 import { withRepoLock } from "../git/repo-lock.js";
 import { applyJournalEvent, usageTokensOf, type RunJournal } from "./journal.js";
-import { timeLimitSecondsOf } from "./time-limit.js";
 import { drainInbox, ENDED_STATES, type InboxDrainOptions } from "./amendment.js";
+import { hasPlanSyncChanges, planSync } from "./plan-sync.js";
+import fs from "node:fs";
+import path from "node:path";
 
 export { safeParseManifest, safeLoadPlan } from "./actions/shared.js";
 
@@ -48,16 +49,14 @@ export type EngineActionType =
   | "heal"
   | "replan"
   | "merge"
-  | "integration"
-  | "gate"
-  | "abort";
+  | "integration";
 
 /**
  * The signal the run's planner and single-worker sessions stop on (R11.2): the user's interrupt, the run's
  * time limit, or a stop of the run's workers. Undefined when the context has none of them.
  */
 export function interruptOf(ctx: EffectContext): AbortSignal | undefined {
-  const signals = [ctx.signal, ctx.timeout, ctx.runStop?.signal].filter((s): s is AbortSignal => s !== undefined);
+  const signals = [ctx.signal, ctx.runStop?.signal].filter((s): s is AbortSignal => s !== undefined);
   if (signals.length === 0) return undefined;
   return signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 }
@@ -66,7 +65,7 @@ export interface EngineAction {
   type: EngineActionType;
   taskId?: TaskId;
   batch?: TaskId[];
-  reason?: PauseReason | "budget" | "timeout" | "cancel";
+  reason?: PauseReason | "timeout" | "cancel";
 }
 
 export interface EffectContext {
@@ -81,11 +80,7 @@ export interface EffectContext {
    * settings value itself is never mutated.
    */
   concurrency: number;
-  /** Which run budget warnings have fired, so the 80 percent warning is emitted once. */
-  budgetWarned?: { cost: boolean; tokens: boolean };
   signal?: AbortSignal;
-  /** Aborts when the run's wall-clock limit is reached (R11.2); the run then pauses with reason timeout. */
-  timeout?: AbortSignal;
   /**
    * Stops every in-flight worker of the run at once (R8.3): a run budget stop, a run pause or
    * a finished run aborts it. Workers listen to it together with `signal`.
@@ -165,11 +160,6 @@ export function nextActions(
     return [];
   }
 
-  const maxUsd = settings.budgets?.run?.max_usd;
-  if (maxUsd !== undefined && state.usage.total_usd >= maxUsd) {
-    return [{ type: "abort", reason: "budget" }];
-  }
-
   switch (state.state) {
     case "CREATED":
     case "ROUTING":
@@ -180,9 +170,6 @@ export function nextActions(
 
     case "LINTING":
       return [{ type: "lint" }];
-
-    case "AWAITING_APPROVAL":
-      return [{ type: "gate", reason: "needs_approval" }];
 
     case "SETUP":
       return [{ type: "setup" }];
@@ -299,12 +286,6 @@ export async function executeAction(
       case "integration":
         await runIntegrateAction(action, ctx, state, emit);
         break;
-      case "gate":
-        await runApproveAction(action, ctx, state, emit);
-        break;
-      case "abort":
-        await runFinishAction(action, ctx, state, emit);
-        break;
       default:
         break;
     }
@@ -348,59 +329,6 @@ export function commitEvent(
   journal.seq = evt.seq;
   journal.tokens += usageTokensOf(evt);
   journal.state = applyJournalEvent(journal.state, evt);
-}
-
-// Budget check per R1.4 and R3.4: after each usage.recorded the action compares the
-// running total with settings.budgets.run.max_usd and budgets.run.max_tokens. The
-// 80 percent warning is emitted once per run; at 100 percent the run pauses and the
-// session is killed by the caller. The total the caller passes is state.usage plus the
-// pending usage this action has recorded, so an event is never counted twice.
-export function checkRunBudget(
-  ctx: EffectContext,
-  emit: Emit,
-  currentTotal: number,
-  currentTokens?: number
-): boolean {
-  // R8.3: a run that is already paused (another worker's budget stop) is stopped silently.
-  if (ctx.journal?.state.state === "PAUSED") {
-    return true;
-  }
-
-  const warned = (ctx.budgetWarned ??= { cost: false, tokens: false });
-
-  const maxUsd = ctx.settings.budgets?.run?.max_usd;
-  if (maxUsd !== undefined) {
-    if (currentTotal >= 0.8 * maxUsd && currentTotal < maxUsd && !warned.cost) {
-      warned.cost = true;
-      emit("run.budget.warning", {
-        cost_usd: currentTotal,
-        max_usd: maxUsd,
-        ...(currentTokens !== undefined && ctx.settings.budgets?.run?.max_tokens !== undefined
-          ? { tokens: currentTokens, max_tokens: ctx.settings.budgets.run.max_tokens }
-          : {}),
-      });
-    }
-    if (currentTotal >= maxUsd) {
-      emit("run.budget.exceeded", { cost_usd: currentTotal, max_usd: maxUsd });
-      emit("run.paused", { reason: "budget_exhausted" });
-      return true;
-    }
-  }
-
-  const maxTokens = ctx.settings.budgets?.run?.max_tokens;
-  if (maxTokens !== undefined && currentTokens !== undefined) {
-    if (currentTokens >= 0.8 * maxTokens && currentTokens < maxTokens && !warned.tokens) {
-      warned.tokens = true;
-      emit("run.budget.warning", { tokens: currentTokens, max_tokens: maxTokens });
-    }
-    if (currentTokens >= maxTokens) {
-      emit("run.budget.exceeded", { tokens: currentTokens, max_tokens: maxTokens });
-      emit("run.paused", { reason: "budget_exhausted" });
-      return true;
-    }
-  }
-
-  return false;
 }
 
 // Builds a ledger entry from a usage.recorded event (Behavior 11 of the
@@ -449,6 +377,31 @@ function kindOf(action: EngineAction): "worker" | "merge" | "exclusive" {
   return "exclusive";
 }
 
+/** An action that works on one task (its worker, its heal or its replan): an exception from it is that task's failure. */
+function isTaskAction(action: EngineAction): boolean {
+  const taskScoped = action.type === "worker" || action.type === "heal" || action.type === "replan";
+  return taskScoped && action.taskId !== undefined && action.taskId !== "SOLO" && action.taskId !== "solo";
+}
+
+/**
+ * 2026-10-23 (owner, d): the `task.failed` that records an exception from one task's action, at the task boundary. It
+ * is not replannable, so the task becomes BLOCKED and its dependents are skipped while independent tasks keep running.
+ * Undefined when the action does not work on a task (its exception stays a run-level internal error).
+ */
+export function taskExceptionData(
+  action: EngineAction,
+  error: unknown
+): { task_id: TaskId; failure_class: "worker_crashed"; can_replan: false; detail: string } | undefined {
+  if (!isTaskAction(action) || action.taskId === undefined) return undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    task_id: action.taskId,
+    failure_class: "worker_crashed",
+    can_replan: false,
+    detail: `the task's ${action.type} action failed inside Substrate: ${message}`.slice(0, 2000),
+  };
+}
+
 function keyOf(action: EngineAction): string {
   if (kindOf(action) === "worker") return `task:${action.taskId ?? "SOLO"}`;
   if (action.type === "merge") return "merge";
@@ -484,17 +437,6 @@ export async function runEffectsLoop(
   const runStop = new AbortController();
   ctx.runStop = runStop;
 
-  // R11.2 (known issue 60): the run's wall-clock limit ends the run as a budget stop does. The run pauses with
-  // reason timeout (unless it already ended), and every in-flight worker, planner and single-worker session
-  // is stopped; nothing new starts, so nothing merges after the stop.
-  const onTimeLimit = (): void => {
-    if (!isTerminal(journal.state)) {
-      emitLoopEvent("run.paused", { reason: "timeout", time_limit_s: timeLimitSecondsOf(ctx.settings) });
-    }
-    if (!runStop.signal.aborted) runStop.abort();
-  };
-  ctx.timeout?.addEventListener("abort", onTimeLimit, { once: true });
-
   // The loop emits the events it derives itself (promotions, blocks, the stall
   // result). Each one is committed to the journal as it is emitted.
   const emitLoopEvent = <T extends EventType>(type: T, data: EventData<T>): EngineEvent =>
@@ -514,12 +456,30 @@ export async function runEffectsLoop(
     }
   };
 
+  // 2026-10-23 (owner, b): the manifest in the run directory is registered in the live state. It runs when the manifest
+  // text changed since the last look: after setup, an amendment, a replan, or a resume of a run whose log predates it.
+  let lastManifestText: string | undefined;
+  const reconcilePlan = (): void => {
+    if (journal.state.state !== "EXECUTING") return;
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(ctx.runDir, "manifest.yaml"), "utf8");
+    } catch {
+      return;
+    }
+    if (text === lastManifestText) return;
+    lastManifestText = text;
+    const sync = planSync(ctx.runDir, journal.state);
+    if (hasPlanSyncChanges(sync)) emitLoopEvent("plan.synced", sync);
+  };
+
   // Resume (R5.3 S11): the replayed log may stop after `setup.done`, which leaves the
   // first batch PENDING, or after a `task.merged` / `batch.merged`, which leaves
   // dependents PENDING. Setup and settleDependents would have emitted these
   // promotions, so they are emitted here, before the first action is chosen and
   // therefore before the stall check. Only the resume entry (engine.ts) starts the
   // loop in EXECUTING; a fresh run enters in CREATED and setup releases the first batch.
+  reconcilePlan();
   if (journal.state.state === "EXECUTING") {
     for (const taskId of unreleasedRootTasks(journal.state)) {
       emitLoopEvent("task.ready", { task_id: taskId });
@@ -549,6 +509,7 @@ export async function runEffectsLoop(
 
   const drainAmendments = async (): Promise<void> => {
     if (halted) return;
+    reconcilePlan();
     const applied = await drainInbox(inboxOptions(() => ![...flights.values()].some((f) => f.kind !== "worker")));
     if (applied) {
       for (const taskId of unreleasedRootTasks(journal.state)) {
@@ -576,11 +537,33 @@ export async function runEffectsLoop(
       },
       (error: unknown) => {
         flights.delete(key);
+        // 2026-10-23 (owner, d): an exception inside one task's action is that task's failure. It is recorded at
+        // the task boundary and the other tasks keep running; anything else is a run-level internal error.
+        if (isTaskAction(action) && recordTaskException(action, error)) return;
         if (!fatal) fatal = { error };
         halt();
       }
     );
     flights.set(key, { kind: kindOf(action), taskId: action.taskId, promise });
+  };
+
+  /** Records an exception from a task's action as that task's failure (not replannable, so the task is BLOCKED). */
+  const recordTaskException = (action: EngineAction, error: unknown): boolean => {
+    const data = taskExceptionData(action, error);
+    if (data === undefined) return false;
+    try {
+      // The stack goes to the run directory, as R9.1 keeps it for a run-level error; the event carries the message.
+      const stack = error instanceof Error && error.stack !== undefined ? error.stack : String(error);
+      const packets = path.join(ctx.runDir, "packets");
+      fs.mkdirSync(packets, { recursive: true });
+      fs.writeFileSync(path.join(packets, `${action.taskId}-exception.txt`), `${stack}\n`, "utf8");
+      makeEmitter(ctx, journal.state).emit("task.failed", data);
+      log.warn(`task ${action.taskId} failed inside Substrate: ${data.detail}`);
+      return true;
+    } catch {
+      // The failure could not be recorded: the run-level path takes it, so nothing is lost silently.
+      return false;
+    }
   };
 
   const runningTasks = (): TaskId[] =>
@@ -617,20 +600,16 @@ export async function runEffectsLoop(
         .map((t) => t.id)
         .sort((a, b) => a.localeCompare(b));
       const reason = failedIds.length > 0 ? "tasks_failed" : "stalled";
+      // 2026-10-23 (owner, d): some tasks merged and others failed for good: a partial result, not a failed run.
+      const someMerged = Object.values(journal.state.tasks).some((t) => t.state === "MERGED");
       emitLoopEvent("run.finished", {
         exit_code: 1,
-        status: "failed",
+        status: failedIds.length > 0 && someMerged ? "partial" : "failed",
         reason,
         ...(failedIds.length > 0 ? { failed_tasks: failedIds } : {}),
       });
       halt();
       return;
-    }
-
-    // A budget stop: the in-flight workers stop now, and the abort action runs once they
-    // have settled (it is exclusive).
-    if (actions.some((a) => a.type === "abort")) {
-      stopWorkers();
     }
 
     if ([...flights.values()].some((f) => f.kind === "exclusive")) return;
@@ -674,7 +653,6 @@ export async function runEffectsLoop(
     await Promise.allSettled([...flights.values()].map((f) => f.promise));
   }
 
-  ctx.timeout?.removeEventListener("abort", onTimeLimit);
   if (fatal) {
     throw fatal.error;
   }

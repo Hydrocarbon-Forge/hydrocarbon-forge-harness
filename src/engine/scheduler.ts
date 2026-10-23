@@ -136,11 +136,6 @@ export function scheduleNextTasks(
     return [];
   }
 
-  const maxUsd = settings.budgets.run.max_usd;
-  if (maxUsd !== undefined && state.usage.total_usd >= maxUsd) {
-    return [];
-  }
-
   const availableSlots = settings.concurrency.workers - activeCount;
   if (availableSlots <= 0) {
     return [];

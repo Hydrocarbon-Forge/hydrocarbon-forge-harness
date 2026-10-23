@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,7 +57,10 @@ function seed(): { env: NodeJS.ProcessEnv; projectPath: string; runDir: string }
 
 /** Starts `ui serve` on an OS-chosen port and resolves with its URL (the first line it prints). */
 function startUi(env: NodeJS.ProcessEnv): Promise<Ui> {
-  const child = spawn(process.execPath, [CLI, "ui", "serve", "--port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+  // The server runs in an empty directory of its own: a project it finds in its working directory (the repository's own
+  // .substrate, when run from the checkout) would be registered and change the seeded project count.
+  const cwd = mkdtempSync(join(tmpdir(), "substrate-web-cwd-"));
+  const child = spawn(process.execPath, [CLI, "ui", "serve", "--port", "0"], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
   running.push(child);
   return new Promise((resolve, reject) => {
     let out = "";
@@ -71,12 +74,18 @@ function startUi(env: NodeJS.ProcessEnv): Promise<Ui> {
         child,
         stop: () =>
           new Promise<void>((done) => {
-            child.once("exit", () => done());
+            child.once("exit", () => {
+              rmSync(cwd, { recursive: true, force: true });
+              done();
+            });
             child.kill("SIGINT");
           }),
       });
     });
-    child.once("exit", (code) => reject(new Error(`ui serve exited with ${code} before printing its URL`)));
+    child.once("exit", (code) => {
+      rmSync(cwd, { recursive: true, force: true });
+      reject(new Error(`ui serve exited with ${code} before printing its URL`));
+    });
   });
 }
 

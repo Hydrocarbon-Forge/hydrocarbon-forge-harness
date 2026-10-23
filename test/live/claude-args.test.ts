@@ -29,7 +29,6 @@ describe("Claude Live Args Test", () => {
         system_append: "x",
         session: { id: uuid },
         permission: { allow: [], deny: ["git commit"] },
-        budget: { max_usd: 0.01, timeout_ms: 15000 },
       };
 
       const args = buildClaudeArgs(req);
