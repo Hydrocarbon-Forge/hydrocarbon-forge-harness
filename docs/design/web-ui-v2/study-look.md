@@ -79,7 +79,7 @@ Spacing and borders: 4 px grid. Row height 32 px. Padding 8 px and 12 px. Rows a
 
 Project tile:
 
-```
+```text
 +------------------------------------+
 | [H] api-gateway                    |
 |     2 running - 1 needs answers    |
@@ -117,7 +117,7 @@ Spacing and borders: 4 px grid, row height 28 px. 1 px `line` rules. Controls us
 
 Project tile:
 
-```
+```text
 +--------------------------------+
 | api-gateway                    |
 | run 2   need 1   done 14       |
@@ -155,7 +155,7 @@ Spacing and borders: 4 px grid, row height 32 px. 1 px `line` borders. Controls 
 
 Project tile:
 
-```
+```text
     _____
    /     \    api-gateway
    \_____/    2 running - 1 needs answers
@@ -192,7 +192,7 @@ Spacing and borders: 4 px grid, row height 30 px. Hairline grid of 1 px `line`. 
 
 Project tile:
 
-```
+```text
 +------------------------------------+
 | api-gateway                 [run]  |
 | 2 running   1 needs answers        |

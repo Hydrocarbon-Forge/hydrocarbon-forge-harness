@@ -178,7 +178,7 @@ Each row is a habit the look study lists as generic (look, Generic tells), the o
 
 Every screen renders into the single `#main` region under the top bar (see Module map). The top bar is the same on every screen:
 
-```
+```text
 +----------------------------------------------------------------------------+
 | (hex) Substrate   [ Find a project            ]  [New run]  [Theme: system] |
 +----------------------------------------------------------------------------+
@@ -192,7 +192,7 @@ The top bar buttons are "New run", "Theme: system" (cycles to "Theme: dark" and 
 
 Wireframe:
 
-```
+```text
 +----------------------------------------------------------------------------+
 | (hex) Substrate   [ Find a project            ]  [New run]  [Theme: system] |
 +----------------------------------------------------------------------------+
@@ -256,7 +256,7 @@ Buttons and labels, exactly: "New run", "Save view", "Clear filters", "Try again
 
 Wireframe:
 
-```
+```text
 +----------------------------------------------------------------------------+
 | (hex) Substrate   [ Find a project            ]  [New run]  [Theme: system] |
 +----------------------------------------------------------------------------+
@@ -310,7 +310,7 @@ States:
 
 Wireframe:
 
-```
+```text
 +----------------------------------------------------------------------------+
 | (hex) Substrate   [ Find a project            ]  [New run]  [Theme: system] |
 +----------------------------------------------------------------------------+
