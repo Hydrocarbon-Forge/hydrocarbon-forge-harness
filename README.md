@@ -8,6 +8,53 @@
 
 # Substrate
 
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/Hydrocarbon-Forge/hydrocarbon-forge-harness?style=social"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/forks"><img alt="forks" src="https://img.shields.io/github/forks/Hydrocarbon-Forge/hydrocarbon-forge-harness?style=social"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/watchers"><img alt="watchers" src="https://img.shields.io/github/watchers/Hydrocarbon-Forge/hydrocarbon-forge-harness?style=social"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/issues"><img alt="open issues" src="https://img.shields.io/github/issues/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/issues?q=is%3Aclosed"><img alt="closed issues" src="https://img.shields.io/github/issues-closed/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/pulls"><img alt="open pull requests" src="https://img.shields.io/github/issues-pr/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/pulls?q=is%3Apr+is%3Aclosed"><img alt="closed pull requests" src="https://img.shields.io/github/issues-pr-closed/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/commits"><img alt="last commit" src="https://img.shields.io/github/last-commit/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+</p>
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/commits"><img alt="commits per year" src="https://img.shields.io/github/commit-activity/Hydrocarbon-Forge/hydrocarbon-forge-harness/y"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/graphs/contributors"><img alt="contributors" src="https://img.shields.io/github/contributors/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="repo size" src="https://img.shields.io/github/repo-size/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="code size" src="https://img.shields.io/github/languages/code-size/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="top language" src="https://img.shields.io/github/languages/top/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="language count" src="https://img.shields.io/github/languages/count/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/Hydrocarbon-Forge/hydrocarbon-forge-harness"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness#readme"><img alt="README" src="https://img.shields.io/badge/README-present-2ea44f?logo=readme&logoColor=white"></a>
+</p>
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="tests" src="https://img.shields.io/badge/tests-test_files_in_repo-2ea44f"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/search?l=typescript"><img alt="language: TypeScript" src="https://img.shields.io/badge/TypeScript-language-3178C6?logo=typescript&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/search?l=javascript"><img alt="language: JavaScript" src="https://img.shields.io/badge/JavaScript-language-F7DF1E?logo=javascript&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/search?l=css"><img alt="language: CSS" src="https://img.shields.io/badge/CSS-language-1572B6?logo=css3&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/search?l=html"><img alt="language: HTML" src="https://img.shields.io/badge/HTML-language-E34F26?logo=html5&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/blob/main/package.json"><img alt="stack: Node.js" src="https://img.shields.io/badge/Node.js-in_repo-339933?logo=nodedotjs&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/blob/main/tsconfig.json"><img alt="stack: tsconfig" src="https://img.shields.io/badge/tsconfig-in_repo-3178C6?logo=typescript&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness/blob/main/vitest.config.ts"><img alt="stack: Vitest" src="https://img.shields.io/badge/Vitest-in_repo-6E9F18?logo=vitest&logoColor=white"></a>
+</p>
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains Markdown" src="https://img.shields.io/badge/Markdown-files-000000?logo=markdown&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains JSON" src="https://img.shields.io/badge/JSON-files-000000?logo=json&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains YAML" src="https://img.shields.io/badge/YAML-files-CB171E"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains gitignore" src="https://img.shields.io/badge/gitignore-files-F05032?logo=git&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains Shell_script" src="https://img.shields.io/badge/Shell__script-files-4EAA25?logo=gnubash&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains TypeScript" src="https://img.shields.io/badge/TypeScript-files-3178C6?logo=typescript&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains HTML" src="https://img.shields.io/badge/HTML-files-E34F26?logo=html5&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains CSS" src="https://img.shields.io/badge/CSS-files-1572B6?logo=css3&logoColor=white"></a>
+</p>
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains JavaScript" src="https://img.shields.io/badge/JavaScript-files-F7DF1E?logo=javascript&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="contains JSONL" src="https://img.shields.io/badge/JSONL-files-000000"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="Git" src="https://img.shields.io/badge/Git-version_control-F05032?logo=git&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/hydrocarbon-forge-harness"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-hosted-181717?logo=github&logoColor=white"></a>
+</p>
+
 Substrate is a command-line tool that gets coding work done cheaply and reliably. A caller (an AI agent or a person) gives it a coding request. One strong **planner** model turns the request into a plan. Cheaper **worker** models carry out the plan's tasks, one headless process of an existing harness per task, each in its own git worktree. The engine (ordinary code, not an AI) runs real verify commands on every task and merges only the tasks that pass. Substrate also reports which models exist, and the tokens and cost each model used.
 
 Substrate drives three existing harnesses: Claude Code (`claude`), OpenCode (`opencode`) and Antigravity (`agy`).
