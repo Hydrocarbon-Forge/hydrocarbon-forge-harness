@@ -1,3 +1,11 @@
+<p align="center"><b>A cheap, reliable coding CLI: one strong planner model, cheaper worker models.</b></p>
+
+<p align="center">
+<a href="LICENSE"><img alt="license: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+
+---
+
 # Substrate
 
 Substrate is a command-line tool that gets coding work done cheaply and reliably. A caller (an AI agent or a person) gives it a coding request. One strong **planner** model turns the request into a plan. Cheaper **worker** models carry out the plan's tasks, one headless process of an existing harness per task, each in its own git worktree. The engine (ordinary code, not an AI) runs real verify commands on every task and merges only the tasks that pass. Substrate also reports which models exist, and the tokens and cost each model used.
